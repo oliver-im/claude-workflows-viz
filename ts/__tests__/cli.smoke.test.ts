@@ -1,24 +1,88 @@
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterAll, describe, expect, it } from "vitest";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const here = dirname(fileURLToPath(import.meta.url));
+const root = join(here, "..", "..");
 const cli = join(root, "dist", "cli.js");
+const fixture = join(here, "fixtures", "full.js");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
-// `pretest` builds dist/cli.js, so the bundle exists when these run.
+// Scratch dir for written artifacts; `pretest` builds dist/cli.js first.
+const workDir = mkdtempSync(join(tmpdir(), "cwv-smoke-"));
+afterAll(() => rmSync(workDir, { recursive: true, force: true }));
+
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function runCli(args: string[]) {
+  return spawnSync("node", [cli, ...args], { encoding: "utf8" });
+}
+
 describe("cli smoke", () => {
   it("prints its version", () => {
-    const out = execFileSync("node", [cli, "--version"], { encoding: "utf8" });
-    expect(out.trim()).toBe(pkg.version);
+    const res = runCli(["--version"]);
+    expect(res.status).toBe(0);
+    expect(res.stdout.trim()).toBe(pkg.version);
   });
 
   it("lists the command surface in --help", () => {
-    const out = execFileSync("node", [cli, "--help"], { encoding: "utf8" });
-    expect(out).toContain("--format");
-    expect(out).toContain("--out");
-    expect(out).toContain("workflow");
+    const res = runCli(["--help"]);
+    expect(res.stdout).toContain("--format");
+    expect(res.stdout).toContain("--out");
+    expect(res.stdout).toContain("workflow");
   });
+
+  it("writes a well-formed SVG with -o", () => {
+    const out = join(workDir, "out.svg");
+    const res = runCli([fixture, "-o", out]);
+    expect(res.status).toBe(0);
+    const svg = readFileSync(out, "utf8");
+    expect(svg.startsWith("<svg ")).toBe(true);
+    expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
+    expect(svg).toContain("Find flaky tests");
+  });
+
+  it("streams SVG to stdout when no -o is given", () => {
+    const res = runCli([fixture]);
+    expect(res.status).toBe(0);
+    expect(res.stdout.startsWith("<svg ")).toBe(true);
+    expect(res.stdout.trimEnd().endsWith("</svg>")).toBe(true);
+  });
+
+  it("rasterizes a real PNG with --format png -o", () => {
+    const out = join(workDir, "out.png");
+    const res = runCli([fixture, "--format", "png", "-o", out]);
+    expect(res.status).toBe(0);
+    const png = readFileSync(out);
+    expect([...png.subarray(0, 8)]).toEqual(PNG_MAGIC);
+    // IHDR is the first chunk; width/height live right after its type tag.
+    expect(png.subarray(12, 16).toString("ascii")).toBe("IHDR");
+    expect(png.readUInt32BE(16)).toBeGreaterThan(0); // width
+    expect(png.readUInt32BE(20)).toBeGreaterThan(0); // height
+  });
+
+  it("infers PNG format from the -o extension", () => {
+    const out = join(workDir, "inferred.png");
+    const res = runCli([fixture, "-o", out]);
+    expect(res.status).toBe(0);
+    expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
+  });
+
+  it("exits non-zero with a clear message for a missing file", () => {
+    const res = runCli([join(workDir, "does-not-exist.js")]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/cannot read/i);
+  });
+
+  it("exits non-zero with a clear message for a bad --format", () => {
+    const res = runCli([fixture, "--format", "gif"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/unknown --format/i);
+  });
+
+  // `--open` spawns the OS opener (a real window), so it is verified manually,
+  // not here, to keep the suite headless and side-effect-free.
 });

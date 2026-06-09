@@ -8,10 +8,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "examples"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "pretest": "npm run build",
