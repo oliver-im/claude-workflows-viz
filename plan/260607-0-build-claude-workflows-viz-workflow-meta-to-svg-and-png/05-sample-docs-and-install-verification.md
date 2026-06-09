@@ -18,10 +18,12 @@ Make it genuinely easy to install and run, with a real sample and usage docs.
 
 ## Review pipeline
 
-- [ ] `/code-review` — built-in local-diff reviewer (Claude): correctness bugs + reuse/simplification/efficiency. (Not `/code-review:code-review`, the PR plugin.)
-- [ ] codex cross-lineage 2nd opinion (GPT) over the same working-tree diff, before commit:
+- [x] `/code-review` — built-in local-diff reviewer (Claude): correctness bugs + reuse/simplification/efficiency. (Not `/code-review:code-review`, the PR plugin.)
+- [x] codex cross-lineage 2nd opinion (GPT) over the same working-tree diff, before commit:
   ```sh
   codex exec -s read-only "Second opinion on the working-tree diff. Plan at plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png — read 05-sample-docs-and-install-verification.md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief."
   ```
+
+**Outcome:** Claude lineage (via the `feature-dev:code-reviewer` subagent at the worktree) caught **one material doc-accuracy issue**: the README "Examples" used a bare relative `examples/review-pr.js` path that fails for a globally-installed user from an arbitrary cwd — **fixed** by switching the flag-demo examples to a `your-workflow.js` placeholder and adding an accurate bundled-sample callout (clone path + `$(npm root -g)/...` global-install path), plus a "from a clone" note on the in-file comment. It verified every documented flag/default/inference/stdout claim and the never-execute claims against the code, the sample's `meta` validity, and the packaging. codex (GPT) found **no correctness issues** — independently confirmed README↔CLI parity, that the sample parses as an ES module and renders, and that `files`/`prepack`/`bin` are correct. Install path verified manually end-to-end: `npm pack` → install the tarball in a clean project → the **bundled** sample renders to SVG + PNG via the installed bin (shebang + `bin` symlink + `npx` resolution all work; externalized `@resvg/resvg-js` resolves from a real install).
 ---
 See `progress.md` for the cursor and overall plan state.
