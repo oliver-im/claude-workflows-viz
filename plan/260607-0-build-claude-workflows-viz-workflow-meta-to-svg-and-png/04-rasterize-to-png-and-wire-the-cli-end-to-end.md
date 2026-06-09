@@ -19,10 +19,12 @@ Complete the must-have image pipeline: SVG → PNG via `@resvg/resvg-js`, and wi
 
 ## Review pipeline
 
-- [ ] `/code-review` — built-in local-diff reviewer (Claude): correctness bugs + reuse/simplification/efficiency. (Not `/code-review:code-review`, the PR plugin.)
-- [ ] codex cross-lineage 2nd opinion (GPT) over the same working-tree diff, before commit:
+- [x] `/code-review` — built-in local-diff reviewer (Claude): correctness bugs + reuse/simplification/efficiency. (Not `/code-review:code-review`, the PR plugin.)
+- [x] codex cross-lineage 2nd opinion (GPT) over the same working-tree diff, before commit:
   ```sh
   codex exec -s read-only "Second opinion on the working-tree diff. Plan at plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png — read 04-rasterize-to-png-and-wire-the-cli-end-to-end.md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief."
   ```
+
+**Outcome:** Claude lineage run via the `feature-dev:code-reviewer` subagent pointed at the worktree (the sanctioned fallback, to dodge `/code-review` mis-rooting to planview) — no material findings; it positively verified the never-execute invariant, the binary-to-stdout guard, `process.exit` non-truncation, resvg usage, and all output-routing combinations. codex (GPT) found **one Medium**: the Windows `--open` path used `cmd /C start`, and `cmd` re-parses metacharacters, so a path with `&` (e.g. from a maliciously-named workflow file) could be interpreted as a command — **fixed** by opening via `explorer.exe` (literal CreateProcess arg, no shell). Both lineages confirmed no path executes the workflow file. 25 tests green.
 ---
 See `progress.md` for the cursor and overall plan state.
