@@ -18,6 +18,10 @@ Make it genuinely easy to install and run, with a real sample and usage docs.
 
 ## Review pipeline
 
-- [ ] `/code-review`
+- [ ] `/code-review` — built-in local-diff reviewer (Claude): correctness bugs + reuse/simplification/efficiency. (Not `/code-review:code-review`, the PR plugin.)
+- [ ] codex cross-lineage 2nd opinion (GPT) over the same working-tree diff, before commit:
+  ```sh
+  codex exec -s read-only "Second opinion on the working-tree diff. Plan at plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png — read 05-sample-docs-and-install-verification.md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief."
+  ```
 ---
 See `progress.md` for the cursor and overall plan state.

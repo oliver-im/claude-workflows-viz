@@ -2,7 +2,7 @@
 
 **Cursor:** 03-render-the-phase-flow-svg (not started).
 
-**Review approach:** each unit lands on its own branch (`unit-NN-<slug>`) merged into `main` with `--no-ff`, so every unit has a real git diff to review. Gate each unit with `/code-review` (this session is rooted at this repo); if it ever mis-roots to planview, fall back to an independent `feature-dev:code-reviewer` subagent pointed here by path.
+**Review approach:** each unit lands on its own branch (`unit-NN-<slug>`) merged into `main` with `--no-ff`, so every unit has a real git diff to review. Gate each unit with `/code-review` (this session is rooted at this repo); if it ever mis-roots to planview, fall back to an independent `feature-dev:code-reviewer` subagent pointed here by path. Per planview v0.3.0, each unit also gets a **codex cross-lineage 2nd opinion** (`codex exec -s read-only` over the same working-tree diff, before commit) — a different model family to catch shared blind spots. codex CLI 0.136.0, logged in. Exact command per unit is in each unit md's Review pipeline.
 
 ## Pre-execution review
 
