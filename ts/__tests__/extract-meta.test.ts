@@ -37,6 +37,16 @@ describe("extractMetaFromSource", () => {
     expect(() => extractMetaFromSource(src)).not.toThrow(/EXECUTED/);
   });
 
+  it("does not let a `__proto__` key smuggle required fields via the prototype", () => {
+    // A normal `{}` treats `__proto__:` as a prototype setter, so zod would see
+    // inherited name/description and wrongly validate this malformed meta. The
+    // literal is built null-proto, so `__proto__` is an inert own key (stripped)
+    // and validation correctly fails on the genuinely-missing required fields.
+    const src = `export const meta = { __proto__: { name: "x", description: "y" } };`;
+    expect(() => extractMetaFromSource(src)).toThrow(MetaExtractionError);
+    expect(() => extractMetaFromSource(src)).toThrow(/validation/i);
+  });
+
   it("errors clearly when meta is missing", () => {
     expect(() => extractMetaFromSource(read("missing-meta.js"))).toThrow(
       /no .*meta/i,

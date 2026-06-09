@@ -110,7 +110,11 @@ function findMetaInit(program: acorn.Node): any {
 function evalLiteralNode(node: any): unknown {
   switch (node.type) {
     case "ObjectExpression": {
-      const obj: Record<string, unknown> = {};
+      // Null prototype on purpose: a `__proto__:` key in an object literal would
+      // otherwise trip the prototype setter, letting inherited values pose as
+      // own required fields so a malformed `meta` validates. With no prototype,
+      // `__proto__` is an inert own key (stripped during validation).
+      const obj: Record<string, unknown> = Object.create(null);
       for (const prop of node.properties) {
         if (prop.type !== "Property" || prop.kind !== "init" || prop.method) {
           throw new MetaExtractionError(
