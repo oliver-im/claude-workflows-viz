@@ -2,13 +2,21 @@
 
 **Cursor:** 03-render-the-phase-flow-svg (not started).
 
-**Review approach:** each unit lands on its own branch (`unit-NN-<slug>`) merged into `main` with `--no-ff`, so every unit has a real git diff to review. Gate each unit with `/code-review` (this session is rooted at this repo); if it ever mis-roots to planview, fall back to an independent `feature-dev:code-reviewer` subagent pointed here by path. Per planview v0.3.0, each unit also gets a **codex cross-lineage 2nd opinion** (`codex exec -s read-only` over the same working-tree diff, before commit) — a different model family to catch shared blind spots. codex CLI 0.136.0, logged in. Exact command per unit is in each unit md's Review pipeline.
+**Review approach:** every unit is built on its own branch so it has a real git diff to review (branch/merge mechanics: units 01–02 merged `--no-ff` into `main`; units 03–05 use the worktree + squash flow — see **Git workflow** below). Gate each unit with `/code-review` (this session is rooted at this repo); if it ever mis-roots to planview, fall back to an independent `feature-dev:code-reviewer` subagent pointed here by path. Per planview v0.3.0, each unit also gets a **codex cross-lineage 2nd opinion** (`codex exec -s read-only` over the unit diff, before commit) — a different model family to catch shared blind spots. codex CLI 0.136.0, logged in. Exact command per unit is in each unit md's Review pipeline.
 
 ## Pre-execution review
 
 Before starting the first unit, run these against the freshly materialized plan dir:
 
 - [~] `/planview:pre-plan-review` — waived this session: the design was adversarially stress-tested during planning (SVG-vs-Mermaid, single-binary-vs-deps, scope, prior-art, naming). Run on request.
+
+## Git workflow
+
+This plan is worked in its own git **worktree**, one branch per unit (squash-merged), per planview v0.3.0's `git_workflow`. Units 01–02 + the codex `__proto__` fix already landed on `main` directly (pre-worktree); units 03–05 follow the flow below.
+
+- **Worktree:** `worktrees/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png/` checked out on branch `plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png` (off `main`). `node_modules` is symlinked to the main checkout's (deps are shared). The `plan/` dir stays at its current path (shared with `main`), not relocated under `active/`.
+- **Per unit (03–05):** branch `unit/NN-slug` off the plan branch → build + the two-reviewer gate (`/code-review` + codex) → `git merge --squash unit/NN-slug` into the plan branch as one `Unit NN: <title>` commit → `git branch -D unit/NN-slug` → advance the cursor here.
+- **At the end:** after the last unit + plan-level review land on the plan branch, `git checkout main && git merge --no-ff plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png`, then `git worktree remove worktrees/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png`.
 
 ## Done
 
@@ -21,7 +29,7 @@ _None._
 
 ## Notes
 
-- **Git workflow:** genesis commit holds `plan/` + `docs/`. Each unit = a branch `unit-NN-<slug>` → `git merge --no-ff` into `main` (one merge commit per unit); verify `tsc --noEmit` + tests green before committing; delete the branch after merge.
+- **Git workflow:** see the **## Git workflow** section above for branch/worktree/merge mechanics. Always verify `tsc --noEmit` + tests green before committing a unit.
 - **Design context & rationale** (why SVG-not-Mermaid, TS-not-Rust, scope, prior art, naming, future roadmap): read `../../docs/design-context.md` — captures the decisions behind this plan from the design conversation.
 - When resuming, read this file first to find the cursor unit, then read the cursor unit's md. Skip `overview.md` unless this is the first session on the plan.
 - On the **first session**, run the Pre-execution review checklist above before starting the cursor unit. Surface findings and revise the plan if anything material lands.
