@@ -43,4 +43,4 @@ _None._
 
 After the last unit's review lands and is committed, run these against the cumulative plan diff:
 
-- [ ] `/planview:plan-review-prompt`
+- [x] `/planview:plan-review-prompt` — ran the composer (vehicle: `codex exec -s read-only`, mode exec) over the cumulative diff `29d8c24..HEAD` (base `main`; units 01–02 are below the merge-base on `main`, read as context). Composed a 5-target cross-unit focus: Meta-contract seam (02→03→04), escaping seam (03→04), forward-reference wiring, CLI routing totality, coverage-vs-claims. **codex verdict: No material findings — Ship.** Confirmed `renderSvg` matches the established `Meta` schema, hostile meta strings only reach escaped SVG text, HTML wraps escaped SVG/title safely, CLI routing keeps PNG buffers out of stdout, and the workflow path is only read/parsed (never executed); residual `--format html` / `--open` coverage gaps judged acceptable (`--open` deliberately manual).
