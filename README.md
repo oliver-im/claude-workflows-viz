@@ -68,18 +68,18 @@ Each phase badge is colored by its `model`: opus, sonnet, and haiku each get a s
 
 ## Example gallery
 
-The eight bundled workflows cover the common orchestration patterns; each links to its committed render.
+The eight bundled workflows cover the common orchestration patterns; each links to its committed renders.
 
 | Workflow | Pattern | Render |
 | --- | --- | --- |
-| [`review-pr.js`](examples/review-pr.js) | review pipeline — staged lanes, no inter-stage barrier (the hero above) | [PNG](examples/review-pr.png) |
-| [`triage-issue.js`](examples/triage-issue.js) | classify-and-act — a decision routes to one of several specialists | [SVG](examples/triage-issue.svg) |
-| [`summarize-codebase.js`](examples/summarize-codebase.js) | fanout-and-synthesize — ×N readers, barrier, one synthesizer | [SVG](examples/summarize-codebase.svg) |
-| [`verify-fix.js`](examples/verify-fix.js) | adversarial verification — named skeptic lanes converge on a barrier | [SVG](examples/verify-fix.svg) |
-| [`name-the-feature.js`](examples/name-the-feature.js) | generate-and-filter — diverse generators, one filter | [SVG](examples/name-the-feature.svg) |
-| [`choose-approach.js`](examples/choose-approach.js) | tournament — drafts, then a pairwise-judging loop until one stands | [SVG](examples/choose-approach.svg) |
-| [`hunt-bugs.js`](examples/hunt-bugs.js) | loop-until-done — keep spawning finders until rounds come up dry | [SVG](examples/hunt-bugs.svg) |
-| [`dual-lineage-review.js`](examples/dual-lineage-review.js) | dual-lineage — two independent reviewer lineages, merged verdicts | [SVG](examples/dual-lineage-review.svg) |
+| [`review-pr.js`](examples/review-pr.js) | review pipeline — staged lanes, no inter-stage barrier (the hero above) | [SVG](examples/review-pr.svg) · [PNG](examples/review-pr.png) |
+| [`triage-issue.js`](examples/triage-issue.js) | classify-and-act — a decision routes to one of several specialists | [SVG](examples/triage-issue.svg) · [PNG](examples/triage-issue.png) |
+| [`summarize-codebase.js`](examples/summarize-codebase.js) | fanout-and-synthesize — ×N readers, barrier, one synthesizer | [SVG](examples/summarize-codebase.svg) · [PNG](examples/summarize-codebase.png) |
+| [`verify-fix.js`](examples/verify-fix.js) | adversarial verification — named skeptic lanes converge on a barrier | [SVG](examples/verify-fix.svg) · [PNG](examples/verify-fix.png) |
+| [`name-the-feature.js`](examples/name-the-feature.js) | generate-and-filter — diverse generators, one filter | [SVG](examples/name-the-feature.svg) · [PNG](examples/name-the-feature.png) |
+| [`choose-approach.js`](examples/choose-approach.js) | tournament — drafts, then a pairwise-judging loop until one stands | [SVG](examples/choose-approach.svg) · [PNG](examples/choose-approach.png) |
+| [`hunt-bugs.js`](examples/hunt-bugs.js) | loop-until-done — keep spawning finders until rounds come up dry | [SVG](examples/hunt-bugs.svg) · [PNG](examples/hunt-bugs.png) |
+| [`dual-lineage-review.js`](examples/dual-lineage-review.js) | dual-lineage — two independent reviewer lineages, merged verdicts | [SVG](examples/dual-lineage-review.svg) · [PNG](examples/dual-lineage-review.png) |
 
 ## How it works
 
