@@ -31,8 +31,8 @@ Review focus: shadowing correctness (the one soundness hazard in const resolutio
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — done 2026-06-12: 2 focused lanes (shadowing/unwrap/substitution per the unit's review foci; honesty red-team + JS pitfalls with 14 hand-traced adversarial shapes). Findings: (1) do-while test orchestration prepended despite body-first execution → **fixed in-unit** (test steps follow the LoopStep); (2) expandedLabels blind to a rebound/reassigned fan-out parameter → accepted + documented (invisible to a static reading; outside the substitution convention); (3) orchestrating fan-out collection noted-not-walked (asymmetric with for-of) → accepted (ladder-satisfying note; corpus-never construct).
+- [x] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: done 2026-06-12: 1 Medium — branch-arm `phase()` markers leaked across arms and downstream → **fixed in-unit**, generalized to the scoped-phase rule (sequential regions leak; branch arms, catch handlers, parallel lanes, pipeline stages restore ambient on exit; bands stay registered). "Deferred multiplicity application for pipeline stages and expanded labels being consumed by Unit 05 look consistent with the plan."
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---
