@@ -1,14 +1,21 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   analyzeBody,
   collectModuleConsts,
   resolveMultiplicity,
 } from "../analyze-body.js";
-import { extractMetaFromProgram, parseWorkflowSource } from "../extract-meta.js";
-import type { AgentStep, Topology } from "../topology.js";
+import { parseWorkflowSource } from "../extract-meta.js";
+import type {
+  AgentStep,
+  BranchStep,
+  LoopStep,
+  ParallelStep,
+  PipelineStep,
+  Topology,
+} from "../topology.js";
+
+type Fanout = ParallelStep & { form: "fanout" };
+type Branches = ParallelStep & { form: "branches" };
 
 const analyze = (src: string, metaPhases: readonly string[] = []): Topology =>
   analyzeBody(parseWorkflowSource(src), src, metaPhases);
@@ -246,15 +253,10 @@ describe("analyzeBody — workflow & catch-all degradation", () => {
     expect(t.notes).toHaveLength(1);
   });
 
-  // Interim behavior — Unit 04 replaces these degradations with real recognizers.
-  it("loops and branches with orchestration degrade to one opaque + note (this unit)", () => {
-    const loop = analyze(`while (more) {\n  await agent("x");\n}`);
-    expect(loop.steps.map((s) => s.kind)).toEqual(["opaque"]);
-    expect(loop.notes.some((n) => n.message.includes("loop or branch"))).toBe(true);
-
-    const ternary = analyze(`const p = c ? null : await agent("x");`);
-    expect(ternary.steps.map((s) => s.kind)).toEqual(["opaque"]);
-    expect(ternary.notes).toHaveLength(1);
+  it("assignment statements walk their right-hand side", () => {
+    const t = analyze(`let r;\nr = await agent("x");`);
+    expect(t.steps.map((s) => s.kind)).toEqual(["agent"]);
+    expect(t.notes).toEqual([]);
   });
 
   it("walks try blocks inline and flattens orchestrating handlers with a note", () => {
@@ -293,14 +295,14 @@ describe("analyzeBody — workflow & catch-all degradation", () => {
     expect(dropped.steps).toEqual([]);
     expect(dropped.notes.filter((n) => n.message.includes("never sets the band"))).toHaveLength(1);
 
-    // An orchestrating branch degrades to an opaque step (this unit), but the
-    // band title inside is a distinct loss — noted separately.
-    const opaqued = analyze(`if (x) {\n  phase("B");\n  await agent("y");\n}`);
+    // A still-unrecognized structure opaques wholesale; the band title inside
+    // is a distinct loss — noted separately.
+    const opaqued = analyze(`switch (x) {\n  case 1:\n    phase("B");\n    await agent("y");\n}`);
     expect(opaqued.steps.map((s) => s.kind)).toEqual(["opaque"]);
     const drops = opaqued.notes.filter((n) => n.message.includes("never sets the band"));
     expect(drops).toHaveLength(1);
     expect(drops[0].snippet).toContain('phase("B")');
-    expect(opaqued.notes.some((n) => n.message.includes("loop or branch"))).toBe(true);
+    expect(opaqued.notes.some((n) => n.message.includes("unrecognized statement"))).toBe(true);
   });
 
   it("notes markers hidden in call arguments and in untraced helpers", () => {
@@ -322,6 +324,257 @@ describe("analyzeBody — workflow & catch-all degradation", () => {
     const malformed = analyze(`phase(title);`);
     expect(malformed.notes).toHaveLength(1);
     expect(malformed.notes[0].message).toMatch(/without a single string-literal title/);
+  });
+});
+
+describe("analyzeBody — parallel", () => {
+  it("thunk array → branches form, one walked branch per thunk", () => {
+    const t = analyze(`await parallel([() => agent("a"), () => agent("b", { label: "B" })]);`);
+    expect(t.steps).toHaveLength(1);
+    const p = t.steps[0] as Branches;
+    expect(p.kind).toBe("parallel");
+    expect(p.form).toBe("branches");
+    expect(p.branches.map((b) => b.map((s) => (s as AgentStep).label))).toEqual([["a"], ["B"]]);
+    expect(t.notes).toEqual([]);
+    expect(t.hasOrchestration).toBe(true);
+  });
+
+  it("non-function branch element degrades to an opaque branch + note", () => {
+    const t = analyze(`await parallel([() => agent("a"), thunks]);`);
+    const p = t.steps[0] as Branches;
+    expect(p.branches[0].map((s) => s.kind)).toEqual(["agent"]);
+    expect(p.branches[1].map((s) => s.kind)).toEqual(["opaque"]);
+    expect(t.notes.some((n) => n.message.includes("parallel branch is not an inline function"))).toBe(
+      true,
+    );
+  });
+
+  it(".map fan-out: named multiplicity threads onto body agents with expanded labels", () => {
+    const t = analyze(
+      "const LENSES = [\"x\", \"y\"];\nawait parallel(LENSES.map((l) => () => agent(\"p\", { label: `r:${l}` })));",
+    );
+    const p = t.steps[0] as Fanout;
+    expect(p.form).toBe("fanout");
+    expect(p.multiplicity).toEqual({ kind: "named", names: ["x", "y"] });
+    const a = p.body[0] as AgentStep;
+    expect(a.multiplicity).toEqual({ kind: "named", names: ["x", "y"] });
+    expect(a.label).toBe("r:${l}");
+    expect(a.expandedLabels).toEqual(["r:x", "r:y"]);
+    expect(t.notes).toEqual([]);
+  });
+
+  it("fan-out parameters shadow module consts inside the body (soundness)", () => {
+    const t = analyze(
+      `const ROWS = ["r1", "r2"];\nawait parallel(XS.map((ROWS) => () => parallel(ROWS.map((c) => () => agent(c)))));`,
+    );
+    const outer = t.steps[0] as Fanout;
+    expect(outer.multiplicity.kind).toBe("unknown"); // XS is no const
+    const inner = outer.body[0] as Fanout;
+    expect(inner.kind).toBe("parallel");
+    // ROWS here is the fan-out parameter, NOT the module const.
+    expect(inner.multiplicity).toEqual({ kind: "unknown", hint: "ROWS" });
+  });
+
+  it("Array.from fan-outs resolve exact counts; exact lanes never expand labels", () => {
+    const t = analyze(
+      "await parallel(Array.from({ length: 3 }).map((w) => () => agent(\"p\", { label: `w:${w}` })));",
+    );
+    const p = t.steps[0] as Fanout;
+    expect(p.multiplicity).toEqual({ kind: "exact", count: 3 });
+    const a = p.body[0] as AgentStep;
+    expect(a.multiplicity).toEqual({ kind: "exact", count: 3 });
+    expect(a.expandedLabels).toBeUndefined();
+  });
+
+  it("tolerates an un-thunked single arrow with a chained call body", () => {
+    const t = analyze(`const XS = ["a", "b"];\nawait parallel(XS.map((x) => agent(x).then((v) => v)));`);
+    const p = t.steps[0] as Fanout;
+    expect(p.body.map((s) => s.kind)).toEqual(["agent"]);
+    expect(t.notes).toEqual([]);
+  });
+
+  it("unreadable parallel arguments degrade to an empty fan-out + note", () => {
+    const t = analyze(`await parallel(buildThunks());`);
+    const p = t.steps[0] as Fanout;
+    expect(p.body).toEqual([]);
+    expect(p.multiplicity.kind).toBe("unknown");
+    expect(t.notes.some((n) => n.message.includes("neither a thunk array nor a .map"))).toBe(true);
+    // parallel() itself is still flow — orchestration is claimed.
+    expect(t.hasOrchestration).toBe(true);
+  });
+});
+
+describe("analyzeBody — pipeline", () => {
+  it("walks stages with stage-param label expansion; lane multiplicity stays with the flattener", () => {
+    const t = analyze(
+      "const DIMS = [\"a\", \"b\"];\nawait pipeline(DIMS, (d) => agent(`s1 ${d}`, { label: `st1:${d}` }), (r) => agent(\"s2\"));",
+    );
+    const p = t.steps[0] as PipelineStep;
+    expect(p.kind).toBe("pipeline");
+    expect(p.items).toEqual({ kind: "named", names: ["a", "b"] });
+    expect(p.stages).toHaveLength(2);
+    const s1 = p.stages[0][0] as AgentStep;
+    expect(s1.expandedLabels).toEqual(["st1:a", "st1:b"]);
+    expect(s1.multiplicity).toEqual({ kind: "one" });
+    const s2 = p.stages[1][0] as AgentStep;
+    expect(s2.label).toBe("s2");
+    expect(s2.expandedLabels).toBeUndefined();
+    expect(t.notes).toEqual([]);
+  });
+
+  it("degrades a non-function stage to an opaque stage + note", () => {
+    const t = analyze(`await pipeline(xs, (x) => agent("s1"), stage2);`);
+    const p = t.steps[0] as PipelineStep;
+    expect(p.items.kind).toBe("unknown");
+    expect(p.stages[0].map((s) => s.kind)).toEqual(["agent"]);
+    expect(p.stages[1].map((s) => s.kind)).toEqual(["opaque"]);
+    expect(t.notes.some((n) => n.message.includes("pipeline stage is not an inline function"))).toBe(
+      true,
+    );
+  });
+
+  it("a stage returning parallel(...) nests naturally", () => {
+    const t = analyze(`await pipeline(xs, (x) => parallel(x.items.map((i) => () => agent("v"))));`);
+    const p = t.steps[0] as PipelineStep;
+    const nested = p.stages[0][0] as Fanout;
+    expect(nested.kind).toBe("parallel");
+    expect(nested.multiplicity).toEqual({ kind: "unknown", hint: "x.items" });
+    expect(nested.body.map((s) => s.kind)).toEqual(["agent"]);
+  });
+});
+
+describe("analyzeBody — loops & branches", () => {
+  it("while loops with orchestrating bodies become LoopSteps with verbatim conditions", () => {
+    const t = analyze(`phase("P");\nwhile (more.work) {\n  await agent("x");\n}`);
+    const l = t.steps[0] as LoopStep;
+    expect(l.kind).toBe("loop");
+    expect(l.loopKind).toBe("while");
+    expect(l.conditionLabel).toBe("more.work");
+    expect(l.phase).toBe("P");
+    expect(l.body.map((s) => s.kind)).toEqual(["agent"]);
+    expect(t.notes).toEqual([]);
+  });
+
+  it("do-while and for loops carry their kinds and test slices", () => {
+    const dw = analyze(`do {\n  await agent("x");\n} while (more);`);
+    expect((dw.steps[0] as LoopStep).loopKind).toBe("do-while");
+    expect((dw.steps[0] as LoopStep).conditionLabel).toBe("more");
+
+    const f = analyze(`for (let i = 0; i < n; i += 1) {\n  await agent("x");\n}`);
+    const fl = f.steps[0] as LoopStep;
+    expect(fl.loopKind).toBe("for");
+    expect(fl.conditionLabel).toBe("i < n");
+    expect(fl.iterations).toBeUndefined();
+  });
+
+  it("for-of over a resolvable collection records iterations", () => {
+    const t = analyze(
+      "const MODS = [\"m1\", \"m2\"];\nfor (const m of MODS) {\n  await agent(`read ${m}`);\n}",
+    );
+    const l = t.steps[0] as LoopStep;
+    expect(l.loopKind).toBe("for-of");
+    expect(l.conditionLabel).toBe("const m of MODS");
+    expect(l.iterations).toBe(2);
+  });
+
+  it("truncates long loop conditions at COND_MAX", () => {
+    const long = "x".repeat(60);
+    const t = analyze(`while (flagA && ${long}) {\n  await agent("x");\n}`);
+    const l = t.steps[0] as LoopStep;
+    expect(l.conditionLabel).toHaveLength(48);
+    expect(l.conditionLabel.endsWith("…")).toBe(true);
+  });
+
+  it("orchestration in a loop condition is prepended", () => {
+    const t = analyze(`while (await agent("check")) {\n  await agent("body");\n}`);
+    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "loop"]);
+    expect((t.steps[0] as AgentStep).label).toBe("check");
+    expect((t.steps[1] as LoopStep).body.map((s) => s.kind)).toEqual(["agent"]);
+  });
+
+  it("do-while test orchestration follows the loop (the body runs first)", () => {
+    const t = analyze(`do {\n  await agent("body");\n} while (await agent("check"));`);
+    expect(t.steps.map((s) => s.kind)).toEqual(["loop", "agent"]);
+    expect((t.steps[1] as AgentStep).label).toBe("check");
+    expect((t.steps[0] as LoopStep).body.map((s) => (s as AgentStep).label)).toEqual(["body"]);
+  });
+
+  it("non-orchestrating loops are omitted, with markers accounted", () => {
+    const t = analyze(`for (const x of xs) {\n  phase("Z");\n  log(x);\n}`);
+    expect(t.steps).toEqual([]);
+    expect(t.notes.some((n) => n.message.includes("never sets the band"))).toBe(true);
+  });
+
+  it("ifs with an orchestrating arm become BranchSteps; arms walk as lists", () => {
+    const t = analyze(`if (ok) {\n  await agent("a");\n} else {\n  await agent("b");\n}`);
+    const b = t.steps[0] as BranchStep;
+    expect(b.kind).toBe("branch");
+    expect(b.conditionLabel).toBe("ok");
+    expect(b.thenSteps.map((s) => (s as AgentStep).label)).toEqual(["a"]);
+    expect(b.elseSteps.map((s) => (s as AgentStep).label)).toEqual(["b"]);
+    expect(t.notes).toEqual([]);
+  });
+
+  it("ternaries are branches; a null/non-orchestrating arm is []", () => {
+    const t = analyze(`const p = c < 0.5 ? null : await agent("x");`);
+    const b = t.steps[0] as BranchStep;
+    expect(b.kind).toBe("branch");
+    expect(b.conditionLabel).toBe("c < 0.5");
+    expect(b.thenSteps).toEqual([]);
+    expect(b.elseSteps.map((s) => s.kind)).toEqual(["agent"]);
+    expect(t.notes).toEqual([]);
+  });
+
+  it("orchestration in an if test is prepended; single-statement arms wrap", () => {
+    const t = analyze(`if (await agent("gate")) await agent("then");`);
+    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "branch"]);
+    const b = t.steps[1] as BranchStep;
+    expect(b.thenSteps.map((s) => (s as AgentStep).label)).toEqual(["then"]);
+    expect(b.elseSteps).toEqual([]);
+  });
+
+  it("else-if chains nest as branches in elseSteps", () => {
+    const t = analyze(`if (a) {\n  await agent("x");\n} else if (b) {\n  await agent("y");\n}`);
+    const b = t.steps[0] as BranchStep;
+    expect(b.elseSteps.map((s) => s.kind)).toEqual(["branch"]);
+    expect((b.elseSteps[0] as BranchStep).thenSteps.map((s) => s.kind)).toEqual(["agent"]);
+  });
+
+  it("phase markers inside loop bodies mutate the ambient band (spans bands)", () => {
+    const t = analyze(
+      `phase("A");\nwhile (q) {\n  await agent("one");\n  phase("B");\n  await agent("two");\n}`,
+      ["A", "B"],
+    );
+    const l = t.steps[0] as LoopStep;
+    expect(l.phase).toBe("A");
+    expect(l.body.map((s) => s.phase)).toEqual(["A", "B"]);
+  });
+
+  it("branch-arm markers band their own steps only — no cross-arm or downstream leak", () => {
+    const t = analyze(
+      `if (ok) {\n  phase("A");\n  await agent("a");\n} else {\n  await agent("b");\n}\nawait agent("after");`,
+    );
+    const b = t.steps[0] as BranchStep;
+    expect((b.thenSteps[0] as AgentStep).phase).toBe("A");
+    expect((b.elseSteps[0] as AgentStep).phase).toBeNull();
+    expect(t.steps[1].phase).toBeNull();
+    // The band itself stays registered — the title genuinely exists.
+    expect(t.bands).toEqual([{ title: "A", inMeta: false }]);
+  });
+
+  it("parallel-lane and catch-handler markers stay inside their region", () => {
+    const lanes = analyze(
+      `await parallel([() => {\n  phase("L1");\n  return agent("a");\n}, () => agent("b")]);\nawait agent("after");`,
+    );
+    const p = lanes.steps[0] as Branches;
+    expect(p.branches[0].map((s) => s.phase)).toEqual(["L1"]);
+    expect(p.branches[1].map((s) => s.phase)).toEqual([null]);
+    expect(lanes.steps[1].phase).toBeNull();
+
+    const caught = analyze(
+      `try {\n  await agent("a");\n} catch (e) {\n  phase("H");\n  await agent("h");\n}\nawait agent("after");`,
+    );
+    expect(caught.steps.map((s) => s.phase)).toEqual([null, "H", null]);
   });
 });
 
@@ -359,75 +612,5 @@ describe("analyzeBody — totality & honesty", () => {
   it("is deterministic", () => {
     const src = `phase("A");\nawait agent("p", { label: "x" });\nwhile (q) { await agent("r"); }`;
     expect(JSON.stringify(analyze(src, ["A"]))).toBe(JSON.stringify(analyze(src, ["A"])));
-  });
-});
-
-describe("analyzeBody — interim integration over examples/", () => {
-  const examplesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples");
-  const files = readdirSync(examplesDir).filter((f) => f.endsWith(".js"));
-
-  it("covers all 8 example workflows", () => {
-    expect(files).toHaveLength(8);
-  });
-
-  it("analyzes every example without throwing (one parse, meta-seeded bands)", () => {
-    for (const f of files) {
-      const src = readFileSync(join(examplesDir, f), "utf8");
-      const program = parseWorkflowSource(src);
-      const meta = extractMetaFromProgram(program);
-      const titles = meta.phases.map((p) => p.title);
-      let t!: Topology;
-      expect(() => {
-        t = analyzeBody(program, src, titles);
-      }).not.toThrow();
-      // Every meta phase stays a band, in meta order, ahead of body extras.
-      expect(t.bands.slice(0, titles.length)).toEqual(
-        titles.map((title) => ({ title, inMeta: true })),
-      );
-    }
-  });
-
-  const analyzeExample = (name: string): Topology => {
-    const src = readFileSync(join(examplesDir, name), "utf8");
-    const program = parseWorkflowSource(src);
-    return analyzeBody(program, src, extractMetaFromProgram(program).phases.map((p) => p.title));
-  };
-
-  it("triage-issue: classifier agent recognized; ternary route degrades opaque (this unit)", () => {
-    const t = analyzeExample("triage-issue.js");
-    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "opaque"]);
-    const classify = t.steps[0] as AgentStep;
-    expect(classify.phase).toBe("Classify the report");
-    expect(classify.label).toBe("Classify this issue into one of…");
-    expect(classify.promptPreview).toContain("${SPECIALISTS.join(");
-    expect(t.hasOrchestration).toBe(true);
-  });
-
-  it("summarize-codebase: sequential agents recognized around the (still-opaque) fanout", () => {
-    const t = analyzeExample("summarize-codebase.js");
-    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "opaque", "agent"]);
-    expect(t.steps.map((s) => s.phase)).toEqual([
-      "List the modules",
-      "Read every module in parallel",
-      "Synthesize the overview",
-    ]);
-    expect(t.hasOrchestration).toBe(true);
-  });
-
-  it("hunt-bugs: the while loop is one opaque — honest v1 fallback state (this unit)", () => {
-    const t = analyzeExample("hunt-bugs.js");
-    expect(t.steps.map((s) => s.kind)).toEqual(["opaque"]);
-    expect(t.hasOrchestration).toBe(false);
-    expect(t.notes.length).toBeGreaterThan(0);
-    // The marker inside the opaque'd while is individually accounted for.
-    const drops = t.notes.filter((n) => n.message.includes("never sets the band"));
-    expect(drops).toHaveLength(1);
-    expect(drops[0].snippet).toContain("Verify and bank the survivors");
-  });
-
-  it("review-pr: agents recognized around the (still-opaque) pipeline", () => {
-    const t = analyzeExample("review-pr.js");
-    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "opaque", "agent"]);
-    expect(t.hasOrchestration).toBe(true);
   });
 });

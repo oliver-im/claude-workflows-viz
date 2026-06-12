@@ -4,12 +4,16 @@ import {
   type AgentStep,
   type AnalysisNote,
   type BandRef,
+  type LoopStep,
   type Multiplicity,
   type OpaqueStep,
+  type ParallelStep,
+  type PipelineStep,
   type SourceSpan,
   type Step,
   type Topology,
   type WorkflowStep,
+  COND_MAX,
   HINT_MAX,
   LABEL_MAX,
   OPAQUE_LABEL_MAX,
@@ -30,11 +34,11 @@ import { truncatePlain } from "./svg-primitives.js";
  * structurally degrades honestly — an `OpaqueStep` (visible blob) and/or an
  * `AnalysisNote` — never a silent drop.
  *
- * This unit recognizes the sequential vocabulary (`phase()` markers,
- * `agent()`, `workflow()`, chained-call unwrapping). The structural idioms —
- * `parallel`/`pipeline` calls, loops, branches — deliberately degrade to
- * opaque steps here; Unit 04 replaces those degradations with real
- * recognizers.
+ * Recognized vocabulary: `phase()` markers, `agent()`/`workflow()` calls,
+ * chained-call unwrapping, `parallel()` (thunk-array branches and `.map`
+ * fan-outs), `pipeline(items, ...stages)`, loops, and if/ternary branches.
+ * Fan-out parameters shadow module consts for the body they bind in — the
+ * one soundness rule in const resolution.
  */
 export function analyzeBody(
   program: acorn.Node,
@@ -48,6 +52,8 @@ export function analyzeBody(
     bands: metaPhases.map((title) => ({ title, inMeta: true })),
     notes: [],
     ambientPhase: null,
+    fanoutMult: null,
+    expansion: null,
   };
   const steps = walkStatements(ctx, (program as any).body ?? []);
   return {
@@ -66,14 +72,106 @@ interface Ctx {
   src: string;
   /** Module-level `const` name → literal value (pass 1). */
   consts: Map<string, unknown>;
-  /** Names rebound lexically (fan-out parameters — threaded in Unit 04). */
+  /** Names rebound lexically (fan-out/stage/loop parameters) — never resolved as consts. */
   shadowed: Set<string>;
   /** Meta phases first (`inMeta: true`), body-only titles appended in first lexical occurrence order. */
   bands: BandRef[];
   notes: AnalysisNote[];
-  /** The band in lexical effect — `phase("…")` statement markers mutate it. */
+  /**
+   * The band in lexical effect — `phase("…")` statement markers mutate it.
+   * Sequential regions (blocks, loop bodies, try blocks) leak it onward;
+   * conditional/per-lane regions (branch arms, catch handlers, parallel
+   * lanes, pipeline stages) restore it on exit (`withScopedPhase`).
+   */
   ambientPhase: string | null;
+  /** Fan-out width threaded onto agent/workflow steps produced inside a `.map` body. */
+  fanoutMult: Multiplicity | null;
+  /** Label-expansion context: named lanes + the bare parameter to substitute. */
+  expansion: { param: string; names: readonly string[] } | null;
 }
+
+/**
+ * Walk a conditional or per-lane region: its `phase()` markers band its own
+ * steps only — the ambient phase is restored on exit. Sequential regions
+ * (blocks, loop bodies, try blocks) deliberately leak instead: their markers
+ * really are in effect for everything after them.
+ */
+function withScopedPhase<T>(ctx: Ctx, fn: () => T): T {
+  const before = ctx.ambientPhase;
+  try {
+    return fn();
+  } finally {
+    ctx.ambientPhase = before;
+  }
+}
+
+/** Shadow `names` for the duration of `fn` (names already shadowed stay shadowed after). */
+function withShadowed<T>(ctx: Ctx, names: readonly string[], fn: () => T): T {
+  const added: string[] = [];
+  for (const n of names) {
+    if (!ctx.shadowed.has(n)) {
+      ctx.shadowed.add(n);
+      added.push(n);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    for (const n of added) ctx.shadowed.delete(n);
+  }
+}
+
+/**
+ * Enter a fan-out/stage body: replace (not inherit) the threading context.
+ * `mult: null` for pipeline stages — the flattener applies lane multiplicity
+ * there; `expansion: null` whenever the lanes aren't named.
+ */
+function withFanout<T>(
+  ctx: Ctx,
+  mult: Multiplicity | null,
+  expansion: Ctx["expansion"],
+  fn: () => T,
+): T {
+  const prevMult = ctx.fanoutMult;
+  const prevExp = ctx.expansion;
+  ctx.fanoutMult = mult;
+  ctx.expansion = expansion;
+  try {
+    return fn();
+  } finally {
+    ctx.fanoutMult = prevMult;
+    ctx.expansion = prevExp;
+  }
+}
+
+/** Collect every bound Identifier name in a binding pattern. */
+function collectPatternNames(node: any, out: string[]): void {
+  if (!node || typeof node !== "object") return;
+  switch (node.type) {
+    case "Identifier":
+      out.push(node.name);
+      return;
+    case "ObjectPattern":
+      for (const p of node.properties ?? []) {
+        collectPatternNames(p.type === "Property" ? p.value : p.argument, out);
+      }
+      return;
+    case "ArrayPattern":
+      for (const el of node.elements ?? []) collectPatternNames(el, out);
+      return;
+    case "AssignmentPattern":
+      collectPatternNames(node.left, out);
+      return;
+    case "RestElement":
+      collectPatternNames(node.argument, out);
+      return;
+    default:
+      return;
+  }
+}
+
+const isFn = (n: any): boolean =>
+  n?.type === "ArrowFunctionExpression" || n?.type === "FunctionExpression";
 
 const spanOf = (node: any): SourceSpan => ({ start: node.start, end: node.end });
 
@@ -267,26 +365,18 @@ function walkStatement(ctx: Ctx, stmt: any): Step[] {
         if (d.id?.type === "Identifier" && d.id.name === "meta") continue;
         if (!d.init) continue;
         // The binding pattern (Identifier/ObjectPattern/ArrayPattern) is
-        // irrelevant — the flow lives in the initializer.
-        const got = walkExpression(ctx, d.init);
-        if (got.length > 0) {
-          steps.push(...got);
-        } else {
-          if (containsOrchestration(d.init)) {
-            // Gate per INIT, not per statement, so one recognized declarator
-            // can't mask orchestration hiding in a sibling.
-            note(
-              ctx,
-              "orchestration inside an unrecognized initializer; rendered as one opaque step",
-              d.init,
-            );
-            steps.push(opaque(ctx, d.init));
-          }
-          notePhaseMarkerDrops(ctx, d.init);
-        }
+        // irrelevant — the flow lives in the initializer. Gate per INIT, not
+        // per statement, so one recognized declarator can't mask
+        // orchestration hiding in a sibling.
+        steps.push(...walkGated(ctx, d.init, "initializer"));
       }
       return steps;
     }
+
+    case "ReturnStatement":
+      // Reached inside thunk/stage block bodies — the returned expression is
+      // the branch's flow. (Invalid at module top level, so harmless there.)
+      return stmt.argument ? walkGated(ctx, stmt.argument, "return value") : [];
 
     case "ExpressionStatement":
       return walkExpressionStatement(ctx, stmt);
@@ -298,6 +388,8 @@ function walkStatement(ctx: Ctx, stmt: any): Step[] {
 
     case "TryStatement": {
       const steps = walkStatements(ctx, stmt.block.body);
+      const catchNames: string[] = [];
+      collectPatternNames(stmt.handler?.param, catchNames);
       for (const part of [stmt.handler?.body, stmt.finalizer]) {
         if (!part) continue;
         if (containsOrchestration(part)) {
@@ -306,7 +398,17 @@ function walkStatement(ctx: Ctx, stmt: any): Step[] {
             "try/catch flattened: steps from a catch/finally block are drawn in the main flow",
             part,
           );
-          steps.push(...walkStatements(ctx, part.body));
+          if (part === stmt.handler?.body) {
+            // A handler only runs on a throw — its markers are conditional.
+            steps.push(
+              ...withScopedPhase(ctx, () =>
+                withShadowed(ctx, catchNames, () => walkStatements(ctx, part.body)),
+              ),
+            );
+          } else {
+            // A finalizer always runs — its markers leak like sequential flow.
+            steps.push(...walkStatements(ctx, part.body));
+          }
         } else {
           notePhaseMarkerDrops(ctx, part);
         }
@@ -330,14 +432,10 @@ function walkStatement(ctx: Ctx, stmt: any): Step[] {
     case "ForStatement":
     case "ForOfStatement":
     case "ForInStatement":
+      return loopSteps(ctx, stmt);
+
     case "IfStatement":
-      // Structural recognizers land in Unit 04 — degrade honestly for now.
-      notePhaseMarkerDrops(ctx, stmt);
-      if (containsOrchestration(stmt)) {
-        note(ctx, "loop or branch structure not recognized; rendered as one opaque step", stmt);
-        return [opaque(ctx, stmt)];
-      }
-      return [];
+      return branchSteps(ctx, stmt);
 
     default:
       notePhaseMarkerDrops(ctx, stmt);
@@ -372,14 +470,165 @@ function walkExpressionStatement(ctx: Ctx, stmt: any): Step[] {
     return [];
   }
 
-  const steps = walkExpression(ctx, expr);
-  if (steps.length > 0) return steps;
-  notePhaseMarkerDrops(ctx, expr);
+  return walkGated(ctx, expr, "expression"); // log(…), budget.* — nothing to draw
+}
+
+/**
+ * Walk an expression through the honesty gate: recognized steps pass through;
+ * an unrecognized-but-orchestrating expression degrades to one opaque step +
+ * note; markers inside an abandoned expression are accounted for either way.
+ */
+function walkGated(ctx: Ctx, expr: any, what: string): Step[] {
+  const got = walkExpression(ctx, expr);
+  if (got.length > 0) return got;
   if (containsOrchestration(expr)) {
-    note(ctx, "orchestration inside an unrecognized expression; rendered as one opaque step", expr);
+    note(ctx, `orchestration inside an unrecognized ${what}; rendered as one opaque step`, expr);
+    notePhaseMarkerDrops(ctx, expr);
     return [opaque(ctx, expr)];
   }
-  return []; // log(…), budget.* — nothing to draw
+  notePhaseMarkerDrops(ctx, expr);
+  return [];
+}
+
+/** Skip a non-orchestrating region, still accounting for markers inside it. */
+function skipScanned(ctx: Ctx, node: any): Step[] {
+  if (node) notePhaseMarkerDrops(ctx, node);
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Structural recognizers — loops & branches
+// ---------------------------------------------------------------------------
+
+const LOOP_KINDS: Record<string, LoopStep["loopKind"]> = {
+  WhileStatement: "while",
+  DoWhileStatement: "do-while",
+  ForStatement: "for",
+  ForOfStatement: "for-of",
+  ForInStatement: "for-in",
+};
+
+/**
+ * A loop whose body orchestrates becomes a `LoopStep`; orchestration in the
+ * test/collection runs (at least once) before the body, so it is prepended as
+ * its own steps. The condition label is a verbatim truncated source slice.
+ */
+function loopSteps(ctx: Ctx, stmt: any): Step[] {
+  if (!containsOrchestration(stmt)) return skipScanned(ctx, stmt);
+  const phase = ctx.ambientPhase;
+  const pre: Step[] = [];
+  const shadowNames: string[] = [];
+  let conditionLabel: string;
+  let iterations: number | undefined;
+
+  if (stmt.type === "ForOfStatement" || stmt.type === "ForInStatement") {
+    // "const m of MODULES" — left-through-right slice.
+    conditionLabel = sliceSource(ctx.src, { start: stmt.left.start, end: stmt.right.end }, COND_MAX);
+    if (stmt.type === "ForOfStatement") {
+      const m = resolveMultiplicity(stmt.right, ctx);
+      if (m.kind === "exact") iterations = m.count;
+      else if (m.kind === "named") iterations = m.names.length;
+    }
+    pre.push(
+      ...(containsOrchestration(stmt.right)
+        ? walkGated(ctx, stmt.right, "loop collection")
+        : skipScanned(ctx, stmt.right)),
+    );
+    collectPatternNames(
+      stmt.left?.type === "VariableDeclaration" ? stmt.left.declarations?.[0]?.id : stmt.left,
+      shadowNames,
+    );
+  } else if (stmt.type === "ForStatement") {
+    conditionLabel = stmt.test
+      ? sliceSource(ctx.src, spanOf(stmt.test), COND_MAX)
+      : sliceSource(ctx.src, { start: stmt.start, end: stmt.body.start }, COND_MAX);
+    if (stmt.test) {
+      pre.push(
+        ...(containsOrchestration(stmt.test)
+          ? walkGated(ctx, stmt.test, "loop condition")
+          : skipScanned(ctx, stmt.test)),
+      );
+    }
+    for (const part of [stmt.init, stmt.update]) {
+      if (!part) continue;
+      if (containsOrchestration(part)) {
+        note(ctx, "loop header contains orchestration; not traced", part);
+      }
+      notePhaseMarkerDrops(ctx, part);
+    }
+    if (stmt.init?.type === "VariableDeclaration") {
+      for (const d of stmt.init.declarations ?? []) collectPatternNames(d.id, shadowNames);
+    }
+  } else {
+    conditionLabel = sliceSource(ctx.src, spanOf(stmt.test), COND_MAX);
+    pre.push(
+      ...(containsOrchestration(stmt.test)
+        ? walkGated(ctx, stmt.test, "loop condition")
+        : skipScanned(ctx, stmt.test)),
+    );
+  }
+
+  const bodyStmts = stmt.body?.type === "BlockStatement" ? stmt.body.body : [stmt.body];
+  const body = withShadowed(ctx, shadowNames, () => walkStatements(ctx, bodyStmts));
+  if (body.length === 0) {
+    // All the orchestration lived in the header — nothing to arc back over.
+    return pre;
+  }
+  const loop: Step = {
+    kind: "loop",
+    loopKind: LOOP_KINDS[stmt.type],
+    conditionLabel,
+    ...(iterations !== undefined ? { iterations } : {}),
+    body,
+    phase,
+    span: spanOf(stmt),
+  };
+  // A do-while runs its body before the first test — its test steps follow
+  // the loop instead of preceding it (execution-order honesty).
+  return stmt.type === "DoWhileStatement" ? [loop, ...pre] : [...pre, loop];
+}
+
+/**
+ * An `if` with orchestration in at least one arm becomes a `BranchStep`
+ * (statement arms wrap as 1-element lists; a missing/non-orchestrating arm is
+ * `[]`). A logs-only `if` is omitted entirely. Orchestration in the test runs
+ * first — prepended.
+ */
+function branchSteps(ctx: Ctx, stmt: any): Step[] {
+  const thenOrch = containsOrchestration(stmt.consequent);
+  const elseOrch = stmt.alternate ? containsOrchestration(stmt.alternate) : false;
+  if (!thenOrch && !elseOrch) {
+    if (containsOrchestration(stmt.test)) {
+      const pre = walkGated(ctx, stmt.test, "branch condition");
+      notePhaseMarkerDrops(ctx, stmt.consequent);
+      if (stmt.alternate) notePhaseMarkerDrops(ctx, stmt.alternate);
+      return pre;
+    }
+    return skipScanned(ctx, stmt);
+  }
+  const phase = ctx.ambientPhase;
+  const pre = containsOrchestration(stmt.test)
+    ? walkGated(ctx, stmt.test, "branch condition")
+    : skipScanned(ctx, stmt.test);
+  const walkArm = (arm: any, orch: boolean): Step[] => {
+    if (!arm || !orch) return skipScanned(ctx, arm);
+    // Arms are alternative futures — a marker in one must not band the other
+    // (or anything after the branch).
+    return withScopedPhase(ctx, () =>
+      walkStatements(ctx, arm.type === "BlockStatement" ? arm.body : [arm]),
+    );
+  };
+  return [
+    ...pre,
+    {
+      kind: "branch",
+      conditionLabel: sliceSource(ctx.src, spanOf(stmt.test), COND_MAX),
+      thenSteps: walkArm(stmt.consequent, thenOrch),
+      elseSteps: walkArm(stmt.alternate, elseOrch),
+      phase,
+      span: spanOf(stmt),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +641,35 @@ function walkExpression(ctx: Ctx, node: any): Step[] {
   if (node.type === "AwaitExpression") return walkExpression(ctx, node.argument);
   // Optional chains (`agent?.(…)`) parse wrapped in a ChainExpression.
   if (node.type === "ChainExpression") return walkExpression(ctx, node.expression);
+  // `bracket = await agent(…)` — the flow lives in the right-hand side.
+  if (node.type === "AssignmentExpression") return walkExpression(ctx, node.right);
+
+  // A ternary with orchestration in at least one arm is a branch.
+  if (node.type === "ConditionalExpression") {
+    const thenOrch = containsOrchestration(node.consequent);
+    const elseOrch = containsOrchestration(node.alternate);
+    if (!thenOrch && !elseOrch) {
+      // Not a branch — the enclosing gate decides what to do with the rest.
+      return [];
+    }
+    const phase = ctx.ambientPhase;
+    const pre = containsOrchestration(node.test)
+      ? walkGated(ctx, node.test, "branch condition")
+      : skipScanned(ctx, node.test);
+    const walkArm = (arm: any, orch: boolean): Step[] =>
+      orch ? walkGated(ctx, arm, "branch arm") : skipScanned(ctx, arm);
+    return [
+      ...pre,
+      {
+        kind: "branch",
+        conditionLabel: sliceSource(ctx.src, spanOf(node.test), COND_MAX),
+        thenSteps: walkArm(node.consequent, thenOrch),
+        elseSteps: walkArm(node.alternate, elseOrch),
+        phase,
+        span: spanOf(node),
+      },
+    ];
+  }
 
   if (
     node.type === "CallExpression" &&
@@ -425,6 +703,10 @@ function walkExpression(ctx: Ctx, node: any): Step[] {
         return [agentStep(ctx, node)];
       case "workflow":
         return [workflowStep(ctx, node)];
+      case "parallel":
+        return [parallelStep(ctx, node)];
+      case "pipeline":
+        return [pipelineStep(ctx, node)];
       // A phase() call here is expression position — the abandoned-subtree
       // scans at the statement/init/argument exits note the dropped marker.
       default:
@@ -433,6 +715,129 @@ function walkExpression(ctx: Ctx, node: any): Step[] {
   }
 
   return []; // the statement-level gate decides opaqueness
+}
+
+/** Walk a function's body: expression body through the gate, block body as statements. */
+function walkFunctionBody(ctx: Ctx, fn: any, what: string): Step[] {
+  if (fn.body?.type === "BlockStatement") return walkStatements(ctx, fn.body.body);
+  return walkGated(ctx, fn.body, what);
+}
+
+/** Walk one parallel-branches thunk (params shadowed; phase scoped per lane). */
+function walkThunk(ctx: Ctx, fn: any, what: string): Step[] {
+  const names: string[] = [];
+  for (const p of fn.params ?? []) collectPatternNames(p, names);
+  return withScopedPhase(ctx, () =>
+    withShadowed(ctx, names, () => walkFunctionBody(ctx, fn, what)),
+  );
+}
+
+/**
+ * `parallel(arg)`: a literal thunk array is k distinct branches; a
+ * `<collection>.map(cb)` is a fan-out whose width is the collection's
+ * multiplicity (resolved BEFORE the callback parameter shadows anything).
+ * The conventional double arrow (`item => () => agent(…)`) unwraps; a
+ * single un-thunked arrow is tolerated. Anything else degrades honestly.
+ */
+function parallelStep(ctx: Ctx, call: any): ParallelStep {
+  const base = { kind: "parallel" as const, phase: ctx.ambientPhase, span: spanOf(call) };
+  const arg = call.arguments?.[0];
+
+  if (arg?.type === "ArrayExpression") {
+    const branches: Step[][] = (arg.elements ?? []).map((el: any) => {
+      if (isFn(el)) return walkThunk(ctx, el, "parallel branch");
+      const at = el ?? arg;
+      note(ctx, "parallel branch is not an inline function; rendered as one opaque step", at);
+      notePhaseMarkerDrops(ctx, el);
+      return [opaque(ctx, at)];
+    });
+    return { ...base, form: "branches", branches };
+  }
+
+  if (
+    arg?.type === "CallExpression" &&
+    arg.callee?.type === "MemberExpression" &&
+    !arg.callee.computed &&
+    arg.callee.property?.type === "Identifier" &&
+    arg.callee.property.name === "map"
+  ) {
+    const collection = arg.callee.object;
+    const multiplicity = resolveMultiplicity(collection, ctx);
+    if (containsOrchestration(collection)) {
+      note(ctx, "fan-out collection contains orchestration; not traced", collection);
+      notePhaseMarkerDrops(ctx, collection);
+    }
+    const cb = arg.arguments?.[0];
+    if (!isFn(cb)) {
+      note(ctx, "fan-out callback is not an inline function; lanes not traced", arg);
+      notePhaseMarkerDrops(ctx, cb);
+      return { ...base, form: "fanout", multiplicity, body: [] };
+    }
+    const paramNames: string[] = [];
+    for (const p of cb.params ?? []) collectPatternNames(p, paramNames);
+    const fanoutParam = cb.params?.[0]?.type === "Identifier" ? cb.params[0].name : undefined;
+    const expansion =
+      multiplicity.kind === "named" && fanoutParam !== undefined
+        ? { param: fanoutParam, names: multiplicity.names }
+        : null;
+    // Double-arrow unwrap: `(item) => () => agent(…)` — the thunk is the body.
+    const inner = isFn(cb.body) && (cb.body.params ?? []).length === 0 ? cb.body : cb;
+    const body = withScopedPhase(ctx, () =>
+      withShadowed(ctx, paramNames, () =>
+        withFanout(ctx, multiplicity, expansion, () => walkFunctionBody(ctx, inner, "fan-out body")),
+      ),
+    );
+    return { ...base, form: "fanout", multiplicity, body };
+  }
+
+  note(ctx, "parallel() argument is neither a thunk array nor a .map fan-out; not traced", arg ?? call);
+  notePhaseMarkerDrops(ctx, arg);
+  return {
+    ...base,
+    form: "fanout",
+    multiplicity: arg ? unknownMult(ctx, arg) : { kind: "unknown" },
+    body: [],
+  };
+}
+
+/**
+ * `pipeline(items, ...stages)`: items' multiplicity is the lane count; each
+ * function stage walks with its params shadowed. The first param is the stage
+ * parameter — with named items, label templates over it expand per lane (the
+ * flattener applies lane multiplicity to stage nodes; the analyzer does not).
+ */
+function pipelineStep(ctx: Ctx, call: any): PipelineStep {
+  const phase = ctx.ambientPhase;
+  const args: any[] = call.arguments ?? [];
+  const itemsArg = args[0];
+  const items: Multiplicity = itemsArg ? resolveMultiplicity(itemsArg, ctx) : { kind: "unknown" };
+  if (itemsArg) {
+    if (containsOrchestration(itemsArg)) {
+      note(ctx, "pipeline items expression contains orchestration; not traced", itemsArg);
+    }
+    notePhaseMarkerDrops(ctx, itemsArg);
+  }
+  const stages: Step[][] = args.slice(1).map((st: any) => {
+    if (!isFn(st)) {
+      const at = st ?? call;
+      note(ctx, "pipeline stage is not an inline function; rendered as one opaque step", at);
+      notePhaseMarkerDrops(ctx, st);
+      return [opaque(ctx, at)];
+    }
+    const paramNames: string[] = [];
+    for (const p of st.params ?? []) collectPatternNames(p, paramNames);
+    const stageParam = st.params?.[0]?.type === "Identifier" ? st.params[0].name : undefined;
+    const expansion =
+      items.kind === "named" && stageParam !== undefined
+        ? { param: stageParam, names: items.names }
+        : null;
+    return withScopedPhase(ctx, () =>
+      withShadowed(ctx, paramNames, () =>
+        withFanout(ctx, null, expansion, () => walkFunctionBody(ctx, st, "pipeline stage")),
+      ),
+    );
+  });
+  return { kind: "pipeline", items, stages, phase, span: spanOf(call) };
 }
 
 function agentStep(ctx: Ctx, call: any): AgentStep {
@@ -449,6 +854,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
   }
 
   let optLabel: string | undefined;
+  let labelTemplate: any; // the raw TemplateLiteral node, kept for expansion
   let model: string | undefined;
   let agentType: string | undefined;
   let optPhase: string | undefined;
@@ -480,6 +886,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
                 { start: prop.value.start + 1, end: prop.value.end - 1 },
                 LABEL_MAX,
               );
+              labelTemplate = prop.value;
             } else {
               note(ctx, "agent label is not a string or template literal; using the prompt", prop.value);
             }
@@ -555,12 +962,36 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
     registerBand(ctx, optPhase);
   }
 
+  // Label expansion — ONLY pure textual substitution: the lanes are named and
+  // every template expression is the bare fan-out/stage parameter, so each
+  // name drops into the cooked quasis. Anything fancier stays unexpanded.
+  // (The convention assumes the parameter is not rebound/reassigned inside
+  // the body — that is invisible to a static reading and outside the
+  // convention, like every other shadow-by-mutation.)
+  let expandedLabels: string[] | undefined;
+  if (labelTemplate !== undefined && ctx.expansion !== null) {
+    const { param, names } = ctx.expansion;
+    const exprs: any[] = labelTemplate.expressions ?? [];
+    if (exprs.length > 0 && exprs.every((e) => e?.type === "Identifier" && e.name === param)) {
+      const quasis: any[] = labelTemplate.quasis ?? [];
+      expandedLabels = names.map((n) =>
+        truncatePlain(
+          collapseWs(
+            quasis.map((q, i) => (q.value.cooked ?? "") + (i < exprs.length ? n : "")).join(""),
+          ),
+          LABEL_MAX,
+        ),
+      );
+    }
+  }
+
   return {
     kind: "agent",
     label,
-    multiplicity: { kind: "one" }, // fan-out threading lands in Unit 04
+    multiplicity: ctx.fanoutMult ?? { kind: "one" },
     phase,
     span: spanOf(call),
+    ...(expandedLabels !== undefined ? { expandedLabels } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(agentType !== undefined ? { agentType } : {}),
     ...(promptPreview !== undefined ? { promptPreview } : {}),
@@ -585,7 +1016,7 @@ function workflowStep(ctx: Ctx, call: any): WorkflowStep {
   return {
     kind: "workflow",
     label,
-    multiplicity: { kind: "one" },
+    multiplicity: ctx.fanoutMult ?? { kind: "one" },
     phase: ctx.ambientPhase,
     span: spanOf(call),
   };
