@@ -28,8 +28,8 @@ Review focus: the never-execute invariant (no evaluation beyond `tryEvalLiteral`
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — done 2026-06-12, partially: 2 of 4 finder lanes user-stopped mid-fan-out; completed lanes: honesty red-team (10 adversarial hand-traces; confirmed never-execute invariant) + pitfalls (partial, acorn key handling confirmed; residual checks re-derived directly). Findings: (1) silent band drop — phase() markers inside dropped/opaque regions lost without a note → **fixed in-unit** (collectPhaseCalls + notePhaseMarkerDrops at every abandoned-subtree exit, +4 tests); (2) `agent(agent("inner"))` — inner agent degrades to the args-scan note, not a step → adjudicated within the honesty ladder (argument-flow modeling out of scope), accepted.
+- [x] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: done 2026-06-12: 1 Low — nested expression-position `phase()` calls silently ignored (`const x = wrap(phase("A"))`) → **fixed in-unit** by the same drop-note mechanism; no other correctness or intent-drift findings; tsc independently verified ("expected opaque degradation … matches the unit plan").
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---
