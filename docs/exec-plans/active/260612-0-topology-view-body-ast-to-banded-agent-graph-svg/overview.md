@@ -17,6 +17,7 @@ v1 renders only the static `meta` block — a linear stack of phase cards. The a
 - **IR seam**: analyzer emits a structured TREE (`ts/topology.ts`); the flattener (`ts/flatten-topology.ts`) produces the flat node/edge/loop graph (`ts/topology-ir.ts`) + `bandTitles`. IR strings are raw — escaping happens at render. No zod for IR (internally produced).
 - **v1 output stays byte-identical** under `--view phases`; the committed `render-svg` snapshot is the permanent regression gate (never regenerate it).
 - Plans live under `docs/exec-plans/` from now on (user decision); Unit 01 migrates the completed v1 plan there.
+- **Styling is expected to be iterated post-plan** (user intent): keep ALL paint (palette constants in `render-topology.ts`, model swatches in `svg-primitives.ts`) and geometry/typography (constants block in `layout-topology.ts`) in named single-place constants so a restyle is a constant swap + snapshot/example regen — never logic surgery. Reviewers should reject styling values inlined at point of use.
 
 ## Out of scope (v2)
 
