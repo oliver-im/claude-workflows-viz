@@ -208,6 +208,7 @@ export function roundedElbowPath(
   r: number,
   stroke: string,
   width?: number,
+  dasharray?: string,
 ): string {
   if (pts.length < 2) return "";
   const d: string[] = [`M ${round(pts[0][0])} ${round(pts[0][1])}`];
@@ -242,7 +243,7 @@ export function roundedElbowPath(
   }
   const [lx, ly] = pts[pts.length - 1];
   d.push(`L ${round(lx)} ${round(ly)}`);
-  return strokePath(d.join(" "), stroke, { width });
+  return strokePath(d.join(" "), stroke, { width, dasharray });
 }
 
 const ARROW_LEN = 7;

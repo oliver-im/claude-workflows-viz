@@ -96,6 +96,37 @@ export function renderHeader(meta: Meta, x: number, w: number): Block {
   return { body: `<g class="header-card">${card}${parts.join("")}</g>`, height };
 }
 
+/**
+ * The model badge shared by v1 phase cards and v2 graph-band chrome: a
+ * swatch-colored pill pinned with its right edge at `rightX`, vertically
+ * centered on the title row that starts at `padTop`. The displayed label is
+ * capped so a pathologically long model string can't size the badge past the
+ * card's left edge into the chip/title; color still keys off the full model
+ * (substring match). 28 fits real ids (e.g. "claude-3-5-sonnet-20241022").
+ */
+export function renderModelBadge(
+  model: string,
+  rightX: number,
+  padTop: number,
+): { svg: string; width: number } {
+  const swatch = swatchFor(model);
+  const label = truncatePlain(model, 28);
+  const font = 11.5;
+  const badgeH = 20;
+  const width = Math.ceil(label.length * font * 0.62) + 18;
+  const bx = rightX - width;
+  const by = padTop + (22 - badgeH) / 2;
+  const svg =
+    roundRect(bx, by, width, badgeH, 10, swatch.fill, swatch.stroke) +
+    text(bx + width / 2, by + 14, label, {
+      size: font,
+      weight: 600,
+      fill: swatch.text,
+      anchor: "middle",
+    });
+  return { svg, width };
+}
+
 export function renderPhaseCard(
   phase: Phase,
   index: number,
@@ -115,25 +146,9 @@ export function renderPhaseCard(
   let badge = "";
   let badgeWidth = 0;
   if (model) {
-    const swatch = swatchFor(model);
-    // Cap the displayed label so a pathologically long model string can't size
-    // the badge past the card's left edge into the chip/title. Color still keys
-    // off the full model (substring match). 28 fits real ids (e.g.
-    // "claude-3-5-sonnet-20241022").
-    const label = truncatePlain(model, 28);
-    const font = 11.5;
-    const badgeH = 20;
-    badgeWidth = Math.ceil(label.length * font * 0.62) + 18;
-    const bx = rightX - badgeWidth;
-    const by = padTop + (22 - badgeH) / 2;
-    badge =
-      roundRect(bx, by, badgeWidth, badgeH, 10, swatch.fill, swatch.stroke) +
-      text(bx + badgeWidth / 2, by + 14, label, {
-        size: font,
-        weight: 600,
-        fill: swatch.text,
-        anchor: "middle",
-      });
+    const rendered = renderModelBadge(model, rightX, padTop);
+    badge = rendered.svg;
+    badgeWidth = rendered.width;
   }
 
   // Single-line title, fit to the room left of the badge; wrapped detail below.
