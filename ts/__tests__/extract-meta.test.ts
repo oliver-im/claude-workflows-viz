@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { MetaExtractionError, extractMetaFromSource } from "../extract-meta.js";
+import {
+  MetaExtractionError,
+  extractMetaFromProgram,
+  extractMetaFromSource,
+  parseWorkflowSource,
+  tryEvalLiteral,
+} from "../extract-meta.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const read = (name: string): string => readFileSync(join(fixtures, name), "utf8");
@@ -63,5 +69,46 @@ describe("extractMetaFromSource", () => {
     expect(() =>
       extractMetaFromSource(`export const meta = { name: "x" };`),
     ).toThrow(/validation/i);
+  });
+});
+
+describe("parseWorkflowSource + extractMetaFromProgram", () => {
+  it("composes to exactly extractMetaFromSource", () => {
+    const src = read("full.js");
+    const composed = extractMetaFromProgram(parseWorkflowSource(src));
+    expect(composed).toEqual(extractMetaFromSource(src));
+  });
+
+  it("parseWorkflowSource wraps syntax errors in MetaExtractionError", () => {
+    expect(() => parseWorkflowSource("const = ;")).toThrow(MetaExtractionError);
+    expect(() => parseWorkflowSource("const = ;")).toThrow(/could not parse/);
+  });
+});
+
+describe("tryEvalLiteral", () => {
+  // Helper: parse `const x = <expr>;` and hand back the init node.
+  const initOf = (expr: string): unknown => {
+    const program = parseWorkflowSource(`const x = ${expr};`) as any;
+    return program.body[0].declarations[0].init;
+  };
+
+  it("resolves pure data literals", () => {
+    expect(tryEvalLiteral(initOf(`["a", "b"]`))).toEqual({
+      ok: true,
+      value: ["a", "b"],
+    });
+    expect(tryEvalLiteral(initOf(`{ n: -3, s: \`t\` }`))).toMatchObject({
+      ok: true,
+      value: { n: -3, s: "t" },
+    });
+  });
+
+  it("returns {ok:false} (no throw) on a call expression", () => {
+    expect(tryEvalLiteral(initOf("compute()"))).toEqual({ ok: false });
+  });
+
+  it("returns {ok:false} on identifier references and templates with expressions", () => {
+    expect(tryEvalLiteral(initOf("other"))).toEqual({ ok: false });
+    expect(tryEvalLiteral(initOf("`a${b}`"))).toEqual({ ok: false });
   });
 });
