@@ -1,6 +1,6 @@
 # 260612-0-topology-view-body-ast-to-banded-agent-graph-svg — Progress
 
-**Cursor:** 01-move-the-completed-v1-plan-to-docs-exec-plans-completed (not started).
+**Cursor:** 02-foundations-shared-primitives-parse-refactor-and-both-ir (not started).
 
 ## Pre-execution review
 
@@ -18,7 +18,7 @@ This plan is worked in its own git worktree, one branch per unit. Full steps: `d
 
 ## Done
 
-_Nothing yet._
+- **Unit 01** (2026-06-12, `32dd6a2`) — migrated `plan/260607-0-…` → `docs/exec-plans/completed/` (7 files, 100% renames, `--follow` continuous); de-staled the three live spots in `docs/design-context.md` (handoff path, resume note, build-state bullet — last one flagged by codex review); `.gitignore` `node_modules/`→`node_modules` so the worktree symlink stops sweeping into `git add -A`. Reviews: /code-review lanes clean; codex 2 findings → 1 fixed, 1 (gitignore revert suggestion) declined deliberately.
 
 ## Blockers
 

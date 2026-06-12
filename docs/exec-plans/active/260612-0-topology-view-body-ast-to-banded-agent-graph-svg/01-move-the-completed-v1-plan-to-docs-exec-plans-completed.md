@@ -20,8 +20,8 @@ Review focus: pure mechanical move — reviewers should check reference complete
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — done 2026-06-12: 3 finder lanes + acceptance audit, clean on reference completeness.
+- [x] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: done 2026-06-12: 2 findings — design-context.md:67 build-state contradiction (fixed in-unit); .gitignore change flagged as scope drift, revert declined (guards units 02–07 against the symlink sweeping into `git add -A`, which hit this unit's first commit attempt).
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---
