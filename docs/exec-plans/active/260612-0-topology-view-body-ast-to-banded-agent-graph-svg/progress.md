@@ -1,6 +1,6 @@
 # 260612-0-topology-view-body-ast-to-banded-agent-graph-svg — Progress
 
-**Cursor:** 02-foundations-shared-primitives-parse-refactor-and-both-ir (not started).
+**Cursor:** 03-analyzer-core-sequential-recognition-with-honest-degradation (not started).
 
 ## Pre-execution review
 
@@ -18,6 +18,7 @@ This plan is worked in its own git worktree, one branch per unit. Full steps: `d
 
 ## Done
 
+- **Unit 02** (2026-06-12, `9ab044a`) — `ts/svg-primitives.ts` (verbatim move + strokePath/polyline/roundedElbowPath/arrowHead), render-svg (x,w)-parameterization, extract-meta split (parseWorkflowSource/extractMetaFromProgram/readWorkflowSource/tryEvalLiteral), both IR contracts (`topology.ts` tree, `topology-ir.ts` flat with readonly arrays + frozen EMPTY_IR). 40/40 green, tsc clean. Reviews: /code-review 4 lanes clean — byte-identity PROVEN end-to-end (8 examples md5-identical HEAD vs HEAD^), contracts match Units 03–06 name-for-name, one accepted layering note; codex: no findings.
 - **Unit 01** (2026-06-12, `32dd6a2`) — migrated `plan/260607-0-…` → `docs/exec-plans/completed/` (7 files, 100% renames, `--follow` continuous); de-staled the three live spots in `docs/design-context.md` (handoff path, resume note, build-state bullet — last one flagged by codex review); `.gitignore` `node_modules/`→`node_modules` so the worktree symlink stops sweeping into `git add -A`. Reviews: /code-review lanes clean; codex 2 findings → 1 fixed, 1 (gitignore revert suggestion) declined deliberately.
 
 ## Blockers

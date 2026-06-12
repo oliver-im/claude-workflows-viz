@@ -28,8 +28,8 @@ Review focus: byte-identity of v1 output; the refactor must not weaken `extract-
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — done 2026-06-12: 4 lanes (line-by-line+pitfalls, move fidelity, cross-file+byte-identity, cleanup). Move fidelity perfect; byte-identity proven end-to-end (all 8 examples md5-identical at HEAD vs HEAD^); contracts conform to Units 03–06 name-for-name; one non-blocking layering note accepted (topology.ts ← truncatePlain from svg-primitives: single source of truth).
+- [x] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: done 2026-06-12: no correctness or intent-drift findings; tsc + snapshot-unchanged independently confirmed.
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---
