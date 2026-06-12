@@ -3,7 +3,7 @@
  * color swatches, and the page geometry constants — extracted verbatim from
  * `render-svg.ts` so the phase-card renderer (v1) and the topology renderer
  * (v2) draw from one toolbox. Also home to the generic path helpers
- * (polylines, rounded elbows, arrowheads) the topology renderer routes
+ * (stroked paths, rounded elbows, arrowheads) the topology renderer routes
  * edges and loop arcs with.
  *
  * Styling note: ALL paint and geometry constants live here or in the
@@ -157,8 +157,8 @@ export function wrapToWidth(
 
 // ---------------------------------------------------------------------------
 // Path helpers (topology edges, loop arcs, arrowheads). Everything emits the
-// resvg-safe SVG 1.1 subset: plain paths/polylines/polygons, arrowheads as
-// explicit filled triangles — no <marker>.
+// resvg-safe SVG 1.1 subset: plain paths/polygons, arrowheads as explicit
+// filled triangles — no <marker>.
 // ---------------------------------------------------------------------------
 
 export interface StrokeOpts {
@@ -181,19 +181,6 @@ export function strokePath(d: string, stroke: string, o: StrokeOpts = {}): strin
 }
 
 export type Point = readonly [number, number];
-
-export function polyline(pts: readonly Point[], stroke: string, o: StrokeOpts = {}): string {
-  const points = pts.map(([x, y]) => `${round(x)},${round(y)}`).join(" ");
-  const attrs = [
-    `points="${points}"`,
-    `fill="${o.fill ?? "none"}"`,
-    `stroke="${stroke}"`,
-    `stroke-width="${o.width ?? 1}"`,
-  ];
-  if (o.dasharray) attrs.push(`stroke-dasharray="${o.dasharray}"`);
-  if (o.linecap) attrs.push(`stroke-linecap="${o.linecap}"`);
-  return `<polyline ${attrs.join(" ")}/>`;
-}
 
 /**
  * A polyline whose every segment is axis-aligned (horizontal or vertical),

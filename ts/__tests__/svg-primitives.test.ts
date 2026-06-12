@@ -1,27 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  arrowHead,
-  polyline,
-  roundedElbowPath,
-  strokePath,
-} from "../svg-primitives.js";
+import { arrowHead, roundedElbowPath, strokePath } from "../svg-primitives.js";
 
 // Only the NEW path helpers are tested here — the moved text/card primitives
 // stay covered through render-svg's snapshot (byte-identity is the gate).
 
-describe("strokePath / polyline", () => {
+describe("strokePath", () => {
   it("emits a non-filled stroked path with optional dasharray", () => {
     expect(strokePath("M 0 0 L 10 0", "#475569")).toBe(
       '<path d="M 0 0 L 10 0" fill="none" stroke="#475569" stroke-width="1"/>',
     );
     expect(strokePath("M 0 0", "#000", { width: 2, dasharray: "4 3" })).toContain(
       'stroke-width="2" stroke-dasharray="4 3"',
-    );
-  });
-
-  it("polyline rounds coordinates and joins as x,y pairs", () => {
-    expect(polyline([[0, 0.005], [10.123, 5]], "#000")).toBe(
-      '<polyline points="0,0.01 10.12,5" fill="none" stroke="#000" stroke-width="1"/>',
     );
   });
 });
