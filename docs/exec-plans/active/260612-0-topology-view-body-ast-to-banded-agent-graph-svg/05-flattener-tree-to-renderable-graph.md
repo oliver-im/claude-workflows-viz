@@ -2,7 +2,7 @@
 **Blocked by:** 04-analyzer-structural-recognizers-parallel-pipeline-loops-b**Agents involved:** main only**Topology:** none
 ## Summary
 
-Land `ts/flatten-topology.ts`: `flattenTopology(topology: Topology, meta: Meta): TopologyIR` — the policy layer that turns the analyzer's nested tree into the flat node/edge/loop graph the layout consumes. All graph-shape policy lives here, in one reviewable place.
+Land `ts/flatten-topology.ts`: `flattenTopology(topology: Topology, meta: Meta): { ir: TopologyIR; bandTitles: string[] }` — the policy layer that turns the analyzer's nested tree into the flat node/edge/loop graph the layout consumes (plus the merged band-title list Unit 06's renderer takes alongside the IR). All graph-shape policy lives here, in one reviewable place.
 
 ### Policy (locked)
 
@@ -17,7 +17,7 @@ Land `ts/flatten-topology.ts`: `flattenTopology(topology: Topology, meta: Meta):
 
 ### Tests (`ts/__tests__/flatten-topology.test.ts`)
 
-Tree-literal micros: same-band sequence edges; cross-band non-edges; fanout→barrier emission; branches→shared barrier; pipeline chaining without barriers + lane multiplicities; branch yes/no/bypass/merge; loop→synthesized decision + TopoLoop + no-exit-edge-when-last; band mapping with body-only bands; multiplicity mapping incl. expandedLabels-as-names; determinism. Integration: flatten all 8 example trees (via analyzeBody) and assert headline shapes — e.g. summarize-codebase = agent → agent(mult unknown) → barrier → agent with 3 edges 0 loops; hunt-bugs = …→ decision with TopoLoop back to the find node crossing bands; triage = decision with one "no"-labeled cross-band edge and no merge.
+Tree-literal micros: same-band sequence edges; cross-band non-edges; fanout→barrier emission; branches→shared barrier; pipeline chaining without barriers + lane multiplicities; branch yes/no/bypass/merge; loop→synthesized decision + TopoLoop + no-exit-edge-when-last; band mapping with body-only bands; multiplicity mapping incl. expandedLabels-as-names; determinism. Integration: flatten all 8 example trees (via analyzeBody) and assert headline shapes — e.g. summarize-codebase = nodes [agent, agent(mult unknown), barrier, agent] with **exactly 1 edge** (fanout→barrier; the list→readers and barrier→synthesize hops are implicit cross-band succession, which per the Sequence policy gets NO edge) and 0 loops; hunt-bugs = …→ decision with TopoLoop back to the find node crossing bands; triage = decision with one "no"-labeled cross-band edge and no merge. (Corpus-wide: the only cross-band edges/loops come from explicit structures — triage's branch arm, review-pr's pipeline stage chain, and the hunt-bugs/choose-approach loops.)
 
 Review focus: this unit IS the semantics — reviewers should check each policy bullet against what a reader of the original JS would expect the diagram to say (honest, not over-claiming).
 

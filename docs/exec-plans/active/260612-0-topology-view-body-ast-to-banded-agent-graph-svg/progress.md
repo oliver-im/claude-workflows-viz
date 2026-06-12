@@ -6,7 +6,7 @@
 
 On the first session, before starting Unit 01, the **resuming agent** works through the step(s) below against the freshly materialized plan dir, then **stops** to wait for your go-ahead — it does not roll straight into Unit 01. Follow each step's routing: **auto-run** the agent-invocable ones (the default `/planview:pre-plan-review`, or an `exec` template) and surface their findings; for a `print` template or an operator-run slash command, **surface the command and stop** for you to run it:
 
-- [ ] `/planview:pre-plan-review`
+- [x] `/planview:pre-plan-review` — done 2026-06-12: no HIGH; 2 MED (overview.md lost the plan preamble at materialization; Unit 05 expectation contradicted its no-implicit-cross-band-edge policy) + 2 LOW (Unit 01 acceptance grep scope; Unit 07 verification referenced the nonexistent review-pr.svg). All four fixed in the plan text before Unit 01.
 
 ## Git workflow
 

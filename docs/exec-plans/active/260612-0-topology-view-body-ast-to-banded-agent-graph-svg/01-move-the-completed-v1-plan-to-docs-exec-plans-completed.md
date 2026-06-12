@@ -7,13 +7,13 @@ Migrate the previous plan directory from this repo's ad-hoc `plan/` root to the 
 ### Steps
 
 1. `mkdir -p docs/exec-plans/completed` and `git mv` the plan dir as above.
-2. `grep -rn "plan/260607" --include="*.md" --include="*.ts" .` and update hits — known: `docs/design-context.md` header (the handoff line referencing `plan/260607-0-…/`). Check `README.md` Status section.
+2. Update LIVE references only — both are in `docs/design-context.md`: line 3 (the handoff line referencing `plan/260607-0-…/`) and line 65 (the resume note, which is also stale — it still says "Cursor is at Unit 03"; rewrite it to point at the completed dir and note the plan finished). `README.md` has no plan-path references (verified at pre-review). Do **NOT** edit the migrated plan dir's own contents — its internal `plan/260607-…` self-references (progress.md git-workflow block, per-unit codex commands) are the faithful historical record of what ran.
 3. Commit as a `chore(plan):`-style move commit.
 
 ### Acceptance
 
 - `plan/` no longer exists; `git log --follow docs/exec-plans/completed/260607-0-…/overview.md` shows continuous history.
-- No live references to the old path (`grep -rn "plan/260607"` clean, excluding git history).
+- No live references to the old path: `grep -rn "plan/260607"` is clean **outside `docs/exec-plans/completed/`** (the migrated dir's historical self-references are expected and stay).
 - Full test suite still green (nothing code-touching, but run it anyway).
 
 Review focus: pure mechanical move — reviewers should check reference completeness, nothing else.

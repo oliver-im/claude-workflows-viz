@@ -23,7 +23,7 @@ Review focus: the default flip's blast radius (every code path that previously p
 
 1. `npm test` green at every unit boundary; the v1 `render-svg` snapshot stays byte-identical from Unit 02 onward (`--view phases` is the permanent regression surface).
 2. After Unit 07: `node dist/cli.js examples/<each>.js -o /tmp/x.svg` (and `--format png`) for all 8 — zero stderr warnings, then visually inspect the PNGs (Read tool) — expect: fan-out circles + barrier (summarize, verify-fix, name-the-feature), named expanded labels (verify-fix, choose-approach), pipeline lanes crossing bands (review-pr), gutter loop arcs (hunt-bugs, choose-approach), decision diamonds with yes/no (triage, hunt-bugs), two-band parallel branches (dual-lineage).
-3. `node dist/cli.js examples/review-pr.js --view phases | diff - <(git show <pre-plan>:examples/review-pr.svg)` — confirms v1 preserved end-to-end (modulo the pre-plan SVGs being v1 renders).
+3. `node dist/cli.js examples/triage-issue.js --view phases | diff - <(git show <pre-plan>:examples/triage-issue.svg)` — confirms v1 preserved end-to-end. (Any of the seven committed v1 SVGs works here; review-pr has no committed SVG — only the PNG hero.)
 4. `npm pack --dry-run` lists examples; `npx . examples/triage-issue.js --open` spot check.
 
 ## Review pipeline
