@@ -1,6 +1,6 @@
 # claude-workflows-viz — Design Context & Decisions
 
-> Handoff from the design conversation that produced the build plan (`plan/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png/`). The plan covers *what to build*; this captures *why* — decisions, rejected alternatives, prior art, and future direction — so a later session can continue with full context. Written 2026-06-07.
+> Handoff from the design conversation that produced the build plan (`docs/exec-plans/completed/260607-0-build-claude-workflows-viz-workflow-meta-to-svg-and-png/`). The plan covers *what to build*; this captures *why* — decisions, rejected alternatives, prior art, and future direction — so a later session can continue with full context. Written 2026-06-07.
 
 ## 1. Why this project exists
 
@@ -62,7 +62,7 @@ The MVP (linear `meta.phases`) is a clean phase-flow **"spec card,"** not a call
 ## 9. Process notes / how to continue
 
 - **Continue in a Claude session rooted in THIS repo** (`claude-workflows-viz`). The built-in `/code-review` and git target the *session's* project dir; running them from the planview session mis-fires (this is why the plan was moved here and reviews used a subagent-by-path).
-- **Resume:** read `plan/260607-0-…/progress.md` first (cursor + resume protocol), then the cursor unit's md. **Cursor is at Unit 03** (the phase-flow SVG renderer).
+- **Resume:** the v1 build plan is **finished**; it is archived at `docs/exec-plans/completed/260607-0-…/` (its `progress.md` holds the Done log). Active plans live under `docs/exec-plans/active/`.
 - **Per-unit review:** from a repo-rooted session you can likely use `/code-review` directly once there's a baseline commit. Otherwise gate each unit with an independent `feature-dev:code-reviewer` subagent pointed at the repo by path. (Greenfield caveat: working-tree diffs miss *untracked* files — stage/commit, or review by path.)
-- **Build state:** Units 01–02 done & reviewed; `npm test` → 9 passing; `npm run build` works; **nothing committed yet** (per-unit commits were deferred — make them when ready so review runs against real diffs).
+- **Build state:** v1 shipped — all five units committed, reviewed, and merged to `main`; `npm test` green; `npm run build` works.
 - **planview lesson (worth recording back in planview):** its review pipeline assumes plan + code share one repo; cross-repo plans mis-aim the per-unit gate. We co-located the plan into this repo to compensate — and this whole exercise is real evidence that planview's renderer half and methodology half are cleanly separable.
