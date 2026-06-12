@@ -109,7 +109,7 @@ const ECHO_OFFSET = 3;
 /** Arrivals into the same node fan out horizontally by this step. */
 const ARRIVAL_X_STEP = 8;
 /** Stacked top-approach runs inside a band's headroom are this far apart. */
-const APPROACH_Y_STEP = 5;
+const APPROACH_Y_STEP = 7;
 
 /**
  * Rough text width estimate (the inverse of `fitChars`): deliberately
@@ -454,10 +454,12 @@ function layoutBand(
   // Label placement: below for a solo single-row column (the classic chain
   // look), right for stacks, shared-row labels, decisions (whose yes/no edge
   // labels would collide with a below-label), and any cross-band departure
-  // source (a below-label would sit under the departing drop). Right labels
-  // straddle the node's midline so an outgoing edge passes between the lines.
-  // Tasks label inside their rect; barriers draw bare; named rows label
-  // per-row, floating just above each row's line.
+  // source (a below-label would sit under the departing drop). A single-row
+  // glyph's right label sits as one block above its midline, clear of the
+  // edge passing at cy; a stack's two-line right label instead straddles the
+  // midline, slotting between row lines 34px apart. Tasks label inside their
+  // rect; barriers draw bare; named rows label per-row, floating just above
+  // each row's line.
   for (const node of bandNodes) {
     const spec = specs.get(node.id)!;
     if (node.kind === "barrier" || node.label === "") spec.labelPos = "none";
@@ -542,12 +544,13 @@ function layoutBand(
     for (const n of nodes) {
       const spec = specs.get(n.id)!;
       if (spec.labelPos === "right") {
-        // A two-line right label straddles the node's midline; reserve the
-        // headroom its top line needs (measured from the node's own center —
-        // a best-effort reservation for stacked columns).
+        // Reserve the headroom a two-line right label's top line needs
+        // (measured from the node's own center — a best-effort reservation
+        // for stacked columns): single-row glyphs hold the whole block above
+        // their midline, stacks only the straddle's upper line.
         const cap = Math.max(24, LABEL_RIGHT_MAX_W * s);
         if (wrapToWidth(n.label, cap, F_LABEL, 2).length > 1) {
-          above = Math.max(above, 23);
+          above = Math.max(above, spec.stackH === ROW_H ? 31 : 23);
         }
         continue;
       }
@@ -661,17 +664,24 @@ function layoutBand(
       });
       tooltip.push(n.label);
     } else if (spec.labelPos === "right") {
-      // One line sits above the node's midline; two lines straddle it so an
-      // outgoing edge passes between them.
+      // A single-row glyph (decision, lone circle) reads its label as one
+      // tight block above its midline, clear of the edge passing at cy. A
+      // stack's two lines instead straddle the midline — they slot between
+      // row lines 34px apart, where a block above would strike the top row.
       const lines = wrapToWidth(n.label, rightCap, F_LABEL, 2);
+      const solo = spec.stackH === ROW_H;
       scene.label = {
         x: rightX,
-        y: lines.length > 1 ? scene.cy - 14 : scene.cy - 7,
+        y: solo
+          ? scene.cy - 7 - (lines.length - 1) * LABEL_LINE_H
+          : lines.length > 1
+            ? scene.cy - 14
+            : scene.cy - 7,
         lines,
         size: F_LABEL,
         anchor: "start",
         tone: "label",
-        ...(lines.length > 1 ? { lineH: 26 } : {}),
+        ...(!solo && lines.length > 1 ? { lineH: 26 } : {}),
       };
       if (lines.join(" ") !== n.label) tooltip.push(n.label);
     } else if (spec.labelPos === "below") {
@@ -716,29 +726,20 @@ function layoutBand(
   for (const e of kept) {
     const src = sceneById.get(e.from)!;
     const dst = sceneById.get(e.to)!;
-    // Edge labels sit below the line near its origin — unless the source
-    // carries a right-hand label there, in which case they move to just
-    // before the target (above the line), out of the text's way.
-    const srcRightLabeled = specs.get(e.from)!.labelPos === "right";
-    const label = (sy: number, tx: number, ty: number): SceneLabel | undefined =>
+    // Edge labels hug the line's origin: below it for horizontal/descending
+    // segments, above for ascending ones — so two labeled exits from one
+    // decision never share a spot. (The source's own right-hand label sits
+    // above its midline, leaving the origin clear.)
+    const label = (sy: number, ty: number): SceneLabel | undefined =>
       e.label
-        ? srcRightLabeled
-          ? {
-              x: tx - 6,
-              y: ty - 5,
-              lines: [truncatePlain(e.label, 14)],
-              size: F_EDGE,
-              anchor: "end" as const,
-              tone: "muted" as const,
-            }
-          : {
-              x: src.cx + src.w / 2 + 4,
-              y: sy + 12,
-              lines: [truncatePlain(e.label, 14)],
-              size: F_EDGE,
-              anchor: "start" as const,
-              tone: "muted" as const,
-            }
+        ? {
+            x: src.cx + src.w / 2 + 4,
+            y: ty < sy ? sy - 7 : sy + 12,
+            lines: [truncatePlain(e.label, 14)],
+            size: F_EDGE,
+            anchor: "start" as const,
+            tone: "muted" as const,
+          }
         : undefined;
     const base = { from: e.from, to: e.to, ...(e.untaken ? { untaken: true } : {}) };
     if (src.rows.length > 1 && dst.kind === "barrier") {
@@ -764,9 +765,7 @@ function layoutBand(
             [dst.cx - dst.w / 2 - 1, row.cy],
           ],
           arrow: true,
-          ...(e.label && row === dst.rows[0]
-            ? { label: label(src.cy, dst.cx - dst.w / 2 - 1, row.cy) }
-            : {}),
+          ...(e.label && row === dst.rows[0] ? { label: label(src.cy, row.cy) } : {}),
         });
       }
     } else {
@@ -786,7 +785,7 @@ function layoutBand(
           [tx, ty],
         ],
         arrow: !flush,
-        ...(e.label ? { label: label(src.cy, tx, ty) } : {}),
+        ...(e.label ? { label: label(src.cy, ty) } : {}),
       });
     }
   }
