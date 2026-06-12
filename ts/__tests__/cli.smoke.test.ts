@@ -4,11 +4,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { extractMeta } from "../extract-meta.js";
+import { renderSvg } from "../render-svg.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 const cli = join(root, "dist", "cli.js");
 const fixture = join(here, "fixtures", "full.js");
+const exoticFixture = join(here, "fixtures", "exotic-body.js");
+const summarizeExample = join(root, "examples", "summarize-codebase.js");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
 // Scratch dir for written artifacts; `pretest` builds dist/cli.js first.
@@ -32,6 +36,7 @@ describe("cli smoke", () => {
     const res = runCli(["--help"]);
     expect(res.stdout).toContain("--format");
     expect(res.stdout).toContain("--out");
+    expect(res.stdout).toContain("--view");
     expect(res.stdout).toContain("workflow");
   });
 
@@ -85,4 +90,47 @@ describe("cli smoke", () => {
 
   // `--open` spawns the OS opener (a real window), so it is verified manually,
   // not here, to keep the suite headless and side-effect-free.
+});
+
+describe("cli smoke — views", () => {
+  it("defaults to the topology view: agent graph in the output, no warnings", () => {
+    const res = runCli([summarizeExample]);
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe("");
+    expect(res.stdout).toContain('class="agent-node"');
+    expect(res.stdout).toContain('class="barrier"');
+  });
+
+  it("--view phases renders the byte-stable v1 page", () => {
+    const res = runCli([summarizeExample, "--view", "phases"]);
+    expect(res.status).toBe(0);
+    expect(res.stdout).not.toContain("agent-node");
+    // Byte-for-byte the v1 renderer's output (itself pinned by its snapshot
+    // suite) — the permanent regression surface for the old view.
+    expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample)));
+  });
+
+  it("exits non-zero with a clear message for a bad --view", () => {
+    const res = runCli([fixture, "--view", "mermaid"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/unknown --view/i);
+  });
+
+  it("falls back to the v1-equivalent page for an exotic body, exit 0", () => {
+    const res = runCli([exoticFixture]);
+    expect(res.status).toBe(0);
+    // No recoverable orchestration is by-design degradation, not a failure:
+    // no warning, and the topology page is byte-identical to the v1 render.
+    expect(res.stderr).toBe("");
+    expect(res.stdout).not.toContain("agent-node");
+    expect(res.stdout).toContain('class="phase-card"');
+    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
+  });
+
+  it("rasterizes the topology view to a real PNG", () => {
+    const out = join(workDir, "topology.png");
+    const res = runCli([summarizeExample, "--format", "png", "-o", out]);
+    expect(res.status).toBe(0);
+    expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
+  });
 });

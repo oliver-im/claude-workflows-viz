@@ -139,6 +139,13 @@ describe("renderTopologySvg", () => {
     expect(renderTopologySvg(meta, EMPTY_IR, titles)).toBe(renderSvg(meta));
   });
 
+  it("renders EMPTY_IR byte-identically to v1 for a phase-less meta", () => {
+    // metaSchema defaults `phases` to [] — the emptiest input the CLI's
+    // fallback path can hand the topology renderer.
+    const meta: Meta = { name: "Bare", description: "No phases at all.", phases: [] };
+    expect(renderTopologySvg(meta, EMPTY_IR, [])).toBe(renderSvg(meta));
+  });
+
   it("renders a node-less band as a byte-equal v1 phase card", () => {
     const meta: Meta = {
       name: "wf",
