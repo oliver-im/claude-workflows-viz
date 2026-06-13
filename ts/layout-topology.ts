@@ -112,6 +112,8 @@ const ECHO_OFFSET = 3;
 const ARRIVAL_X_STEP = 8;
 /** Stacked top-approach runs inside a band's headroom are this far apart. */
 const APPROACH_Y_STEP = 7;
+/** Same-band loop arcs climb a channel this far inside the card's left pad. */
+const LOCAL_GUTTER_X = 9;
 
 /**
  * Rough text width estimate (the inverse of `fitChars`): deliberately
@@ -823,8 +825,10 @@ interface RouteIntent {
   untaken?: boolean;
   /** Lane index in the gap below the source band. */
   gapLane: number;
-  /** Gutter lane (loops and band-skipping forwards only). */
+  /** Gutter lane (cross-band loops and band-skipping forwards only). */
   gutterLane?: number;
+  /** A same-band loop: climbs its own band's local left-pad channel, not the gutter. */
+  local?: boolean;
   /** Top-approach slot inside the target band's headroom (gutter routes). */
   approach?: number;
   /** Arrival slot at the target node (fans tips apart when shared). */
@@ -845,9 +849,12 @@ export function layoutTopology(
   // The gutter exists iff something must travel alongside the cards: every
   // loop, plus forward edges that skip at least one band. Each gets its own
   // vertical lane.
+  // Only cross-band loops and band-skipping forwards travel the GLOBAL gutter
+  // (left of the cards). A same-band loop stays inside its own band's left pad
+  // (a local channel), so it neither widens the gutter nor shifts the cards.
   const gutterRoutes =
     clean.cross.filter((e) => bandOf(clean, e.to) - bandOf(clean, e.from) >= 2).length +
-    clean.loops.length;
+    clean.loops.filter((l) => bandOf(clean, l.to) !== bandOf(clean, l.from)).length;
   // Clamped so cards keep a usable width no matter how many routes pile up;
   // past the clamp, lanes share the outermost x (degenerate, far beyond any
   // real workflow body).
@@ -887,13 +894,17 @@ export function layoutTopology(
     const to = clean.byId.get(q.to)!;
     const gapLane = gapLanes.get(from.band) ?? 0;
     gapLanes.set(from.band, gapLane + 1);
-    const viaGutter = q.kind === "loop" || to.band - from.band >= 2;
+    // A same-band loop climbs its band's local left-pad channel; every other
+    // loop and any band-skipping forward takes the global gutter. Both arrive
+    // at the target's top, so both claim a headroom approach slot.
+    const sameBandLoop = q.kind === "loop" && to.band === from.band;
+    const viaGutter = (q.kind === "loop" && !sameBandLoop) || to.band - from.band >= 2;
     let gutterLane: number | undefined;
     let approach: number | undefined;
-    if (viaGutter) {
-      gutterLane = nextGutterLane++;
+    if (viaGutter || sameBandLoop) {
       approach = approaches.get(to.band) ?? 0;
       approaches.set(to.band, approach + 1);
+      if (viaGutter) gutterLane = nextGutterLane++;
     }
     const arrival = arrivals.get(q.to) ?? 0;
     arrivals.set(q.to, arrival + 1);
@@ -907,6 +918,7 @@ export function layoutTopology(
       ...(q.untaken ? { untaken: true } : {}),
       gapLane,
       ...(gutterLane !== undefined ? { gutterLane } : {}),
+      ...(sameBandLoop ? { local: true } : {}),
       ...(approach !== undefined ? { approach } : {}),
       arrival,
       arrivalCount: 0, // filled below once totals are known
@@ -1004,7 +1016,7 @@ export function layoutTopology(
         : 0);
     const ty = dst.band.y + dst.node.cy - dst.node.h / 2 - 1;
     let pts: ReadonlyArray<readonly [number, number]>;
-    if (intent.gutterLane === undefined) {
+    if (intent.gutterLane === undefined && !intent.local) {
       pts = [
         [sx, sy],
         [sx, laneY],
@@ -1012,11 +1024,13 @@ export function layoutTopology(
         [tx, ty],
       ];
     } else {
+      // Global gutter sits left of the cards; a same-band loop's local channel
+      // sits just inside its band's left pad (clear of the leftmost column).
+      // Both then climb to a top-approach run in the target band's headroom.
       // Lane x floored on-page; past the gutter-width clamp, lanes coincide.
-      const gx = Math.max(
-        8,
-        cardX - GUTTER_LANE_INSET - intent.gutterLane * GUTTER_LANE_STEP,
-      );
+      const gx = intent.local
+        ? cardX + LOCAL_GUTTER_X
+        : Math.max(8, cardX - GUTTER_LANE_INSET - (intent.gutterLane ?? 0) * GUTTER_LANE_STEP);
       const apprY =
         dst.band.y +
         dst.band.graphTop +

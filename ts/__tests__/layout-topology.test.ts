@@ -257,6 +257,33 @@ describe("gutter & gaps", () => {
     expect(two.cardX).toBe(MARGIN + GUTTER_W_BASE + GUTTER_LANE_STEP);
   });
 
+  it("routes a same-band loop through a local in-card channel, not the gutter", () => {
+    const scene = layoutTopology(
+      mkMeta("A"),
+      ir(
+        [node("n0", 0, "agent", "head"), node("n1", 0, "decision", "again?")],
+        [edge("n0", "n1")],
+        [loop("n1", "n0", "yes")],
+      ),
+      ["A"],
+    );
+    // A same-band loop earns NO global gutter — the cards keep the v1 margin.
+    expect(scene.gutterLanes).toBe(0);
+    expect(scene.cardX).toBe(MARGIN);
+    const r = scene.routes.find((rt) => rt.kind === "loop")!;
+    expect(r.pts).toHaveLength(6); // drop → local channel → climb → top-approach → target top
+    const gx = r.pts[2][0];
+    expect(gx).toBeGreaterThan(scene.cardX); // INSIDE the card, not left of it
+    expect(gx).toBeLessThan(graphBand(scene, 0).nodes[0].cx); // but left of the leftmost glyph
+    // Arrives at the target's TOP (clear of its below-label), arrowhead down.
+    // (node.cx is page-coord; node.cy is band-local, so add the band's y.)
+    const band0 = graphBand(scene, 0);
+    const [tx, ty] = r.pts[5];
+    const target = band0.nodes.find((n) => n.id === "n0")!;
+    expect(tx).toBeCloseTo(target.cx, 0);
+    expect(ty).toBeLessThan(band0.y + target.cy);
+  });
+
   it("counts a band-skipping forward as a gutter route", () => {
     const scene = layoutTopology(
       mkMeta("A", "B", "C"),
