@@ -112,8 +112,18 @@ const ECHO_OFFSET = 3;
 const ARRIVAL_X_STEP = 8;
 /** Stacked top-approach runs inside a band's headroom are this far apart. */
 const APPROACH_Y_STEP = 7;
-/** Same-band loop arcs climb a channel this far inside the card's left pad. */
-const LOCAL_GUTTER_X = 9;
+/**
+ * The innermost same-band loop climbs a channel this far inside the card's
+ * left pad (kept within GRAPH_PAD_X so it clears every glyph by construction).
+ */
+const LOCAL_GUTTER_X = 13;
+/**
+ * Additional same-band loops in one band climb this much further LEFT than the
+ * one before — so nested loops returning to the same head read as concentric
+ * brackets (inner hugs the cards, outer wraps around it) instead of stacking
+ * onto one coincident line.
+ */
+const LOCAL_LANE_STEP = 9;
 
 /**
  * Rough text width estimate (the inverse of `fitChars`): deliberately
@@ -829,6 +839,8 @@ interface RouteIntent {
   gutterLane?: number;
   /** A same-band loop: climbs its own band's local left-pad channel, not the gutter. */
   local?: boolean;
+  /** Local-channel lane within its band (0 = innermost); fans concentric loops apart. */
+  localLane?: number;
   /** Top-approach slot inside the target band's headroom (gutter routes). */
   approach?: number;
   /** Arrival slot at the target node (fans tips apart when shared). */
@@ -884,6 +896,7 @@ export function layoutTopology(
   const arrivals = new Map<string, number>();
   const departures = new Map<string, number>();
   let nextGutterLane = 0;
+  const localLanes = new Map<number, number>();
   const intents: RouteIntent[] = [];
   const queue: Array<{ kind: "edge" | "loop"; from: string; to: string; label?: string; untaken?: boolean }> = [
     ...clean.cross.map((e) => ({ kind: "edge" as const, from: e.from, to: e.to, label: e.label, untaken: e.untaken })),
@@ -900,11 +913,19 @@ export function layoutTopology(
     const sameBandLoop = q.kind === "loop" && to.band === from.band;
     const viaGutter = (q.kind === "loop" && !sameBandLoop) || to.band - from.band >= 2;
     let gutterLane: number | undefined;
+    let localLane: number | undefined;
     let approach: number | undefined;
     if (viaGutter || sameBandLoop) {
       approach = approaches.get(to.band) ?? 0;
       approaches.set(to.band, approach + 1);
       if (viaGutter) gutterLane = nextGutterLane++;
+      else {
+        // Each same-band loop in this band claims the next local lane, so a
+        // band with several (nested for/while) spreads them into concentric
+        // brackets rather than one shared climb.
+        localLane = localLanes.get(from.band) ?? 0;
+        localLanes.set(from.band, localLane + 1);
+      }
     }
     const arrival = arrivals.get(q.to) ?? 0;
     arrivals.set(q.to, arrival + 1);
@@ -919,6 +940,7 @@ export function layoutTopology(
       gapLane,
       ...(gutterLane !== undefined ? { gutterLane } : {}),
       ...(sameBandLoop ? { local: true } : {}),
+      ...(localLane !== undefined ? { localLane } : {}),
       ...(approach !== undefined ? { approach } : {}),
       arrival,
       arrivalCount: 0, // filled below once totals are known
@@ -1029,7 +1051,7 @@ export function layoutTopology(
       // Both then climb to a top-approach run in the target band's headroom.
       // Lane x floored on-page; past the gutter-width clamp, lanes coincide.
       const gx = intent.local
-        ? cardX + LOCAL_GUTTER_X
+        ? cardX + LOCAL_GUTTER_X - (intent.localLane ?? 0) * LOCAL_LANE_STEP
         : Math.max(8, cardX - GUTTER_LANE_INSET - (intent.gutterLane ?? 0) * GUTTER_LANE_STEP);
       const apprY =
         dst.band.y +

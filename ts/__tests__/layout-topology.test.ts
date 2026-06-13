@@ -78,6 +78,34 @@ const nodeIn = (band: GraphBand, id: string): SceneNode => {
   return n;
 };
 
+// Route-coincidence detector — the symbolic check the same-band-loop tangle
+// taught us to run. Two routes can fan every elbow apart yet still draw one
+// shared vertical climb that reads as a single tangled line; bounding-box
+// disjointness (which ignores routes entirely) never catches it, and a glance
+// at a downscaled render misses the 1-2px overlap. `coincidentRun` returns the
+// longest vertical span two routes share within COINCIDE_DX — 0 when clear.
+const COINCIDE_DX = 6;
+type RoutePts = ReadonlyArray<readonly [number, number]>;
+const verticalSegs = (pts: RoutePts): Array<{ x: number; lo: number; hi: number }> => {
+  const segs: Array<{ x: number; lo: number; hi: number }> = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [x1, y1] = pts[i];
+    const [x2, y2] = pts[i + 1];
+    if (Math.abs(x1 - x2) < 1.5 && Math.abs(y1 - y2) > 5)
+      segs.push({ x: (x1 + x2) / 2, lo: Math.min(y1, y2), hi: Math.max(y1, y2) });
+  }
+  return segs;
+};
+const coincidentRun = (a: RoutePts, b: RoutePts): number => {
+  let worst = 0;
+  for (const sa of verticalSegs(a))
+    for (const sb of verticalSegs(b)) {
+      if (Math.abs(sa.x - sb.x) >= COINCIDE_DX) continue;
+      worst = Math.max(worst, Math.min(sa.hi, sb.hi) - Math.max(sa.lo, sb.lo));
+    }
+  return worst;
+};
+
 // ---------------------------------------------------------------------------
 // Columns, midline, chains
 // ---------------------------------------------------------------------------
@@ -282,6 +310,41 @@ describe("gutter & gaps", () => {
     const target = band0.nodes.find((n) => n.id === "n0")!;
     expect(tx).toBeCloseTo(target.cx, 0);
     expect(ty).toBeLessThan(band0.y + target.cy);
+  });
+
+  it("fans nested same-band loops into separate channels (no coincident climb)", () => {
+    // choose-approach's "Judge pairwise" shape: an inner for-loop and an outer
+    // while-loop both return to the same head. Sharing one local channel, their
+    // climbs landed on one x and read as a single tangled line (the defect a
+    // downscaled glance approved); each must now climb its own channel.
+    const scene = layoutTopology(
+      mkMeta("Judge"),
+      ir(
+        [
+          node("n0", 0, "agent", "match"),
+          node("n1", 0, "decision", "inner?"),
+          node("n2", 0, "decision", "outer?"),
+        ],
+        [edge("n0", "n1"), edge("n1", "n2")],
+        [loop("n1", "n0", "yes"), loop("n2", "n0", "yes")],
+      ),
+      ["Judge"],
+    );
+    const loops = scene.routes.filter((rt) => rt.kind === "loop");
+    expect(loops).toHaveLength(2);
+    // Distinct channels, and the later (outer) loop wraps further left so the
+    // two read as concentric brackets rather than crossing.
+    const [innerX, outerX] = loops.map((rt) => rt.pts[2][0]);
+    expect(Math.abs(innerX - outerX)).toBeGreaterThan(COINCIDE_DX);
+    expect(outerX).toBeLessThan(innerX);
+    // The standing net: no two routes share a vertical channel. With both loops
+    // on one x this run was ~117px; it must now be a clean fraction of that.
+    for (let i = 0; i < scene.routes.length; i++)
+      for (let j = i + 1; j < scene.routes.length; j++)
+        expect(
+          coincidentRun(scene.routes[i].pts, scene.routes[j].pts),
+          `routes ${i}/${j} share a vertical channel`,
+        ).toBeLessThan(35);
   });
 
   it("counts a band-skipping forward as a gutter route", () => {
