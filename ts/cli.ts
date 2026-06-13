@@ -1,22 +1,37 @@
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
+import type * as acorn from "acorn";
 import { Command } from "commander";
-import { MetaExtractionError, extractMeta } from "./extract-meta.js";
+import { analyzeBody } from "./analyze-body.js";
+import {
+  MetaExtractionError,
+  extractMetaFromProgram,
+  parseWorkflowSource,
+  readWorkflowSource,
+} from "./extract-meta.js";
+import { flattenTopology } from "./flatten-topology.js";
 import { wrapSvgHtml } from "./html.js";
+import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
 import { svgToPng } from "./render-png.js";
 import { renderSvg } from "./render-svg.js";
+import { renderTopologySvg } from "./render-topology.js";
+import { EMPTY_IR, type TopologyIR } from "./topology-ir.js";
 
 declare const __CWV_VERSION__: string;
 
 const FORMATS = ["svg", "png", "html"] as const;
 export type Format = (typeof FORMATS)[number];
 
+const VIEWS = ["topology", "phases"] as const;
+export type View = (typeof VIEWS)[number];
+
 interface CliOpts {
   out?: string;
   format?: string;
   open?: boolean;
+  view?: string;
 }
 
 /** Print a one-line error to stderr and exit non-zero. */
@@ -43,6 +58,15 @@ function resolveFormat(explicit: string | undefined, out: string | undefined): F
   return "svg";
 }
 
+/** Resolve `--view`: topology (the default) or the v1 phase-card page. */
+function resolveView(explicit: string | undefined): View {
+  if (explicit === undefined) return "topology";
+  if (!(VIEWS as readonly string[]).includes(explicit)) {
+    fail(`unknown --view '${explicit}' (expected: ${VIEWS.join(", ")})`);
+  }
+  return explicit as View;
+}
+
 /** Default output path when `--out` is absent but a file is required. */
 function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): string {
   const stem = basename(workflow).replace(/\.[^.]+$/, "") || "workflow";
@@ -52,18 +76,56 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
   return ephemeral ? join(tmpdir(), `claude-workflows-viz-${name}`) : name;
 }
 
+/**
+ * The topology view: statically analyze the body (never executing it) into an
+ * agent graph and render banded mini-graphs. A body with no recoverable
+ * orchestration renders the v1-equivalent page wholesale (`EMPTY_IR` makes
+ * every band a v1 phase card, byte-identical to `renderSvg`). The analyzer is
+ * total by contract, so the try/catch is a defensive belt, not a control path
+ * — but if analysis ever does throw, the CLI degrades to that same v1 page
+ * with a one-line stderr warning and exit 0: visible, never fatal, never
+ * silent.
+ */
+function renderTopologyView(meta: Meta, program: acorn.Node, src: string): string {
+  const metaTitles = meta.phases.map((p) => p.title);
+  let ir: TopologyIR = EMPTY_IR;
+  let bandTitles: readonly string[] = metaTitles;
+  try {
+    const topology = analyzeBody(program, src, metaTitles);
+    if (topology.hasOrchestration) {
+      const flat = flattenTopology(topology, meta);
+      ir = flat.ir;
+      bandTitles = flat.bandTitles;
+    }
+  } catch (e) {
+    // Whatever was thrown, the warning stays one line.
+    const reason = (e instanceof Error ? e.message : String(e))
+      .replace(/\s+/g, " ")
+      .trim();
+    process.stderr.write(
+      `claude-workflows-viz: warning: body analysis failed (${reason}); rendering meta phases only\n`,
+    );
+  }
+  return renderTopologySvg(meta, ir, bandTitles);
+}
+
 function run(workflow: string, opts: CliOpts): void {
   const format = resolveFormat(opts.format, opts.out);
+  const view = resolveView(opts.view);
 
-  let meta;
+  // One read, one parse — meta extraction and body analysis share the AST.
+  let meta: Meta;
+  let svg: string;
   try {
-    meta = extractMeta(workflow);
+    const src = readWorkflowSource(workflow);
+    const program = parseWorkflowSource(src);
+    meta = extractMetaFromProgram(program);
+    svg = view === "phases" ? renderSvg(meta) : renderTopologyView(meta, program, src);
   } catch (e) {
     if (e instanceof MetaExtractionError) fail(e.message);
     throw e;
   }
 
-  const svg = renderSvg(meta);
   const data: string | Buffer =
     format === "png" ? svgToPng(svg) : format === "html" ? wrapSvgHtml(svg, meta.name) : svg;
 
@@ -93,7 +155,7 @@ const program = new Command();
 program
   .name("claude-workflows-viz")
   .description(
-    "Render a Claude Code dynamic-workflow file's static meta block as an SVG/PNG diagram",
+    "Render a Claude Code dynamic-workflow file as an SVG/PNG diagram — the agent topology statically inferred from the body (never executed), or the meta phase cards via --view phases",
   )
   .version(__CWV_VERSION__, "-v, --version", "Show version number");
 
@@ -103,6 +165,10 @@ program
   .option(
     "--format <format>",
     "Output format: svg | png | html (default: svg, or inferred from --out)",
+  )
+  .option(
+    "--view <view>",
+    "View: topology (default; banded agent graph) | phases (v1 phase cards)",
   )
   .option("--open", "Open the rendered output in the default app after writing")
   .action(run);

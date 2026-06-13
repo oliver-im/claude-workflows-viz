@@ -1,7 +1,7 @@
 {
   "name": "claude-workflows-viz",
   "version": "0.1.0",
-  "description": "Render a Claude Code dynamic-workflow file's static meta block as an SVG/PNG diagram",
+  "description": "Render a Claude Code dynamic-workflow file as an SVG/PNG diagram — agent topology statically inferred from the body, never executed",
   "type": "module",
   "bin": {
     "claude-workflows-viz": "dist/cli.js"

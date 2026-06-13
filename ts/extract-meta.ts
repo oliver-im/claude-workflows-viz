@@ -14,14 +14,17 @@ export class MetaExtractionError extends Error {
  * expression itself (it is read straight off the AST).
  */
 export function extractMeta(path: string): Meta {
-  let src: string;
+  return extractMetaFromSource(readWorkflowSource(path));
+}
+
+/** Read a workflow file off disk, wrapping I/O failures in the domain error. */
+export function readWorkflowSource(path: string): string {
   try {
-    src = readFileSync(path, "utf8");
+    return readFileSync(path, "utf8");
   } catch (e) {
     const err = e as NodeJS.ErrnoException;
     throw new MetaExtractionError(`cannot read '${path}': ${err.message}`);
   }
-  return extractMetaFromSource(src);
 }
 
 /**
@@ -30,9 +33,17 @@ export function extractMeta(path: string): Meta {
  * runs), then validates.
  */
 export function extractMetaFromSource(src: string): Meta {
-  let program: acorn.Node;
+  return extractMetaFromProgram(parseWorkflowSource(src));
+}
+
+/**
+ * Parse workflow source to an acorn AST (the one parse shared by meta
+ * extraction and the body analyzer), wrapping syntax errors in the domain
+ * error. Parsing never executes anything.
+ */
+export function parseWorkflowSource(src: string): acorn.Node {
   try {
-    program = acorn.parse(src, {
+    return acorn.parse(src, {
       ecmaVersion: "latest",
       sourceType: "module",
     });
@@ -41,7 +52,10 @@ export function extractMetaFromSource(src: string): Meta {
       `could not parse workflow file as JavaScript: ${(e as Error).message}`,
     );
   }
+}
 
+/** Locate, read, and validate the `meta` literal on an already-parsed AST. */
+export function extractMetaFromProgram(program: acorn.Node): Meta {
   const init = findMetaInit(program);
   if (!init) {
     throw new MetaExtractionError(
@@ -175,6 +189,23 @@ function evalLiteralNode(node: any): unknown {
       throw new MetaExtractionError(
         `meta contains a non-literal value (${node.type})`,
       );
+  }
+}
+
+/**
+ * Lenient sibling of `evalLiteralNode` for the body analyzer's module-const
+ * resolution: same supported node set (pure data literals only — everything
+ * executable is still rejected, it never evaluates code), but signals failure
+ * as `{ok:false}` instead of throwing, because "not a literal" is an ordinary
+ * answer there, not an error.
+ */
+export function tryEvalLiteral(
+  node: unknown,
+): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: evalLiteralNode(node) };
+  } catch {
+    return { ok: false };
   }
 }
 
