@@ -23,6 +23,7 @@ import {
   DIAMOND_HALF,
   ELBOW_R,
   F_CAPTION,
+  HUB_R,
   LABEL_LINE_H,
   NODE_R,
   TASK_H,
@@ -166,6 +167,11 @@ function renderNode(n: SceneNode): string {
   switch (n.kind) {
     case "agent":
       return renderAgent(n);
+    case "hub":
+      return (
+        `<circle class="hub" cx="${round(n.cx)}" cy="${round(n.cy)}" ` +
+        `r="${HUB_R}" fill="${EDGE}"/>`
+      );
     case "barrier":
       return (
         `<rect class="barrier" x="${round(n.cx - BARRIER_W / 2)}" y="${round(n.cy - n.h / 2)}" ` +

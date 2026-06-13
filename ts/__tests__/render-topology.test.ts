@@ -105,6 +105,34 @@ describe("renderTopologySvg", () => {
     expect(svg).toContain('r="11" fill="#f1f5f9" stroke="#94a3b8"');
   });
 
+  it("renders fan-out hubs as small edge-colored dots, source upstream of sink", () => {
+    // An open-both-sides fan-out: source → gen ×3 → barrier → sink, one band.
+    const svg = renderTopologySvg(
+      mkMeta("Gen"),
+      ir(
+        [
+          node("n0", 0, "agent", "gen", { mult: { kind: "named", names: ["a", "b", "c"] } }),
+          node("n1", 0, "hub", ""),
+          node("n2", 0, "barrier", ""),
+          node("n3", 0, "hub", ""),
+        ],
+        [
+          { from: "n1", to: "n0" },
+          { from: "n0", to: "n2" },
+          { from: "n2", to: "n3" },
+        ],
+      ),
+      ["Gen"],
+    );
+    expect(count(svg, 'class="hub"')).toBe(2);
+    expect(svg).toContain('class="hub" cx="'); // a real circle, not a stray class
+    expect(count(svg, 'r="4.5" fill="#475569"')).toBe(2); // HUB_R + EDGE color
+    const hubCxs = [...svg.matchAll(/class="hub" cx="([0-9.]+)"/g)].map((m) => Number(m[1]));
+    expect(hubCxs).toHaveLength(2);
+    // The source dot (lanes spread from it) sits left of the sink dot (join exit).
+    expect(Math.min(...hubCxs)).toBeLessThan(Math.max(...hubCxs));
+  });
+
   it("draws the loop in accent and the untaken edge dashed-muted", () => {
     const svg = kitchenSvg();
     expect(svg).toContain('stroke="#e8694a"'); // loop arc / barrier accent family

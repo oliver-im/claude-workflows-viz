@@ -63,10 +63,74 @@ export function flattenTopology(topology: Topology, meta: Meta): FlattenResult {
   // node.band always indexes into bandTitles.
   if (ctx.bandTitles.length === 0 && topology.steps.length > 0) bandOf(ctx, "");
   flattenSeq(ctx, topology.steps, 0, null);
+  contractPassThroughHubs(ctx);
   return {
     ir: { nodes: ctx.nodes, edges: ctx.edges, loops: ctx.loops },
     bandTitles: ctx.bandTitles,
   };
+}
+
+/**
+ * A fan-out's source/sink junction (`flattenFanout`) earns its keep only as a
+ * TERMINAL — the open left end the lanes spread from, or the open right end the
+ * join feeds. Once a real predecessor or successor connects to that side the
+ * junction is a redundant pass-through, so splice it out: every in-edge × every
+ * out-edge becomes a direct edge (the predecessor connects straight to the fan,
+ * the join straight to its successor), and the hub plus its stubs are dropped.
+ *
+ * Kept honest by the same direction rule as `emitLink`: a spliced edge that
+ * points back up the page becomes a loop, never a contract-violating forward
+ * edge. Hubs a loop arc lands on are left alone — a fan-out that opens a loop
+ * body makes its source hub the restart point, so it must survive even with
+ * splice-eligible in/out edges. No bundled example hits this, so the guard is
+ * defensive (covered by a constructed test).
+ */
+function contractPassThroughHubs(ctx: Ctx): void {
+  const loopTouched = new Set<string>();
+  for (const l of ctx.loops) {
+    loopTouched.add(l.from);
+    loopTouched.add(l.to);
+  }
+  const byId = new Map(ctx.nodes.map((n) => [n.id, n]));
+  const removed = new Set<string>();
+  const dropped = new Set<TopoEdge>();
+  const added: TopoEdge[] = [];
+  for (const node of ctx.nodes) {
+    if (node.kind !== "hub" || loopTouched.has(node.id)) continue;
+    const ins = ctx.edges.filter((e) => e.to === node.id && !dropped.has(e));
+    const outs = ctx.edges.filter((e) => e.from === node.id && !dropped.has(e));
+    if (ins.length === 0 || outs.length === 0) continue; // a true terminal — keep
+    removed.add(node.id);
+    for (const e of ins) dropped.add(e);
+    for (const e of outs) dropped.add(e);
+    for (const i of ins) {
+      for (const o of outs) {
+        const from = byId.get(i.from);
+        const to = byId.get(o.to);
+        if (!from || !to) continue;
+        const label = o.label ?? i.label;
+        const link: TopoEdge & TopoLoop = {
+          from: i.from,
+          to: o.to,
+          ...(label !== undefined ? { label } : {}),
+        };
+        (from.band > to.band ? ctx.loops : added).push(link);
+      }
+    }
+  }
+  if (removed.size === 0) return;
+  ctx.nodes = ctx.nodes.filter((n) => !removed.has(n.id));
+  ctx.edges = ctx.edges.filter((e) => !dropped.has(e)).concat(added);
+  // Splicing hubs out leaves holes in the n0,n1,… sequence; renumber so node
+  // ids stay contiguous in emission order (the determinism contract the IR
+  // and its corpus test pin). Every edge/loop endpoint is a surviving node, so
+  // it remaps cleanly through the same table.
+  const remap = new Map(ctx.nodes.map((n, i) => [n.id, `n${i}`]));
+  for (const n of ctx.nodes) n.id = remap.get(n.id)!;
+  for (const link of [...ctx.edges, ...ctx.loops]) {
+    link.from = remap.get(link.from)!;
+    link.to = remap.get(link.to)!;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,9 +406,21 @@ function flattenFanout(
     });
     inner = { entries: [placeholder], exits: [placeholder] };
   }
-  const barrier = emitNode(ctx, lastEmitted(ctx, sourcesOf(inner))?.band ?? band, "barrier", "");
+  const barrierBand = lastEmitted(ctx, sourcesOf(inner))?.band ?? band;
+  // Bracket the fan-out with two junctions: a SOURCE the lanes visibly spread
+  // FROM and a SINK the joined result leaves THROUGH, so a bare fan-out reads
+  // as "one → many → one" instead of circles floating against the margin with
+  // a dead-end bar. Both sit in their adjacent glyph's band so their fan-out /
+  // join edges stay intra-band. A later pass (`contractPassThroughHubs`)
+  // deletes whichever junction a real predecessor/successor makes redundant —
+  // so these survive only when the fan-out is genuinely open on that side.
+  const source = emitNode(ctx, inner.entries[0]?.band ?? band, "hub", "");
+  for (const head of inner.entries) emitLink(ctx, "forward", source, head);
+  const barrier = emitNode(ctx, barrierBand, "barrier", "");
   connectInto(ctx, inner, [barrier], "always");
-  return { entries: inner.entries, exits: [barrier] };
+  const sink = emitNode(ctx, barrierBand, "hub", "");
+  emitLink(ctx, "forward", barrier, sink);
+  return { entries: [source], exits: [sink] };
 }
 
 /**

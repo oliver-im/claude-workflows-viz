@@ -59,6 +59,8 @@ export const GRAPH_PAD_BOTTOM = 14;
 export const CAPTION_H = 17;
 
 export const NODE_R = 11;
+/** Fan-out source / join-exit junction dot. */
+export const HUB_R = 4.5;
 /** Vertical rhythm: one multiplicity row per ROW_H. */
 export const ROW_H = 34;
 export const DIAMOND_HALF = 14;
@@ -383,6 +385,8 @@ interface NodeSpec {
 
 function glyphDims(node: TopoNode, disp: MultDisplay): { w: number; h: number } {
   switch (node.kind) {
+    case "hub":
+      return { w: 2 * HUB_R, h: 2 * HUB_R };
     case "barrier":
       return { w: BARRIER_W, h: 2 * NODE_R + 2 * BARRIER_OVERHANG };
     case "decision":

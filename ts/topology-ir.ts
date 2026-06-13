@@ -6,7 +6,7 @@
  * happens at render time.
  */
 
-export type NodeKind = "agent" | "barrier" | "decision" | "task";
+export type NodeKind = "agent" | "barrier" | "decision" | "task" | "hub";
 
 /** Absent on a node = a single run. */
 export type FlatMultiplicity =
