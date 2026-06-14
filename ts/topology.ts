@@ -3,9 +3,9 @@ import { truncatePlain } from "./svg-primitives.js";
 /**
  * The body analyzer's TREE IR: a source-faithful, nested account of what the
  * workflow body *says* — agent calls, fan-outs, pipelines, loops, branches —
- * read statically off the acorn AST (the workflow is never executed). The
- * flattener (`flatten-topology.ts`) owns turning this into the flat node/edge
- * graph the renderer consumes; this module is types + truncation policy only.
+ * read statically off the acorn AST (the workflow is never executed).
+ * `place-topology.ts` consumes this tree directly, positioning it as one
+ * graph-first swimlane layout; this module is types + truncation policy only.
  *
  * Honesty contract carried by these types: counts appear only when literal
  * (`exact`/`named`), everything else is `unknown` with at most a verbatim

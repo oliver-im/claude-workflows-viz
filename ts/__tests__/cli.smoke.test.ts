@@ -93,12 +93,13 @@ describe("cli smoke", () => {
 });
 
 describe("cli smoke — views", () => {
-  it("defaults to the topology view: agent graph in the output, no warnings", () => {
+  it("defaults to the topology view: graph-first swimlane in the output, no warnings", () => {
     const res = runCli([summarizeExample]);
     expect(res.status).toBe(0);
     expect(res.stderr).toBe("");
     expect(res.stdout).toContain('class="agent-node"');
-    expect(res.stdout).toContain('class="barrier"');
+    expect(res.stdout).toContain('class="swimlane"'); // phase as overlay stripe, not a card
+    expect(res.stdout).not.toContain("xband"); // no card-wall routing survives
   });
 
   it("--view phases renders the byte-stable v1 page", () => {
