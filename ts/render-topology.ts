@@ -1,294 +1,320 @@
 import type { Meta } from "./model.js";
-import type { TopologyIR } from "./topology-ir.js";
+import type { GEdge, GLane, GLoop, GNode, Layout } from "./topo-geometry.js";
+import { renderHeader, renderModelBadge } from "./render-svg.js";
 import {
+  GAP,
   MARGIN,
   MODEL_FALLBACK,
   arrowHead,
   escapeSvgText,
   round,
   roundRect,
-  roundedElbowPath,
   strokePath,
   swatchFor,
   text,
+  truncatePlain,
   truncateToWidth,
 } from "./svg-primitives.js";
-import { renderHeader, renderModelBadge, renderPhaseCard } from "./render-svg.js";
-import {
-  BARRIER_W,
-  CHIP_R,
-  CHROME_H,
-  CHROME_PAD_TOP,
-  CHROME_PAD_X,
-  DIAMOND_HALF,
-  ELBOW_R,
-  F_CAPTION,
-  HUB_R,
-  LABEL_LINE_H,
-  NODE_R,
-  TASK_H,
-  layoutTopology,
-  type GraphBand,
-  type SceneEdge,
-  type SceneLabel,
-  type SceneNode,
-  type SceneRoute,
-  type TopoScene,
-} from "./layout-topology.js";
 
 /**
- * The topology renderer: `(meta, ir, bandTitles)` → a standalone SVG string.
- * All geometry comes from `layoutTopology`; this module only turns the scene
- * into the resvg-safe SVG 1.1 subset (plain shapes, explicit triangle
- * arrowheads, no <marker>). Page skeleton — shell, background, header card,
- * stacked cards — mirrors v1's `renderSvg` byte-for-byte, so an EMPTY_IR
- * render (every band falls back to a v1 phase card) is byte-identical to the
- * v1 output. Every string goes through `escapeSvgText`; the full text behind
- * any truncation rides along as an escaped `<title>` (resvg ignores it,
- * browsers tooltip it).
+ * The topology renderer: a positioned `Layout` → a standalone SVG string. It
+ * only paints what `place-topology` already positioned — phase stripes, edges,
+ * nodes, and local loop badges — in the resvg-safe SVG 1.1 subset (plain
+ * shapes/paths, arrowheads as explicit filled triangles, no `<marker>`). The
+ * header card reuses v1's `renderHeader`, so the page reads as one family with
+ * `--view phases`. Every raw IR string is escaped here; the full text behind a
+ * truncation rides along as a `<title>` (resvg ignores it, browsers tooltip it).
+ *
+ * Draw order is deliberate: stripe rects (faint tints) first, then edges, then
+ * nodes, then loop badges, then the lane chrome (chip + title + model) on top —
+ * so a cross-phase connector entering a lane never paints over its title.
+ *
+ * All paint and typography live in the named constants below; restyling is a
+ * constant swap, never logic surgery. Determinism: output is a pure function of
+ * the layout (no Date/random); arrays are drawn in their canonical order.
  */
+export function renderTopology(layout: Layout, meta: Meta): string {
+  const width = layout.width;
+  const header = renderHeader(meta, MARGIN, width - 2 * MARGIN);
+  const yOffset = MARGIN + header.height + GAP;
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
 
-// ---------------------------------------------------------------------------
-// Palette — control flow is coral, data labels are slate.
-// ---------------------------------------------------------------------------
+  const stripes = layout.lanes.map((l) => renderStripe(l, width)).join("");
+  const edges = layout.edges.map((e) => renderEdge(e)).join("");
+  const nodes = layout.nodes.map((n) => renderNode(n, width)).join("");
+  const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, width)).join("");
+  const chrome = layout.lanes.map((l) => renderChrome(l, width)).join("");
+  const graph =
+    `<g class="topology" transform="translate(0 ${round(yOffset)})">` +
+    stripes +
+    edges +
+    nodes +
+    loops +
+    chrome +
+    `</g>`;
 
-export const ACCENT = "#e8694a";
-export const EDGE = "#475569";
-export const EDGE_UNTAKEN = "#cbd5e1";
-export const UNTAKEN_DASH = "4 3";
-export const LABEL = "#334155";
-export const LABEL_MUTED = "#94a3b8";
-export const CAPTION_COLOR = "#64748b";
-
-const CARD_FILL = "#ffffff";
-const CARD_STROKE = "#e2e8f0";
-const CHIP_FILL = "#334155";
-const TITLE_COLOR = "#0f172a";
-const DECISION_FILL = "#ffffff";
-const EDGE_WIDTH = 1.2;
-const ROUTE_WIDTH = 1.3;
-const NODE_STROKE_WIDTH = 1.25;
-
-export function renderTopologySvg(
-  meta: Meta,
-  ir: TopologyIR,
-  bandTitles: readonly string[],
-): string {
-  const scene = layoutTopology(meta, ir, bandTitles);
-  const placed: string[] = [];
-  const header = renderHeader(meta, scene.cardX, scene.cardW);
-  placed.push(`<g transform="translate(0 ${MARGIN})">${header.body}</g>`);
-  for (const band of scene.bands) {
-    const body =
-      band.kind === "fallback"
-        ? renderPhaseCard(band.phase, band.index + 1, scene.cardX, scene.cardW).body
-        : renderGraphBand(band, scene);
-    placed.push(`<g transform="translate(0 ${round(band.y)})">${body}</g>`);
-  }
-  // Cross-band overlay last, so routes draw over card chrome. Omitted when
-  // empty — this keeps the EMPTY_IR page byte-identical to v1.
-  if (scene.routes.length > 0) {
-    placed.push(
-      `<g class="xband-overlay">${scene.routes.map(renderRoute).join("")}</g>`,
-    );
-  }
-  const height = round(scene.height);
+  const height = round(yOffset + layout.height + MARGIN);
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${height}" ` +
-    `viewBox="0 0 ${scene.width} ${height}" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+    `viewBox="0 0 ${width} ${height}" ` +
     `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
-    `<rect width="${scene.width}" height="${height}" fill="#f8fafc"/>\n` +
-    placed.join("\n") +
+    `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
+    `<g transform="translate(0 ${MARGIN})">${header.body}</g>\n` +
+    graph +
     `\n</svg>\n`
   );
 }
 
 // ---------------------------------------------------------------------------
-// Graph bands
+// Palette + typography — control flow is coral, data is slate, stripes faint.
 // ---------------------------------------------------------------------------
 
-function renderGraphBand(band: GraphBand, scene: TopoScene): string {
-  const parts: string[] = [];
-  // <title> first (SVG convention): the band's full detail when the caption
-  // truncated it away.
-  if (band.tooltip !== undefined) {
-    parts.push(`<title>${escapeSvgText(band.tooltip)}</title>`);
-  }
-  parts.push(roundRect(scene.cardX, 0, scene.cardW, band.height, 10, CARD_FILL, CARD_STROKE));
+const PAGE_BG = "#f8fafc";
+const ACCENT = "#e8694a"; // coral: barriers, decisions, loop badges
+const EDGE = "#64748b";
+const EDGE_LABEL = "#94a3b8";
+const NODE_LABEL = "#334155";
+const TITLE = "#0f172a";
+const MUTED = "#94a3b8";
+const HUB_FILL = "#94a3b8";
+const STRIPE_STROKE = "#e8edf3";
+const STRIPE_EMPTY_FILL = "#eef2f7";
+const CHIP_FILL = "#334155";
+const STRIPE_OPACITY = 0.55;
 
-  // Chrome — mirrors the v1 phase card (chip, title, model badge).
-  const chipCx = scene.cardX + CHROME_PAD_X + CHIP_R;
-  const chipCy = CHROME_PAD_TOP + CHIP_R;
-  const textX = scene.cardX + CHROME_PAD_X + 2 * CHIP_R + 14;
-  const rightX = scene.cardX + scene.cardW - CHROME_PAD_X;
-  let badge = "";
-  let badgeWidth = 0;
-  const model = band.model?.trim();
-  if (model) {
-    const rendered = renderModelBadge(model, rightX, CHROME_PAD_TOP);
-    badge = rendered.svg;
-    badgeWidth = rendered.width;
+const STRIPE_INSET = MARGIN;
+const STRIPE_RX = 10;
+const CHROME_PAD = 14;
+const CHIP_R = 11;
+const TITLE_FONT = 15;
+const LABEL_FONT = 12.5;
+const MEMBER_FONT = 11;
+const BADGE_FONT = 11;
+const LOOP_FONT = 11;
+const EDGE_W = 1.3;
+const FAN_W = 1.1;
+const NODE_STROKE_W = 1.25;
+
+const laneWidth = (width: number): number => width - 2 * STRIPE_INSET;
+
+// ---------------------------------------------------------------------------
+// Lanes — a faint tinted stripe (rect) drawn behind, chrome drawn on top.
+// ---------------------------------------------------------------------------
+
+function renderStripe(lane: GLane, width: number): string {
+  const x = STRIPE_INSET;
+  const w = round(laneWidth(width));
+  const h = round(lane.yBot - lane.yTop);
+  if (lane.empty) {
+    return (
+      `<rect class="swimlane-empty" x="${x}" y="${round(lane.yTop)}" width="${w}" height="${h}" ` +
+      `rx="${STRIPE_RX}" fill="${STRIPE_EMPTY_FILL}" stroke="${STRIPE_STROKE}" stroke-width="1" stroke-dasharray="4 3"/>`
+    );
   }
-  const titleWidth = (model ? rightX - badgeWidth - 10 : rightX) - textX;
-  parts.push(
+  const swatch = lane.model !== undefined ? swatchFor(lane.model) : MODEL_FALLBACK;
+  return (
+    `<rect class="swimlane" x="${x}" y="${round(lane.yTop)}" width="${w}" height="${h}" ` +
+    `rx="${STRIPE_RX}" fill="${swatch.fill}" fill-opacity="${STRIPE_OPACITY}" stroke="${STRIPE_STROKE}" stroke-width="1"/>`
+  );
+}
+
+/** The lane's chip, title, and model badge (and the "control only" hint for an
+ *  empty strip), drawn on top of everything so connectors can't occlude them. */
+function renderChrome(lane: GLane, width: number): string {
+  const x = STRIPE_INSET;
+  const chromeTop = lane.empty
+    ? lane.yTop + Math.max(0, (lane.yBot - lane.yTop - 2 * CHIP_R) / 2)
+    : lane.yTop + CHROME_PAD;
+  const chipCx = x + CHROME_PAD + CHIP_R;
+  const chipCy = chromeTop + CHIP_R;
+  const textX = x + CHROME_PAD + 2 * CHIP_R + 12;
+  const rightX = x + laneWidth(width) - CHROME_PAD;
+
+  const parts: string[] = [
     `<circle cx="${round(chipCx)}" cy="${round(chipCy)}" r="${CHIP_R}" fill="${CHIP_FILL}"/>`,
-    text(chipCx, chipCy + 4, String(band.index + 1), {
-      size: 12.5,
+    text(chipCx, chipCy + 3.7, String(lane.phaseIndex + 1), {
+      size: 11.5,
       weight: 700,
       fill: "#ffffff",
       anchor: "middle",
     }),
-    text(textX, CHROME_PAD_TOP + 16, truncateToWidth(band.title, titleWidth, 16), {
-      size: 16,
+  ];
+
+  if (lane.empty) {
+    const title = truncateToWidth(lane.title, rightX - textX - 86, TITLE_FONT - 1);
+    parts.push(
+      text(textX, chipCy + 4.5, title, { size: TITLE_FONT - 1, weight: 600, fill: TITLE }),
+      text(rightX, chipCy + 4.5, "control only", {
+        size: 11,
+        style: "italic",
+        fill: MUTED,
+        anchor: "end",
+      }),
+    );
+    return `<g class="lane-chrome">${parts.join("")}</g>`;
+  }
+
+  let badge = "";
+  let badgeW = 0;
+  if (lane.model !== undefined) {
+    const rendered = renderModelBadge(lane.model, rightX, chromeTop);
+    badge = rendered.svg;
+    badgeW = rendered.width;
+  }
+  const titleW = (badge ? rightX - badgeW - 10 : rightX) - textX;
+  parts.push(
+    text(textX, chromeTop + 15, truncateToWidth(lane.title, titleW, TITLE_FONT), {
+      size: TITLE_FONT,
       weight: 700,
-      fill: TITLE_COLOR,
+      fill: TITLE,
     }),
     badge,
   );
-  if (band.caption !== undefined) {
-    parts.push(
-      text(scene.cardX + CHROME_PAD_X, CHROME_H + 12, band.caption, {
-        size: F_CAPTION,
-        fill: CAPTION_COLOR,
-      }),
-    );
-  }
-
-  for (const edge of band.edges) parts.push(renderIntraEdge(edge));
-  for (const node of band.nodes) parts.push(renderNode(node));
-  return `<g class="graph-band">${parts.join("")}</g>`;
+  return `<g class="lane-chrome">${parts.join("")}</g>`;
 }
 
 // ---------------------------------------------------------------------------
 // Nodes
 // ---------------------------------------------------------------------------
 
-function renderNode(n: SceneNode): string {
+function renderNode(n: GNode, width: number): string {
   switch (n.kind) {
     case "agent":
-      return renderAgent(n);
-    case "hub":
-      return (
-        `<circle class="hub" cx="${round(n.cx)}" cy="${round(n.cy)}" ` +
-        `r="${HUB_R}" fill="${EDGE}"/>`
-      );
+      return renderAgent(n, width);
     case "barrier":
-      return (
-        `<rect class="barrier" x="${round(n.cx - BARRIER_W / 2)}" y="${round(n.cy - n.h / 2)}" ` +
-        `width="${BARRIER_W}" height="${round(n.h)}" rx="2" fill="${ACCENT}"/>`
-      );
-    case "decision": {
-      const d = DIAMOND_HALF;
-      const points = [
-        `${round(n.cx)},${round(n.cy - d)}`,
-        `${round(n.cx + d)},${round(n.cy)}`,
-        `${round(n.cx)},${round(n.cy + d)}`,
-        `${round(n.cx - d)},${round(n.cy)}`,
-      ].join(" ");
-      const parts = [
-        `<polygon points="${points}" fill="${DECISION_FILL}" stroke="${ACCENT}" stroke-width="1.4"/>`,
-        ...labelEls(n.label),
-      ];
-      return wrapNode("decision", n, parts);
-    }
-    case "task": {
-      const parts = [
-        roundRect(n.cx - n.w / 2, n.cy - TASK_H / 2, n.w, TASK_H, 6, MODEL_FALLBACK.fill, MODEL_FALLBACK.stroke),
-        ...labelEls(n.label),
-        ...badgeEls(n),
-      ];
-      return wrapNode("task-node", n, parts);
-    }
+      return renderBarrier(n);
+    case "decision":
+      return renderDecision(n);
+    case "task":
+      return renderTask(n);
+    case "hub":
+      return `<circle class="hub" cx="${round(n.x)}" cy="${round(n.y)}" r="${n.r}" fill="${HUB_FILL}"/>`;
   }
 }
 
-function renderAgent(n: SceneNode): string {
+function renderAgent(n: GNode, width: number): string {
   const swatch = n.model !== undefined ? swatchFor(n.model) : MODEL_FALLBACK;
   const parts: string[] = [];
-  for (const row of n.rows) {
-    if (n.echo) {
-      // The ×n / ×N stack hint: a second circle peeking out down-right.
-      parts.push(
-        `<circle cx="${round(n.cx + 1.5)}" cy="${round(row.cy + 1.5)}" r="${NODE_R}" ` +
-          `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="1"/>`,
-        `<circle cx="${round(n.cx - 1.5)}" cy="${round(row.cy - 1.5)}" r="${NODE_R}" ` +
-          `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="${NODE_STROKE_WIDTH}"/>`,
-      );
-    } else if (row.dashed) {
-      // The "+n more" overflow row.
-      parts.push(
-        `<circle cx="${round(n.cx)}" cy="${round(row.cy)}" r="${NODE_R}" ` +
-          `fill="${CARD_FILL}" stroke="${swatch.stroke}" stroke-width="1" stroke-dasharray="3 2.5"/>`,
-      );
-    } else {
-      parts.push(
-        `<circle cx="${round(n.cx)}" cy="${round(row.cy)}" r="${NODE_R}" ` +
-          `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="${NODE_STROKE_WIDTH}"/>`,
-      );
-    }
-    if (row.label) parts.push(...labelEls(row.label));
+  if (n.tooltip !== undefined) parts.push(`<title>${escapeSvgText(n.tooltip)}</title>`);
+  // ×N stack hint: a second circle peeking down-right behind the main one.
+  if (n.mult !== undefined) {
+    parts.push(
+      `<circle cx="${round(n.x + 2)}" cy="${round(n.y + 2)}" r="${n.r}" ` +
+        `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="1"/>`,
+    );
   }
-  parts.push(...labelEls(n.label), ...badgeEls(n));
-  return wrapNode("agent-node", n, parts);
+  parts.push(
+    `<circle cx="${round(n.x)}" cy="${round(n.y)}" r="${n.r}" ` +
+      `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="${NODE_STROKE_W}"/>`,
+  );
+  parts.push(...nodeLabel(n, width));
+  if (n.mult !== undefined) {
+    parts.push(
+      `<text x="${round(n.x + n.r + 1)}" y="${round(n.y - n.r + 2)}" font-size="${BADGE_FONT}" ` +
+        `font-weight="700" fill="${ACCENT}">${escapeSvgText(n.mult)}</text>`,
+    );
+  }
+  return `<g class="agent-node">${parts.join("")}</g>`;
 }
 
-function wrapNode(cls: string, n: SceneNode, parts: string[]): string {
-  const title =
-    n.tooltip !== undefined ? `<title>${escapeSvgText(n.tooltip)}</title>` : "";
-  return `<g class="${cls}">${title}${parts.join("")}</g>`;
-}
-
-function badgeEls(n: SceneNode): string[] {
-  if (!n.badge) return [];
-  return [
-    `<text class="xn-badge" x="${round(n.badge.x)}" y="${round(n.badge.y)}" ` +
-      `font-size="11" font-weight="700" fill="${ACCENT}">${escapeSvgText(n.badge.text)}</text>`,
-  ];
-}
-
-function labelEls(label: SceneLabel | undefined): string[] {
-  if (!label) return [];
-  const fill =
-    label.tone === "accent" ? ACCENT : label.tone === "muted" ? LABEL_MUTED : LABEL;
-  return label.lines.map((line, i) =>
-    text(label.x, label.y + i * (label.lineH ?? LABEL_LINE_H), line, {
-      size: label.size,
-      fill,
-      ...(label.italic ? { style: "italic" } : {}),
-      ...(label.anchor !== "start" ? { anchor: label.anchor } : {}),
-    }),
+function renderBarrier(n: GNode): string {
+  const w = n.w ?? 2 * n.r;
+  const h = n.h ?? 6;
+  return (
+    `<rect class="barrier" x="${round(n.x - w / 2)}" y="${round(n.y - h / 2)}" ` +
+    `width="${round(w)}" height="${round(h)}" rx="${round(h / 2)}" fill="${ACCENT}"/>`
   );
 }
 
-// ---------------------------------------------------------------------------
-// Edges & routes
-// ---------------------------------------------------------------------------
-
-function renderIntraEdge(e: SceneEdge): string {
-  const [[x1, y1], [x2, y2]] = e.pts;
-  const stroke = e.untaken ? EDGE_UNTAKEN : EDGE;
+function renderDecision(n: GNode): string {
+  const d = n.r;
+  const points = [
+    `${round(n.x)},${round(n.y - d)}`,
+    `${round(n.x + d)},${round(n.y)}`,
+    `${round(n.x)},${round(n.y + d)}`,
+    `${round(n.x - d)},${round(n.y)}`,
+  ].join(" ");
+  const cond = truncatePlain(n.label, 36);
   const parts = [
-    strokePath(`M ${round(x1)} ${round(y1)} L ${round(x2)} ${round(y2)}`, stroke, {
-      width: EDGE_WIDTH,
-      ...(e.untaken ? { dasharray: UNTAKEN_DASH } : {}),
-    }),
+    `<title>${escapeSvgText(n.label)}</title>`,
+    `<polygon points="${points}" fill="#ffffff" stroke="${ACCENT}" stroke-width="1.4"/>`,
+    // Condition kept quiet: a muted label to the right, full text in <title>.
+    text(n.x + d + 6, n.y + 4, cond, { size: MEMBER_FONT, style: "italic", fill: MUTED }),
   ];
-  if (e.arrow) {
-    const angle = Math.atan2(y2 - y1, x2 - x1);
-    parts.push(`<g class="arrowhead">${arrowHead(x2, y2, angle, stroke)}</g>`);
-  }
-  parts.push(...labelEls(e.label));
-  return parts.join("");
+  return `<g class="decision">${parts.join("")}</g>`;
 }
 
-function renderRoute(r: SceneRoute): string {
-  const loop = r.kind === "loop";
-  const stroke = loop ? ACCENT : r.untaken ? EDGE_UNTAKEN : EDGE;
-  const dash = !loop && r.untaken ? UNTAKEN_DASH : undefined;
-  const parts = [roundedElbowPath(r.pts, ELBOW_R, stroke, ROUTE_WIDTH, dash)];
-  // Routes always arrive pointing straight down into the target's top.
-  const [tx, ty] = r.pts[r.pts.length - 1];
-  parts.push(`<g class="arrowhead">${arrowHead(tx, ty, Math.PI / 2, stroke)}</g>`);
-  parts.push(...labelEls(r.label));
-  return `<g class="${loop ? "loop-path" : "xband-edge"}">${parts.join("")}</g>`;
+function renderTask(n: GNode): string {
+  const w = n.w ?? 96;
+  const h = n.h ?? 30;
+  const parts = [
+    ...(n.tooltip !== undefined ? [`<title>${escapeSvgText(n.tooltip)}</title>`] : []),
+    roundRect(n.x - w / 2, n.y - h / 2, w, h, 6, MODEL_FALLBACK.fill, MODEL_FALLBACK.stroke),
+    text(n.x, n.y + 4, truncateToWidth(n.label, w - 14, LABEL_FONT - 0.5), {
+      size: LABEL_FONT - 0.5,
+      fill: NODE_LABEL,
+      anchor: "middle",
+    }),
+  ];
+  return `<g class="task-node">${parts.join("")}</g>`;
+}
+
+/** A node's label: BELOW and centered for a row/grid member or off-spine arm
+ *  (placement flags these), to the RIGHT otherwise — where the vertical flow
+ *  exits the node's bottom and leaves the side clear. */
+function nodeLabel(n: GNode, width: number): string[] {
+  if (!n.label) return [];
+  if (n.labelBelow === true) {
+    return [
+      text(n.x, n.y + n.r + 12, truncateToWidth(n.label, 150, MEMBER_FONT), {
+        size: MEMBER_FONT,
+        fill: NODE_LABEL,
+        anchor: "middle",
+      }),
+    ];
+  }
+  const maxW = width - MARGIN - (n.x + n.r + 8);
+  return [
+    text(n.x + n.r + 8, n.y + 4, truncateToWidth(n.label, maxW, LABEL_FONT), {
+      size: LABEL_FONT,
+      fill: NODE_LABEL,
+    }),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Edges + loop badges
+// ---------------------------------------------------------------------------
+
+function renderEdge(e: GEdge): string {
+  const pts = e.points;
+  if (pts.length < 2) return "";
+  const d = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${round(p.x)} ${round(p.y)}`).join(" ");
+  const thin = e.kind === "fan" || e.kind === "merge";
+  const parts = [strokePath(d, EDGE, { width: thin ? FAN_W : EDGE_W })];
+  const tip = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+  parts.push(arrowHead(tip.x, tip.y, Math.atan2(tip.y - prev.y, tip.x - prev.x), EDGE));
+  if (e.label !== undefined) {
+    const mx = (prev.x + tip.x) / 2;
+    const my = (prev.y + tip.y) / 2;
+    parts.push(text(mx + 5, my, e.label, { size: 10.5, fill: EDGE_LABEL }));
+  }
+  return `<g class="edge">${parts.join("")}</g>`;
+}
+
+function renderLoop(loop: GLoop, i: number, layout: Layout, byId: Map<string, GNode>, width: number): string {
+  const node = byId.get(loop.onNode);
+  if (!node) return "";
+  // Stack multiple badges on one node (nested loops), inner-first, below the
+  // node's right-side label so neither the label nor the downward edge collides.
+  const rank = layout.loops.slice(0, i).filter((l) => l.onNode === loop.onNode).length;
+  const x = node.x + node.r + 8;
+  const y = node.y + node.r + 6 + rank * (LOOP_FONT + 3);
+  const maxW = width - MARGIN - x;
+  return `<g class="loop-badge">${text(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
+    size: LOOP_FONT,
+    weight: 600,
+    fill: ACCENT,
+  })}</g>`;
 }

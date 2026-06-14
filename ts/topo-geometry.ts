@@ -37,6 +37,9 @@ export interface GNode {
   model?: string;
   /** Pre-rendered multiplicity badge, e.g. "×4" / "×N" (RAW); absent ⇒ one. */
   mult?: string;
+  /** Row/grid member: render the label centered BELOW (a spine node defaults to
+   *  a right-side label, where the vertical flow leaves room). */
+  labelBelow?: boolean;
   /** Index into `Layout.lanes` — the lane this node landed in. */
   phase: number;
   /** Full text behind a truncation, surfaced as a `<title>` (RAW). */

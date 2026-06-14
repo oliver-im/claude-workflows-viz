@@ -10,14 +10,13 @@ import {
   parseWorkflowSource,
   readWorkflowSource,
 } from "./extract-meta.js";
-import { flattenTopology } from "./flatten-topology.js";
 import { wrapSvgHtml } from "./html.js";
 import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
+import { placeTopology } from "./place-topology.js";
 import { svgToPng } from "./render-png.js";
 import { renderSvg } from "./render-svg.js";
-import { renderTopologySvg } from "./render-topology.js";
-import { EMPTY_IR, type TopologyIR } from "./topology-ir.js";
+import { renderTopology } from "./render-topology.js";
 
 declare const __CWV_VERSION__: string;
 
@@ -77,36 +76,27 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
 }
 
 /**
- * The topology view: statically analyze the body (never executing it) into an
- * agent graph and render banded mini-graphs. A body with no recoverable
- * orchestration renders the v1-equivalent page wholesale (`EMPTY_IR` makes
- * every band a v1 phase card, byte-identical to `renderSvg`). The analyzer is
- * total by contract, so the try/catch is a defensive belt, not a control path
- * — but if analysis ever does throw, the CLI degrades to that same v1 page
- * with a one-line stderr warning and exit 0: visible, never fatal, never
- * silent.
+ * The topology view: statically analyze the body (never executing it) into the
+ * tree IR, place it as one graph-first swimlane layout, and render that. A body
+ * with no recoverable orchestration is by-design degradation, not failure — it
+ * renders the v1 phases page wholesale (byte-identical to `renderSvg`), with no
+ * warning. The analyzer and placement are total by contract, so the try/catch
+ * is a defensive belt: if anything ever does throw, the CLI degrades to that
+ * same v1 page with a one-line stderr warning and exit 0 — visible, never
+ * fatal, never silent.
  */
 function renderTopologyView(meta: Meta, program: acorn.Node, src: string): string {
-  const metaTitles = meta.phases.map((p) => p.title);
-  let ir: TopologyIR = EMPTY_IR;
-  let bandTitles: readonly string[] = metaTitles;
   try {
-    const topology = analyzeBody(program, src, metaTitles);
-    if (topology.hasOrchestration) {
-      const flat = flattenTopology(topology, meta);
-      ir = flat.ir;
-      bandTitles = flat.bandTitles;
-    }
+    const topology = analyzeBody(program, src, meta.phases.map((p) => p.title));
+    if (!topology.hasOrchestration) return renderSvg(meta);
+    return renderTopology(placeTopology(topology, meta), meta);
   } catch (e) {
-    // Whatever was thrown, the warning stays one line.
-    const reason = (e instanceof Error ? e.message : String(e))
-      .replace(/\s+/g, " ")
-      .trim();
+    const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
     process.stderr.write(
       `claude-workflows-viz: warning: body analysis failed (${reason}); rendering meta phases only\n`,
     );
+    return renderSvg(meta);
   }
-  return renderTopologySvg(meta, ir, bandTitles);
 }
 
 function run(workflow: string, opts: CliOpts): void {

@@ -39,20 +39,36 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   // trailing) collapse to slim strips the graph simply flows past. Because the
   // body calls phase() in order, top-level step bands are non-decreasing, so a
   // band strictly between the last-covered band and the next shape's band is
-  // genuinely empty — no later shape can reach back up to fill it.
+  // genuinely empty — no later shape can reach back up to fill it. Entering a
+  // new lane leaves chrome room; continuing one keeps a tight gap.
   let y = LANE_HEADER_H + LANE_PAD;
   let prevExits: string[] = [];
   let prevBand = -1;
+  let placedAny = false;
+  const gapInto = (b: number): number =>
+    !placedAny ? 0 : b !== prevBand ? LANE_GAP_CROSS : STACK_GAP;
   for (const step of topology.steps) {
-    const band = laneOf(step.phase);
-    for (let idx = prevBand + 1; idx < band; idx++) y = stripLane(lanes[idx], y);
+    const band = entryBand(step, ctx);
+    for (let idx = prevBand + 1; idx < band; idx++) {
+      y += gapInto(idx);
+      y = stripLane(lanes[idx], y);
+      prevBand = idx;
+      placedAny = true;
+    }
+    y += gapInto(band);
     const placed = placeStep(step, ctx, y);
     for (const exit of prevExits) connect(ctx, exit, placed.entry, "seq");
-    y = placed.bottom + STACK_GAP;
+    y = placed.bottom;
     prevExits = placed.exits;
     prevBand = Math.max(prevBand, placed.maxBand);
+    placedAny = true;
   }
-  for (let idx = prevBand + 1; idx < lanes.length; idx++) y = stripLane(lanes[idx], y);
+  for (let idx = prevBand + 1; idx < lanes.length; idx++) {
+    y += gapInto(idx);
+    y = stripLane(lanes[idx], y);
+    prevBand = idx;
+    placedAny = true;
+  }
 
   deriveLaneRanges(lanes, ctx.nodes);
   fixupUnsetLanes(lanes);
@@ -87,12 +103,15 @@ export const BARRIER_W = 30;
 /** Task/opaque box height and minimum width. */
 export const TASK_H = 30;
 export const TASK_MIN_W = 96;
-/** Chrome row (chip + title + model chip) reserved at the top of each lane. */
-export const LANE_HEADER_H = 26;
+/** Chrome row (chip + title + model chip) reserved above a lane's first node —
+ *  large enough that the title clears the node circles beneath it. */
+export const LANE_HEADER_H = 38;
 /** Padding between a lane's node bbox and its painted stripe edge. */
 export const LANE_PAD = 12;
-/** Vertical gap between stacked top-level shapes. */
-export const STACK_GAP = 38;
+/** Gap between stacked top-level shapes in the SAME lane. */
+export const STACK_GAP = 26;
+/** Gap when the flow crosses into a NEW lane (leaves room for its chrome). */
+export const LANE_GAP_CROSS = LANE_HEADER_H + LANE_PAD + 4;
 /** Slim height of an empty / control-only phase strip. */
 export const STRIP_H = 30;
 /** Vertical gap between a fork/barrier/sink and the row it brackets. */
@@ -219,13 +238,24 @@ function placeTranslated(ctx: Ctx, dx: number, place: () => Placed): Placed {
   const n0 = ctx.nodes.length;
   const e0 = ctx.edges.length;
   const placed = place();
-  if (dx !== 0) {
-    for (let i = n0; i < ctx.nodes.length; i++) ctx.nodes[i].x += dx;
-    for (let i = e0; i < ctx.edges.length; i++) {
-      for (const p of ctx.edges[i].points) (p as { x: number }).x += dx;
+  if (dx === 0) return placed;
+  let bottom = placed.bottom;
+  for (let i = n0; i < ctx.nodes.length; i++) {
+    const n = ctx.nodes[i];
+    n.x += dx;
+    // Off the spine now → its label belongs below, not to the right (where a
+    // sibling arm or the spine would sit). Keeps placement and renderer in
+    // agreement, and grows the reported bottom so the label's footprint is
+    // spaced for.
+    if (n.kind === "agent" && n.label !== "") {
+      n.labelBelow = true;
+      bottom = Math.max(bottom, n.y + n.r + LABEL_GAP + MEMBER_LABEL_H);
     }
   }
-  return placed;
+  for (let i = e0; i < ctx.edges.length; i++) {
+    for (const p of ctx.edges[i].points) (p as { x: number }).x += dx;
+  }
+  return { ...placed, bottom };
 }
 
 /** Symmetric horizontal offsets for n arms spread around the spine. */
@@ -340,6 +370,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
       y: rowCy,
       r: NODE_R,
       label,
+      labelBelow: true,
       phase: band,
       ...(model !== undefined ? { model } : {}),
     });
@@ -606,6 +637,7 @@ function placeStageCell(
       y: top + NODE_R,
       r: NODE_R,
       label,
+      labelBelow: true,
       phase: band,
       ...(s.model !== undefined ? { model: s.model } : {}),
       ...(badge !== undefined ? { mult: badge } : {}),
@@ -620,6 +652,7 @@ function placeStageCell(
       y: top + NODE_R,
       r: NODE_R,
       label: inner?.label ?? "task",
+      labelBelow: true,
       phase: band,
       ...(inner?.model !== undefined ? { model: inner.model } : {}),
       mult: badge,
@@ -770,6 +803,31 @@ function cellBand(step: Step, ctx: Ctx): number {
   return ctx.laneOf(step.phase);
 }
 
+/**
+ * The lane a shape's ENTRY node lands in — which can differ from its own
+ * `.phase` (a parallel/pipeline keeps the lexical phase of the call site, but
+ * its fork/first row belongs to the first arm/stage's phase). The flow uses
+ * this, not `step.phase`, to size the gap before a shape so the new lane's
+ * chrome always clears the previous content.
+ */
+function entryBand(step: Step, ctx: Ctx): number {
+  switch (step.kind) {
+    case "parallel":
+      if (step.form === "fanout") return cellBand(step, ctx);
+      return step.branches.length > 0
+        ? Math.min(...step.branches.map((a) => (a.length > 0 ? ctx.laneOf(a[0].phase) : ctx.laneOf(step.phase))))
+        : ctx.laneOf(step.phase);
+    case "pipeline":
+      return step.stages.length > 0 && step.stages[0].length > 0
+        ? cellBand(step.stages[0][0], ctx)
+        : ctx.laneOf(step.phase);
+    case "loop":
+      return step.body.length > 0 ? entryBand(step.body[0], ctx) : ctx.laneOf(step.phase);
+    default:
+      return ctx.laneOf(step.phase);
+  }
+}
+
 /** Multiplicity → fan badge, treating unknown as ×N (used for collapses). */
 function fanBadge(m: Multiplicity): string {
   return multBadge(m) ?? "×N";
@@ -851,12 +909,19 @@ function buildLanes(topology: Topology, meta: Meta): GLane[] {
   return lanes;
 }
 
-/** Mark a lane as a slim strip at the current cursor; returns the advanced cursor. */
+/** Mark a lane as a slim strip at the current cursor; returns the bottom (the
+ *  flow adds the gap before the next thing). */
 function stripLane(lane: GLane, y: number): number {
   lane.yTop = y;
   lane.yBot = y + STRIP_H;
   lane.empty = true;
-  return y + STRIP_H + STACK_GAP;
+  return y + STRIP_H;
+}
+
+/** Visual bottom of a node — its drawn extent, including a below-set label so a
+ *  lane's stripe encloses the text under its circles. */
+function visualBottom(n: GNode): number {
+  return n.y + halfHeight(n) + (n.labelBelow === true ? LABEL_GAP + MEMBER_LABEL_H : 0);
 }
 
 /** Content lanes (those a node landed in) get a stripe = node bbox + padding,
@@ -867,7 +932,7 @@ function deriveLaneRanges(lanes: GLane[], nodes: GNode[]): void {
     const own = nodes.filter((n) => n.phase === lane.phaseIndex);
     if (own.length === 0) continue;
     const top = Math.min(...own.map((n) => n.y - halfHeight(n)));
-    const bot = Math.max(...own.map((n) => n.y + halfHeight(n)));
+    const bot = Math.max(...own.map(visualBottom));
     lane.yTop = Math.max(0, top - LANE_HEADER_H);
     lane.yBot = bot + LANE_PAD;
     lane.empty = false;
