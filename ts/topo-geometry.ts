@@ -98,4 +98,10 @@ export interface Layout {
   nodes: GNode[];
   edges: GEdge[];
   loops: GLoop[];
+  /**
+   * Honest placement-time degradations the renderer needn't draw but the CLI
+   * surfaces (e.g. a wide fan-out collapsed to ×N, a multi-phase loop body
+   * kept local). Nothing is ever silently dropped.
+   */
+  notes: string[];
 }
