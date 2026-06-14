@@ -112,6 +112,9 @@ export const MIN_CELL = 2 * NODE_R + 16;
 export const MAX_CELL = 150;
 /** A row of members/columns must fit this width or it collapses to ×N. */
 export const MAX_ROW_W = W - 2 * 24;
+/** Horizontal separation between stacked branch / parallel arms (off the spine,
+ *  so a connector to a lower arm never passes through an upper one). */
+export const ARM_DX = 130;
 /** A literal-count fan-out wider than this draws as ×N rather than N circles. */
 export const ROW_CAP = 6;
 /** Full height of a single-node row/grid cell (circle + label below). */
@@ -202,6 +205,32 @@ function pushEdge(
   kind: GEdgeKind,
 ): void {
   ctx.edges.push({ from: fromId, to: toId, points, kind });
+}
+
+/**
+ * Place a sub-graph, then shift everything it created horizontally by `dx` — so
+ * a parallel/branch arm can sit off the spine without threading an x parameter
+ * through every template. Nodes and the points of edges created during the call
+ * move together; loop badges key off ids, so they ride along untouched. The
+ * surrounding fork/decision/barrier edges are made AFTER, against the shifted
+ * positions, so they connect cleanly.
+ */
+function placeTranslated(ctx: Ctx, dx: number, place: () => Placed): Placed {
+  const n0 = ctx.nodes.length;
+  const e0 = ctx.edges.length;
+  const placed = place();
+  if (dx !== 0) {
+    for (let i = n0; i < ctx.nodes.length; i++) ctx.nodes[i].x += dx;
+    for (let i = e0; i < ctx.edges.length; i++) {
+      for (const p of ctx.edges[i].points) (p as { x: number }).x += dx;
+    }
+  }
+  return placed;
+}
+
+/** Symmetric horizontal offsets for n arms spread around the spine. */
+function symmetricOffsets(n: number, step: number): number[] {
+  return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * step);
 }
 
 // ---------------------------------------------------------------------------
@@ -411,14 +440,23 @@ function placeBranches(step: ParallelStep & { form: "branches" }, ctx: Ctx, topY
   const armExits: string[] = [];
   let minBand = headBand;
   let maxBand = tailBand;
-  for (const arm of step.branches) {
-    const placed = placeChain(arm, ctx, y) ?? placeChainStub(ctx, y, ctx.laneOf(step.phase));
+  // Arms stack down (each carries its own lane) and fan off the spine so the
+  // fork edge to a lower arm never crosses an upper one — concurrency shown by
+  // the fork/join, lanes preserved by the stacking.
+  const offsets = symmetricOffsets(step.branches.length, ARM_DX);
+  let prevEndBand = -1;
+  step.branches.forEach((arm, i) => {
+    if (prevEndBand !== -1 && armBands[i] !== prevEndBand) y += LANE_HEADER_H;
+    const placed = placeTranslated(ctx, offsets[i], () =>
+      placeChain(arm, ctx, y) ?? placeChainStub(ctx, y, ctx.laneOf(step.phase)),
+    );
     connect(ctx, source.id, placed.entry, "fan");
     armExits.push(...placed.exits);
     y = placed.bottom + INNER_GAP;
+    prevEndBand = placed.maxBand;
     minBand = Math.min(minBand, placed.minBand);
     maxBand = Math.max(maxBand, placed.maxBand);
-  }
+  });
 
   const barrier = addNode(ctx, {
     kind: "barrier",
@@ -624,17 +662,27 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
     { steps: step.thenSteps, outcome: "yes" },
     { steps: step.elseSteps, outcome: "no" },
   ];
-  for (const arm of arms) {
-    const placed =
-      arm.steps.length > 0
-        ? (placeChain(arm.steps, ctx, y) as Placed)
-        : placeChainStub(ctx, y, band);
+  // The primary (first non-empty) arm continues straight down the spine — the
+  // main flow stays a vertical; the other arm(s) stack below and fan off to the
+  // side so the spine connector passes them cleanly. No barrier: exclusive
+  // choice, so every arm tail is an exit.
+  const primary = Math.max(0, arms.findIndex((a) => a.steps.length > 0));
+  const armBands = arms.map((a) => (a.steps.length > 0 ? ctx.laneOf(a.steps[0].phase) : band));
+  let sideRank = 0;
+  let prevEndBand = -1;
+  arms.forEach((arm, i) => {
+    if (prevEndBand !== -1 && armBands[i] !== prevEndBand) y += LANE_HEADER_H;
+    const dx = i === primary ? 0 : ++sideRank * ARM_DX;
+    const placed = placeTranslated(ctx, dx, () =>
+      arm.steps.length > 0 ? (placeChain(arm.steps, ctx, y) as Placed) : placeChainStub(ctx, y, band),
+    );
     connect(ctx, decision.id, placed.entry, "seq", arm.outcome);
     exits.push(...placed.exits);
     y = placed.bottom + INNER_GAP;
+    prevEndBand = placed.maxBand;
     minBand = Math.min(minBand, placed.minBand);
     maxBand = Math.max(maxBand, placed.maxBand);
-  }
+  });
   return {
     entry: decision.id,
     exits,
