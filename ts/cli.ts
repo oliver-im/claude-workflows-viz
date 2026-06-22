@@ -4,6 +4,7 @@ import { basename, extname, join } from "node:path";
 import type * as acorn from "acorn";
 import { Command } from "commander";
 import { analyzeBody } from "./analyze-body.js";
+import { emitAnalysisJson } from "./emit-json.js";
 import {
   MetaExtractionError,
   extractMetaFromProgram,
@@ -20,7 +21,7 @@ import { renderTopology } from "./render-topology.js";
 
 declare const __CWV_VERSION__: string;
 
-const FORMATS = ["svg", "png", "html"] as const;
+const FORMATS = ["svg", "png", "html", "json"] as const;
 export type Format = (typeof FORMATS)[number];
 
 const VIEWS = ["topology", "phases"] as const;
@@ -103,21 +104,27 @@ function run(workflow: string, opts: CliOpts): void {
   const format = resolveFormat(opts.format, opts.out);
   const view = resolveView(opts.view);
 
-  // One read, one parse — meta extraction and body analysis share the AST.
+  // One read, one parse — meta extraction, body analysis, and the json emit
+  // all share the AST.
   let meta: Meta;
-  let svg: string;
+  let data: string | Buffer;
   try {
     const src = readWorkflowSource(workflow);
     const program = parseWorkflowSource(src);
     meta = extractMetaFromProgram(program);
-    svg = view === "phases" ? renderSvg(meta) : renderTopologyView(meta, program, src);
+    if (format === "json") {
+      // The structured analysis is a dump of facts, not a rendered view, so
+      // `--view` is ignored here by design.
+      data = emitAnalysisJson(meta, program, src, workflow);
+    } else {
+      const svg = view === "phases" ? renderSvg(meta) : renderTopologyView(meta, program, src);
+      data =
+        format === "png" ? svgToPng(svg) : format === "html" ? wrapSvgHtml(svg, meta.name) : svg;
+    }
   } catch (e) {
     if (e instanceof MetaExtractionError) fail(e.message);
     throw e;
   }
-
-  const data: string | Buffer =
-    format === "png" ? svgToPng(svg) : format === "html" ? wrapSvgHtml(svg, meta.name) : svg;
 
   // Routing. Explicit --out always wins. Otherwise text formats (svg/html)
   // stream to stdout so the tool composes in pipelines; PNG is binary, so an
@@ -154,7 +161,7 @@ program
   .option("-o, --out <file>", "Write the diagram to this path (else stdout for svg/html)")
   .option(
     "--format <format>",
-    "Output format: svg | png | html (default: svg, or inferred from --out)",
+    "Output format: svg | png | html | json (default: svg, or inferred from --out). json dumps the static analysis (meta + body topology) for tooling/skills.",
   )
   .option(
     "--view <view>",

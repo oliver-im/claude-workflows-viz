@@ -160,12 +160,13 @@ describe("placeTopology — skeleton", () => {
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
-  it("a trailing empty band becomes a strip at the bottom", () => {
+  it("a trailing empty band becomes a terminal control node at the bottom", () => {
     const layout = placeTopology(
       topo([agent("a", "P1")], [band("P1"), band("P2")]),
       meta(["P1", "P2"]),
     );
-    expect(layout.lanes[1].empty).toBe(true);
+    expect(layout.lanes[1].empty).toBe(false);
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "end" && n.phase === 1)).toBe(true);
     expect(layout.lanes[1].yTop).toBeGreaterThanOrEqual(layout.lanes[0].yBot - 1);
   });
 

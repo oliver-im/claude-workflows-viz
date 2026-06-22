@@ -3,6 +3,7 @@ import type { Meta } from "./model.js";
 import type {
   AgentStep,
   BranchStep,
+  ControlStep,
   LoopStep,
   Multiplicity,
   ParallelStep,
@@ -65,7 +66,15 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   }
   for (let idx = prevBand + 1; idx < lanes.length; idx++) {
     y += gapInto(idx);
-    y = stripLane(lanes[idx], y);
+    const isTrailingTerminal = placedAny && idx === lanes.length - 1;
+    if (isTrailingTerminal) {
+      const terminal = placeTerminal(ctx, y, idx);
+      for (const exit of prevExits) connect(ctx, exit, terminal.entry, "seq");
+      y = terminal.bottom;
+      prevExits = terminal.exits;
+    } else {
+      y = stripLane(lanes[idx], y);
+    }
     prevBand = idx;
     placedAny = true;
   }
@@ -118,6 +127,10 @@ export const STRIP_H = 30;
 export const FAN_GAP = 16;
 /** Vertical gap between sequential steps inside a chain (arm / loop body). */
 export const INNER_GAP = 20;
+/** Height of one "↻ repeat …" badge row reserved below a loop head so the
+ *  badge never paints over the body content beneath it. Must match the
+ *  renderer's per-badge step (`LOOP_FONT + 3`). */
+export const LOOP_BADGE_ROW = 14;
 /** Vertical gap between pipeline stage rows. */
 export const STAGE_GAP = 26;
 /** Coral barrier (join bar) thickness. */
@@ -188,6 +201,7 @@ function byId(ctx: Ctx, id: string): GNode {
 function halfHeight(n: GNode): number {
   switch (n.kind) {
     case "task":
+    case "control":
     case "barrier":
       return (n.h ?? 2 * n.r) / 2;
     case "decision":
@@ -276,6 +290,8 @@ function placeStep(step: Step, ctx: Ctx, topY: number): Placed {
     case "workflow":
     case "opaque":
       return placeTask(step.label, ctx, topY, ctx.laneOf(step.phase));
+    case "control":
+      return placeControl(step, ctx, topY);
     case "parallel":
       return step.form === "fanout"
         ? placeFanout(step, ctx, topY)
@@ -444,14 +460,22 @@ function fanMembers(
     labels = Array.from({ length: Math.max(1, m.count) }, () => baseLabel);
   } else {
     // unknown, or a literal count past the cap → one representative ×N circle.
-    return { labels: [baseLabel], badge: fanBadge(m) };
+    return { labels: [representativeFanLabel(baseLabel, m)], badge: fanBadge(m) };
   }
   // Width guard: a row that would overflow collapses to ×N as well.
   if (labels.length * rowCellWidth(labels) > MAX_ROW_W) {
     note(ctx, `fan-out of ${labels.length} drawn as ${fanBadge(m)} (row exceeds width)`);
-    return { labels: [baseLabel], badge: fanBadge(m) };
+    return { labels: [representativeFanLabel(baseLabel, m)], badge: fanBadge(m) };
   }
   return { labels };
+}
+
+function representativeFanLabel(baseLabel: string, m: Multiplicity): string {
+  if (m.kind !== "unknown" || !m.hint) return baseLabel;
+  const action = /^[A-Za-z][\w -]{1,24}:/.test(baseLabel)
+    ? baseLabel.slice(0, baseLabel.indexOf(":"))
+    : baseLabel;
+  return `${action} each ${m.hint}`;
 }
 
 /**
@@ -738,23 +762,58 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
  * cross-lane back-route) — the multi-phase-loop residual.
  */
 function placeLoop(step: LoopStep, ctx: Ctx, topY: number): Placed {
+  const n0 = ctx.nodes.length;
+  const e0 = ctx.edges.length;
   const body = placeChain(step.body, ctx, topY);
   if (body === null) {
     const stub = placeTask("(empty loop body)", ctx, topY, ctx.laneOf(step.phase));
-    ctx.loops.push({ onNode: stub.entry, label: loopLabel(step) });
+    ctx.loops.push({ onNode: stub.entry, label: loopLabel(step), tooltip: loopTooltip(step) });
     return stub;
   }
-  ctx.loops.push({ onNode: body.entry, label: loopLabel(step) });
+  ctx.loops.push({ onNode: body.entry, label: loopLabel(step), tooltip: loopTooltip(step) });
   if (body.minBand !== body.maxBand) {
     note(ctx, `loop body spans phases; kept local with a repeat badge (no cross-lane back-edge)`);
   }
-  return body;
+  // The badge pins to the body's head and paints to its lower-right. Reserve a
+  // row of space by sliding everything the loop placed BELOW the head down one
+  // badge row, so the body content (a decision's arms, the next step) clears
+  // the badge. Nested loops share the head and reserve cumulatively — two
+  // stacked badges get two rows — which is exactly the choose-approach fix.
+  const head = byId(ctx, body.entry);
+  const newBottom = reserveBadgeRow(ctx, head, n0, e0);
+  return { ...body, bottom: Math.max(body.bottom, newBottom) };
+}
+
+/**
+ * Slide the loop's own nodes/edges that sit below its head down by one badge
+ * row, anchoring at the head's bottom so the head→body edge just lengthens
+ * (still downward — the invariant holds). Returns the new lowest extent.
+ */
+function reserveBadgeRow(ctx: Ctx, head: GNode, n0: number, e0: number): number {
+  const cut = head.y + halfHeight(head);
+  let bottom = head.y + halfHeight(head);
+  for (let i = n0; i < ctx.nodes.length; i++) {
+    const n = ctx.nodes[i];
+    if (n.id !== head.id && n.y > head.y) n.y += LOOP_BADGE_ROW;
+    bottom = Math.max(bottom, n.y + halfHeight(n) + (n.labelBelow === true ? LABEL_GAP + MEMBER_LABEL_H : 0));
+  }
+  for (let i = e0; i < ctx.edges.length; i++) {
+    for (const p of ctx.edges[i].points) {
+      if (p.y > cut) (p as { y: number }).y += LOOP_BADGE_ROW;
+    }
+  }
+  return bottom;
 }
 
 /** Verbatim loop phrasing for the repeat badge. */
 function loopLabel(step: LoopStep): string {
   const verb = step.loopKind === "while" || step.loopKind === "do-while" ? "while" : "for";
   return `repeat ${verb} ${step.conditionLabel}`;
+}
+
+function loopTooltip(step: LoopStep): string {
+  const verb = step.loopKind === "while" || step.loopKind === "do-while" ? "while" : "for";
+  return `repeat ${verb} ${step.conditionTooltip ?? step.conditionLabel}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -846,6 +905,7 @@ function placeAgent(step: AgentStep, ctx: Ctx, topY: number): Placed {
     phase: band,
     ...(step.model !== undefined ? { model: step.model } : {}),
     ...(mult !== undefined ? { mult } : {}),
+    ...(step.promptPreview !== undefined ? { tooltip: step.promptPreview } : {}),
   });
   return { entry: n.id, exits: [n.id], top: cy - NODE_R, bottom: cy + NODE_R, minBand: band, maxBand: band };
 }
@@ -864,6 +924,60 @@ function placeTask(label: string, ctx: Ctx, topY: number, band: number): Placed 
     phase: band,
   });
   return { entry: n.id, exits: [n.id], top: cy - TASK_H / 2, bottom: cy + TASK_H / 2, minBand: band, maxBand: band };
+}
+
+function controlExits(flow: ControlStep["flow"], id: string): string[] {
+  return flow === undefined ? [id] : [];
+}
+
+function placeControl(step: ControlStep, ctx: Ctx, topY: number): Placed {
+  const band = ctx.laneOf(step.phase);
+  const cy = topY + TASK_H / 2;
+  const w = Math.min(W - 2 * LANE_PAD, Math.max(TASK_MIN_W, Math.round(step.label.length * 7) + 30));
+  const n = addNode(ctx, {
+    kind: "control",
+    x: SPINE_X,
+    y: cy,
+    r: TASK_H / 2,
+    w,
+    h: TASK_H,
+    label: step.label,
+    phase: band,
+    ...(step.flow !== undefined ? { flow: step.flow } : {}),
+    ...(step.tooltip !== undefined ? { tooltip: step.tooltip } : {}),
+  });
+  return {
+    entry: n.id,
+    exits: controlExits(step.flow, n.id),
+    top: cy - TASK_H / 2,
+    bottom: cy + TASK_H / 2,
+    minBand: band,
+    maxBand: band,
+  };
+}
+
+function placeTerminal(ctx: Ctx, topY: number, band: number): Placed {
+  const cy = topY + TASK_H / 2;
+  const n = addNode(ctx, {
+    kind: "control",
+    x: SPINE_X,
+    y: cy,
+    r: TASK_H / 2,
+    w: TASK_MIN_W,
+    h: TASK_H,
+    label: "end",
+    phase: band,
+    flow: "terminal",
+    tooltip: "No agent/workflow calls were recovered in this phase.",
+  });
+  return {
+    entry: n.id,
+    exits: [],
+    top: cy - TASK_H / 2,
+    bottom: cy + TASK_H / 2,
+    minBand: band,
+    maxBand: band,
+  };
 }
 
 /** Literal-only multiplicity → badge text; `one` and bare unknown collapse to

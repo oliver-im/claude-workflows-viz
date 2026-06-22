@@ -4,6 +4,7 @@ import {
   type AgentStep,
   type AnalysisNote,
   type BandRef,
+  type ControlStep,
   type LoopStep,
   type Multiplicity,
   type OpaqueStep,
@@ -193,6 +194,17 @@ function opaqueLabel(ctx: Ctx, node: any): string {
 
 function opaque(ctx: Ctx, node: any): OpaqueStep {
   return { kind: "opaque", label: opaqueLabel(ctx, node), phase: ctx.ambientPhase, span: spanOf(node) };
+}
+
+function control(ctx: Ctx, node: any, label: string, flow: ControlStep["flow"]): ControlStep {
+  return {
+    kind: "control",
+    label,
+    flow,
+    phase: ctx.ambientPhase,
+    span: spanOf(node),
+    tooltip: sliceSource(ctx.src, spanOf(node), PROMPT_PREVIEW_MAX),
+  };
 }
 
 function registerBand(ctx: Ctx, title: string): void {
@@ -496,6 +508,67 @@ function skipScanned(ctx: Ctx, node: any): Step[] {
   return [];
 }
 
+function containsAbruptControl(node: any): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (Array.isArray(node)) return node.some(containsAbruptControl);
+  switch (node.type) {
+    case "ContinueStatement":
+    case "BreakStatement":
+    case "ReturnStatement":
+    case "ThrowStatement":
+      return true;
+    case "FunctionDeclaration":
+    case "FunctionExpression":
+    case "ArrowFunctionExpression":
+      return false;
+    default:
+      for (const key of Object.keys(node)) {
+        if (key === "type" || key === "start" || key === "end") continue;
+        if (containsAbruptControl(node[key])) return true;
+      }
+      return false;
+  }
+}
+
+function controlSteps(ctx: Ctx, node: any): Step[] {
+  if (!node || typeof node !== "object") return [];
+  switch (node.type) {
+    case "BlockStatement":
+      return (node.body ?? []).flatMap((stmt: any) => controlSteps(ctx, stmt));
+    case "ContinueStatement":
+      return [control(ctx, node, "continue loop", "continue")];
+    case "BreakStatement":
+      return [control(ctx, node, "break loop", "break")];
+    case "ReturnStatement": {
+      const label = node.argument
+        ? `return ${sliceSource(ctx.src, spanOf(node.argument), HINT_MAX)}`
+        : "return";
+      return [control(ctx, node, label, "return")];
+    }
+    case "ThrowStatement":
+      return [control(ctx, node, "throw", "throw")];
+    case "IfStatement": {
+      const nested = [
+        ...controlSteps(ctx, node.consequent),
+        ...(node.alternate ? controlSteps(ctx, node.alternate) : []),
+      ];
+      return nested.length > 0
+        ? [
+            control(
+              ctx,
+              node,
+              `if ${sliceSource(ctx.src, spanOf(node.test), HINT_MAX)}`,
+              undefined,
+            ),
+            ...nested,
+          ]
+        : [];
+    }
+    default:
+      return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Structural recognizers — loops & branches
 // ---------------------------------------------------------------------------
@@ -519,11 +592,14 @@ function loopSteps(ctx: Ctx, stmt: any): Step[] {
   const pre: Step[] = [];
   const shadowNames: string[] = [];
   let conditionLabel: string;
+  let conditionTooltip: string;
   let iterations: number | undefined;
 
   if (stmt.type === "ForOfStatement" || stmt.type === "ForInStatement") {
     // "const m of MODULES" — left-through-right slice.
-    conditionLabel = sliceSource(ctx.src, { start: stmt.left.start, end: stmt.right.end }, COND_MAX);
+    const conditionSpan = { start: stmt.left.start, end: stmt.right.end };
+    conditionLabel = sliceSource(ctx.src, conditionSpan, COND_MAX);
+    conditionTooltip = collapseWs(ctx.src.slice(conditionSpan.start, conditionSpan.end));
     if (stmt.type === "ForOfStatement") {
       const m = resolveMultiplicity(stmt.right, ctx);
       if (m.kind === "exact") iterations = m.count;
@@ -539,9 +615,9 @@ function loopSteps(ctx: Ctx, stmt: any): Step[] {
       shadowNames,
     );
   } else if (stmt.type === "ForStatement") {
-    conditionLabel = stmt.test
-      ? sliceSource(ctx.src, spanOf(stmt.test), COND_MAX)
-      : sliceSource(ctx.src, { start: stmt.start, end: stmt.body.start }, COND_MAX);
+    const conditionSpan = stmt.test ? spanOf(stmt.test) : { start: stmt.start, end: stmt.body.start };
+    conditionLabel = sliceSource(ctx.src, conditionSpan, COND_MAX);
+    conditionTooltip = collapseWs(ctx.src.slice(conditionSpan.start, conditionSpan.end));
     if (stmt.test) {
       pre.push(
         ...(containsOrchestration(stmt.test)
@@ -560,7 +636,9 @@ function loopSteps(ctx: Ctx, stmt: any): Step[] {
       for (const d of stmt.init.declarations ?? []) collectPatternNames(d.id, shadowNames);
     }
   } else {
-    conditionLabel = sliceSource(ctx.src, spanOf(stmt.test), COND_MAX);
+    const conditionSpan = spanOf(stmt.test);
+    conditionLabel = sliceSource(ctx.src, conditionSpan, COND_MAX);
+    conditionTooltip = collapseWs(ctx.src.slice(conditionSpan.start, conditionSpan.end));
     pre.push(
       ...(containsOrchestration(stmt.test)
         ? walkGated(ctx, stmt.test, "loop condition")
@@ -578,6 +656,7 @@ function loopSteps(ctx: Ctx, stmt: any): Step[] {
     kind: "loop",
     loopKind: LOOP_KINDS[stmt.type],
     conditionLabel,
+    conditionTooltip,
     ...(iterations !== undefined ? { iterations } : {}),
     body,
     phase,
@@ -589,15 +668,18 @@ function loopSteps(ctx: Ctx, stmt: any): Step[] {
 }
 
 /**
- * An `if` with orchestration in at least one arm becomes a `BranchStep`
- * (statement arms wrap as 1-element lists; a missing/non-orchestrating arm is
- * `[]`). A logs-only `if` is omitted entirely. Orchestration in the test runs
- * first — prepended.
+ * An `if` with orchestration in at least one arm becomes a `BranchStep`.
+ * Non-orchestrating arms that abruptly alter control flow (`continue`,
+ * `return`, etc.) are kept as explicit control nodes because they explain
+ * which path does not continue to later steps. A logs-only `if` is omitted
+ * entirely. Orchestration in the test runs first — prepended.
  */
 function branchSteps(ctx: Ctx, stmt: any): Step[] {
   const thenOrch = containsOrchestration(stmt.consequent);
   const elseOrch = stmt.alternate ? containsOrchestration(stmt.alternate) : false;
-  if (!thenOrch && !elseOrch) {
+  const thenControl = !thenOrch && containsAbruptControl(stmt.consequent);
+  const elseControl = !elseOrch && stmt.alternate ? containsAbruptControl(stmt.alternate) : false;
+  if (!thenOrch && !elseOrch && !thenControl && !elseControl) {
     if (containsOrchestration(stmt.test)) {
       const pre = walkGated(ctx, stmt.test, "branch condition");
       notePhaseMarkerDrops(ctx, stmt.consequent);
@@ -610,8 +692,15 @@ function branchSteps(ctx: Ctx, stmt: any): Step[] {
   const pre = containsOrchestration(stmt.test)
     ? walkGated(ctx, stmt.test, "branch condition")
     : skipScanned(ctx, stmt.test);
-  const walkArm = (arm: any, orch: boolean): Step[] => {
-    if (!arm || !orch) return skipScanned(ctx, arm);
+  const walkArm = (arm: any, orch: boolean, keepControl: boolean): Step[] => {
+    if (!arm) return [];
+    if (keepControl) {
+      return withScopedPhase(ctx, () => {
+        notePhaseMarkerDrops(ctx, arm);
+        return controlSteps(ctx, arm);
+      });
+    }
+    if (!orch) return skipScanned(ctx, arm);
     // Arms are alternative futures — a marker in one must not band the other
     // (or anything after the branch).
     return withScopedPhase(ctx, () =>
@@ -623,8 +712,8 @@ function branchSteps(ctx: Ctx, stmt: any): Step[] {
     {
       kind: "branch",
       conditionLabel: sliceSource(ctx.src, spanOf(stmt.test), COND_MAX),
-      thenSteps: walkArm(stmt.consequent, thenOrch),
-      elseSteps: walkArm(stmt.alternate, elseOrch),
+      thenSteps: walkArm(stmt.consequent, thenOrch, thenControl),
+      elseSteps: walkArm(stmt.alternate, elseOrch, elseControl),
       phase,
       span: spanOf(stmt),
     },
@@ -1127,6 +1216,7 @@ function stepsHaveOrchestration(steps: readonly Step[]): boolean {
       case "branch":
         return stepsHaveOrchestration(s.thenSteps) || stepsHaveOrchestration(s.elseSteps);
       case "opaque":
+      case "control":
         return false;
     }
   });

@@ -8,6 +8,7 @@ import { parseWorkflowSource } from "../extract-meta.js";
 import type {
   AgentStep,
   BranchStep,
+  ControlStep,
   LoopStep,
   ParallelStep,
   PipelineStep,
@@ -257,6 +258,20 @@ describe("analyzeBody — workflow & catch-all degradation", () => {
     const t = analyze(`let r;\nr = await agent("x");`);
     expect(t.steps.map((s) => s.kind)).toEqual(["agent"]);
     expect(t.notes).toEqual([]);
+  });
+
+  it("keeps abrupt non-agent branch arms as deterministic control nodes", () => {
+    const t = analyze(
+      `while (again) {\n  await agent("find");\n  if (fresh.length === 0) {\n    dryRounds += 1;\n    continue;\n  }\n  await agent("verify");\n}`,
+    );
+    const loop = t.steps[0] as LoopStep;
+    expect(loop.body.map((s) => s.kind)).toEqual(["agent", "branch", "agent"]);
+    const br = loop.body[1] as BranchStep;
+    expect(br.conditionLabel).toBe("fresh.length === 0");
+    expect(br.thenSteps.map((s) => s.kind)).toEqual(["control"]);
+    expect((br.thenSteps[0] as ControlStep).label).toBe("continue loop");
+    expect((br.thenSteps[0] as ControlStep).flow).toBe("continue");
+    expect(br.elseSteps).toEqual([]);
   });
 
   it("walks try blocks inline and flattens orchestrating handlers with a note", () => {

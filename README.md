@@ -23,13 +23,13 @@ npx claude-workflows-viz <workflow.js>
 ## Usage
 
 ```
-claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html] [--view topology|phases] [--open]
+claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view topology|phases] [--open]
 ```
 
 | Option | Description |
 | --- | --- |
-| `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML stream to **stdout**. |
-| `--format <fmt>` | `svg` (default), `png`, or `html`. Inferred from `--out`'s extension when omitted. |
+| `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
+| `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. |
 | `--view <view>` | `topology` (default) draws the body as one graph-first swimlane diagram; `phases` renders the v1 meta-only phase cards. |
 | `--open` | Open the rendered output in your default app after writing. |
 | `-v, --version` | Print the version. |
@@ -80,6 +80,22 @@ The eight bundled workflows cover the common orchestration patterns; each links 
 | [`choose-approach.js`](examples/choose-approach.js) | tournament — drafts, then a pairwise-judging loop until one stands | [SVG](examples/choose-approach.svg) · [PNG](examples/choose-approach.png) |
 | [`hunt-bugs.js`](examples/hunt-bugs.js) | loop-until-done — keep spawning finders until rounds come up dry | [SVG](examples/hunt-bugs.svg) · [PNG](examples/hunt-bugs.png) |
 | [`dual-lineage-review.js`](examples/dual-lineage-review.js) | dual-lineage — two independent reviewer lineages, merged verdicts | [SVG](examples/dual-lineage-review.svg) · [PNG](examples/dual-lineage-review.png) |
+
+## Making a diagram readable
+
+The renderer is deliberately **literal**: it draws what the body *says*, verbatim. A fan-out labeled `` `draft:${p}` `` renders as `draft:simplest`; a branch on `!b` shows `!b`; a loop badge quotes its raw condition. That honesty is the point — the tool never guesses what your code "means" — but it also means a cryptic workflow makes a cryptic diagram. Readable diagrams come from readable **source**, not from the binary paraphrasing your code at render time.
+
+Two pieces close that gap without compromising determinism:
+
+- **`--format json`** dumps the full static analysis — the validated `meta` plus the body's topology tree (every label, count, condition, and source span) — as machine-readable JSON. It is the read contract for tooling that wants the structure without scraping SVG.
+
+  ```sh
+  claude-workflows-viz your-workflow.js --format json | jq .topology.steps
+  ```
+
+- **The `workflow-readability` skill** (in [`skills/workflow-readability/`](skills/workflow-readability/SKILL.md)) is a Claude skill that reads that JSON, finds the code-shaped labels and thin phase details, and rewrites the workflow's *own authored strings* (`agent(..., { label })`, `meta.phases[].detail`) into prose — an authoring pass you review and commit. The binary then renders the now-clearer source, still deterministically. Prose generation lives in the skill; the binary stays a faithful renderer.
+
+  A worked before/after lives in [`skills/workflow-readability/example/`](skills/workflow-readability/example/): the same tournament workflow with `draft:${p}` → `Draft the ${p} approach`, `match:${i / 2}` → `Judge this pairing`, and `!b` → `!opponent` ([before](skills/workflow-readability/example/choose-approach.before.png) · [after](skills/workflow-readability/example/choose-approach.after.png)) — only strings changed, the bracket logic is identical.
 
 ## How it works
 

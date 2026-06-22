@@ -9,8 +9,8 @@ import { truncatePlain } from "./svg-primitives.js";
  *
  * Honesty contract carried by these types: counts appear only when literal
  * (`exact`/`named`), everything else is `unknown` with at most a verbatim
- * source hint; condition labels are truncated source slices, never
- * paraphrases; every degradation surfaces as an `OpaqueStep` or an
+ * source hint; condition labels and control labels are truncated source slices
+ * or fixed JS-control terms, never paraphrases; every degradation surfaces as an `OpaqueStep` or an
  * `AnalysisNote` — nothing is silently dropped. IR strings are RAW source
  * text — escaping happens at render time.
  */
@@ -72,6 +72,17 @@ export interface OpaqueStep extends StepBase {
 }
 
 /**
+ * A non-agent control action that changes how the surrounding flow reads. These
+ * are deterministic JS facts (`continue`, `return`, etc.), not inferred prose.
+ */
+export interface ControlStep extends StepBase {
+  kind: "control";
+  label: string;
+  flow?: "continue" | "break" | "return" | "throw" | "terminal";
+  tooltip?: string;
+}
+
+/**
  * `parallel(...)`: either a literal array of thunks (k distinct branches) or
  * a `.map` fan-out (one body repeated per item, with the items' multiplicity).
  */
@@ -93,6 +104,8 @@ export interface LoopStep extends StepBase {
   loopKind: "while" | "do-while" | "for" | "for-of" | "for-in";
   /** Verbatim truncated source slice of the test (or loop header). */
   conditionLabel: string;
+  /** Full collapsed source slice for tooltips when the label was truncated. */
+  conditionTooltip?: string;
   /** Only when iterating a literal-resolvable collection. */
   iterations?: number;
   body: Step[];
@@ -111,6 +124,7 @@ export type Step =
   | AgentStep
   | WorkflowStep
   | OpaqueStep
+  | ControlStep
   | ParallelStep
   | PipelineStep
   | LoopStep

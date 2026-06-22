@@ -16,7 +16,7 @@
  */
 
 /** The drawable node vocabulary the placement maps the analyzer shapes onto. */
-export type GNodeKind = "agent" | "barrier" | "decision" | "task" | "hub";
+export type GNodeKind = "agent" | "barrier" | "decision" | "task" | "control" | "hub";
 
 export interface GNode {
   id: string;
@@ -44,6 +44,8 @@ export interface GNode {
   phase: number;
   /** Full text behind a truncation, surfaced as a `<title>` (RAW). */
   tooltip?: string;
+  /** Abrupt JS flow represented by a control node. */
+  flow?: "continue" | "break" | "return" | "throw" | "terminal";
 }
 
 /**
@@ -74,6 +76,8 @@ export interface GLoop {
   onNode: string;
   /** RAW phrasing, e.g. "repeat while bracket.length > 1". */
   label: string;
+  /** Full RAW phrasing for browser tooltips when the label is truncated. */
+  tooltip?: string;
 }
 
 /** A phase as a painted swimlane stripe behind wherever its nodes landed. */

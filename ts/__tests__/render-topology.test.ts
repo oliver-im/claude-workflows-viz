@@ -5,6 +5,7 @@ import type { Meta } from "../model.js";
 import type {
   AgentStep,
   BandRef,
+  ControlStep,
   LoopStep,
   Multiplicity,
   ParallelStep,
@@ -38,6 +39,17 @@ const loop = (conditionLabel: string, body: Step[], phase: string | null): LoopS
   loopKind: "while",
   conditionLabel,
   body,
+  phase,
+  span,
+});
+const control = (
+  label: string,
+  phase: string | null,
+  flow: ControlStep["flow"],
+): ControlStep => ({
+  kind: "control",
+  label,
+  flow,
   phase,
   span,
 });
@@ -91,8 +103,9 @@ describe("renderTopology", () => {
     expect(opens).toBe(closes);
   });
 
-  it("draws swimlane stripes, agent circles, a coral barrier, and a loop badge — no banded-engine classes", () => {
+  it("draws phase overview cards, swimlane stripes, agent circles, a coral barrier, and a loop badge", () => {
     const svg = tournament();
+    expect(svg).toContain('class="phase-card"');
     expect(svg).toContain('class="swimlane"');
     expect(svg).toContain('class="agent-node"');
     expect(svg).toContain('class="barrier"');
@@ -102,7 +115,6 @@ describe("renderTopology", () => {
     expect(svg).not.toContain("xband");
     expect(svg).not.toContain("gutter");
     expect(svg).not.toContain("graph-band");
-    expect(svg).not.toContain("phase-card");
   });
 
   it("renders a control-only phase as a slim strip, not a numbered card", () => {
@@ -117,6 +129,18 @@ describe("renderTopology", () => {
     expect(svg).toContain("#dcfce7"); // sonnet stripe
     expect(svg).toContain("#ede9fe"); // opus stripe
     expect(svg).toContain("#dbeafe"); // haiku stripe
+  });
+
+  it("renders control nodes and loop tooltips", () => {
+    const svg = render(
+      topo([loop("again", [agent("find", "Find"), control("continue loop", "Find", "continue")], "Find")], [
+        band("Find"),
+      ]),
+      meta([{ title: "Find", model: "sonnet" }]),
+    );
+    expect(svg).toContain('class="control-node"');
+    expect(svg).toContain("continue loop");
+    expect(svg).toContain("<title>repeat while again</title>");
   });
 
   it("shows every fan member (named expansion), each drawn as an agent circle", () => {

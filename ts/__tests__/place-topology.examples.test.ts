@@ -91,7 +91,7 @@ describe("placeTopology — corpus composition", () => {
   it("triage: router fan contained in its lane; classify→route→fix is a vertical spine", () => {
     const layout = place("triage-issue.js");
     const reply = layout.lanes.find((l) => l.title === "Reply or escalate");
-    expect(reply?.empty).toBe(true); // control-only trailing strip
+    expect(reply?.empty).toBe(false); // trailing control-only phase gets an explicit end node
 
     const decision = layout.nodes.find((n) => n.kind === "decision");
     expect(decision).toBeDefined();
@@ -105,11 +105,15 @@ describe("placeTopology — corpus composition", () => {
     expect(spineSeq.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("hunt-bugs: a single local loop badge, no back-edge, the exit phase is a strip", () => {
+  it("hunt-bugs: loop badge, dry-path control, readable verify fan-out, and visible end phase", () => {
     const layout = place("hunt-bugs.js");
     expect(layout.loops).toHaveLength(1);
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "continue loop")).toBe(true);
+    expect(layout.nodes.some((n) => n.kind === "agent" && n.label === "verify each fresh")).toBe(true);
     const stop = layout.lanes.find((l) => l.title === "Stop when the well runs dry");
-    expect(stop?.empty).toBe(true);
+    expect(stop?.empty).toBe(false);
+    const stopLane = layout.lanes.findIndex((l) => l.title === "Stop when the well runs dry");
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "end" && n.phase === stopLane)).toBe(true);
     expect(layout.notes.some((n) => n.includes("spans phases"))).toBe(true);
     expect(backRoutes(layout)).toEqual([]);
   });

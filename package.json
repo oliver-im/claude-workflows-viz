@@ -9,7 +9,8 @@
   "files": [
     "dist",
     "README.md",
-    "examples"
+    "examples",
+    "skills"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

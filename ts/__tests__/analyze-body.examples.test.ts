@@ -7,6 +7,7 @@ import { extractMetaFromProgram, parseWorkflowSource } from "../extract-meta.js"
 import type {
   AgentStep,
   BranchStep,
+  ControlStep,
   LoopStep,
   ParallelStep,
   PipelineStep,
@@ -229,13 +230,17 @@ describe("per-example structure", () => {
     const inner = outer.body[0] as LoopStep;
     expect(inner.loopKind).toBe("for");
     expect(inner.conditionLabel).toBe("i < bracket.length");
-    expect(inner.body.map((s) => s.kind)).toEqual(["agent"]);
-    const match = inner.body[0] as AgentStep;
+    expect(inner.body.map((s) => s.kind)).toEqual(["branch", "agent"]);
+    const bye = inner.body[0] as BranchStep;
+    expect(bye.conditionLabel).toBe("!b");
+    expect(bye.thenSteps.map((s) => s.kind)).toEqual(["control"]);
+    expect((bye.thenSteps[0] as ControlStep).label).toBe("continue loop");
+    const match = inner.body[1] as AgentStep;
     expect(match.label).toBe("match:${i / 2}");
     expect(match.phase).toBe("Judge pairwise");
   });
 
-  it("hunt-bugs: one while loop spanning bands, with the find agent and verify fan-out", () => {
+  it("hunt-bugs: one while loop spanning bands, with dry-path control and verify fan-out", () => {
     const t = analyzeExample("hunt-bugs.js");
     expect(t.steps.map((s) => s.kind)).toEqual(["loop"]);
     const loop = t.steps[0] as LoopStep;
@@ -243,9 +248,15 @@ describe("per-example structure", () => {
     expect(loop.conditionLabel.startsWith("dryRounds < 2 &&")).toBe(true);
     expect(loop.conditionLabel.endsWith("…")).toBe(true); // COND_MAX-truncated, verbatim
     expect(loop.phase).toBe("Find a round of bugs");
-    expect(loop.body.map((s) => s.kind)).toEqual(["agent", "parallel"]);
+    expect(loop.body.map((s) => s.kind)).toEqual(["agent", "branch", "parallel"]);
     expect(loop.body[0].phase).toBe("Find a round of bugs");
-    const fan = loop.body[1] as Fanout;
+    const dry = loop.body[1] as BranchStep;
+    expect(dry.conditionLabel).toBe("fresh.length === 0");
+    expect(dry.thenSteps.map((s) => s.kind)).toEqual(["control"]);
+    expect((dry.thenSteps[0] as ControlStep).label).toBe("continue loop");
+    expect((dry.thenSteps[0] as ControlStep).flow).toBe("continue");
+    expect(dry.elseSteps).toEqual([]);
+    const fan = loop.body[2] as Fanout;
     expect(fan.phase).toBe("Verify and bank the survivors"); // the loop spans bands
     expect(fan.multiplicity).toEqual({ kind: "unknown", hint: "fresh" });
     expect(fan.body.map((s) => s.kind)).toEqual(["agent"]);

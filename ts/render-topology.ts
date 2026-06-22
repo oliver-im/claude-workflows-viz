@@ -1,6 +1,6 @@
 import type { Meta } from "./model.js";
 import type { GEdge, GLane, GLoop, GNode, Layout } from "./topo-geometry.js";
-import { renderHeader, renderModelBadge } from "./render-svg.js";
+import { renderHeader, renderModelBadge, renderPhaseCard } from "./render-svg.js";
 import {
   GAP,
   MARGIN,
@@ -35,8 +35,17 @@ import {
  */
 export function renderTopology(layout: Layout, meta: Meta): string {
   const width = layout.width;
-  const header = renderHeader(meta, MARGIN, width - 2 * MARGIN);
-  const yOffset = MARGIN + header.height + GAP;
+  const blocks = [
+    renderHeader(meta, MARGIN, width - 2 * MARGIN),
+    ...meta.phases.map((phase, i) => renderPhaseCard(phase, i + 1, MARGIN, width - 2 * MARGIN)),
+  ];
+  let cardY = MARGIN;
+  const cards: string[] = [];
+  for (const block of blocks) {
+    cards.push(`<g transform="translate(0 ${round(cardY)})">${block.body}</g>`);
+    cardY += block.height + GAP;
+  }
+  const yOffset = cardY;
   const byId = new Map(layout.nodes.map((n) => [n.id, n]));
 
   const stripes = layout.lanes.map((l) => renderStripe(l, width)).join("");
@@ -59,7 +68,8 @@ export function renderTopology(layout: Layout, meta: Meta): string {
     `viewBox="0 0 ${width} ${height}" ` +
     `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
     `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
-    `<g transform="translate(0 ${MARGIN})">${header.body}</g>\n` +
+    cards.join("\n") +
+    "\n" +
     graph +
     `\n</svg>\n`
   );
@@ -76,6 +86,8 @@ const EDGE_LABEL = "#94a3b8";
 const NODE_LABEL = "#334155";
 const TITLE = "#0f172a";
 const MUTED = "#94a3b8";
+const CONTROL_FILL = "#fff7ed";
+const CONTROL_STROKE = "#fb923c";
 const HUB_FILL = "#94a3b8";
 const STRIPE_STROKE = "#e8edf3";
 const STRIPE_EMPTY_FILL = "#eef2f7";
@@ -185,6 +197,8 @@ function renderNode(n: GNode, width: number): string {
       return renderBarrier(n);
     case "decision":
       return renderDecision(n);
+    case "control":
+      return renderControl(n);
     case "task":
       return renderTask(n);
     case "hub":
@@ -259,6 +273,24 @@ function renderTask(n: GNode): string {
   return `<g class="task-node">${parts.join("")}</g>`;
 }
 
+function renderControl(n: GNode): string {
+  const w = n.w ?? 96;
+  const h = n.h ?? 30;
+  const parts = [
+    ...(n.tooltip !== undefined ? [`<title>${escapeSvgText(n.tooltip)}</title>`] : []),
+    `<rect class="control-box" x="${round(n.x - w / 2)}" y="${round(n.y - h / 2)}" ` +
+      `width="${round(w)}" height="${round(h)}" rx="8" fill="${CONTROL_FILL}" ` +
+      `stroke="${CONTROL_STROKE}" stroke-width="1.2" stroke-dasharray="4 3"/>`,
+    text(n.x, n.y + 4, truncateToWidth(n.label, w - 14, LABEL_FONT - 0.5), {
+      size: LABEL_FONT - 0.5,
+      fill: "#9a3412",
+      weight: 600,
+      anchor: "middle",
+    }),
+  ];
+  return `<g class="control-node">${parts.join("")}</g>`;
+}
+
 /** A node's label: BELOW and centered for a row/grid member or off-spine arm
  *  (placement flags these), to the RIGHT otherwise — where the vertical flow
  *  exits the node's bottom and leaves the side clear. */
@@ -312,7 +344,7 @@ function renderLoop(loop: GLoop, i: number, layout: Layout, byId: Map<string, GN
   const x = node.x + node.r + 8;
   const y = node.y + node.r + 6 + rank * (LOOP_FONT + 3);
   const maxW = width - MARGIN - x;
-  return `<g class="loop-badge">${text(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
+  return `<g class="loop-badge"><title>${escapeSvgText(loop.tooltip ?? loop.label)}</title>${text(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
     size: LOOP_FONT,
     weight: 600,
     fill: ACCENT,

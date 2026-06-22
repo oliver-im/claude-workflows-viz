@@ -76,6 +76,31 @@ describe("cli smoke", () => {
     expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
   });
 
+  it("emits the static analysis as JSON with --format json", () => {
+    const res = runCli([summarizeExample, "--format", "json"]);
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe("");
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.schema).toBe("claude-workflows-viz/analysis@1");
+    expect(parsed.source).toContain("summarize-codebase.js");
+    expect(parsed.meta.name).toBeTruthy();
+    expect(Array.isArray(parsed.topology.steps)).toBe(true);
+    expect(parsed.topology.hasOrchestration).toBe(true);
+    // The faithful IR carries the verbatim, un-paraphrased labels the skill reads.
+    const kinds = parsed.topology.steps.map((s: { kind: string }) => s.kind);
+    expect(kinds).toContain("parallel");
+  });
+
+  it("infers json format from the -o extension and is deterministic", () => {
+    const out = join(workDir, "analysis.json");
+    const res = runCli([summarizeExample, "-o", out]);
+    expect(res.status).toBe(0);
+    const first = readFileSync(out, "utf8");
+    expect(JSON.parse(first).schema).toBe("claude-workflows-viz/analysis@1");
+    runCli([summarizeExample, "-o", out]);
+    expect(readFileSync(out, "utf8")).toBe(first); // byte-identical re-run
+  });
+
   it("exits non-zero with a clear message for a missing file", () => {
     const res = runCli([join(workDir, "does-not-exist.js")]);
     expect(res.status).not.toBe(0);
