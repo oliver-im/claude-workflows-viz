@@ -1078,3 +1078,65 @@ function pageHeight(lanes: GLane[], nodes: GNode[]): number {
   const nodeBot = nodes.reduce((m, n) => Math.max(m, n.y + halfHeight(n)), 0);
   return Math.max(laneBot, nodeBot) + LANE_PAD;
 }
+
+/**
+ * Co-registration for the swimlane-table render: make each lane's painted band
+ * at least as tall as its left label cell, so the label and its graph slice
+ * share one row. `minHeights[i]` is the required height for lane `i` (the label
+ * cell's measured height); a lane shorter than its label is inflated and
+ * everything strictly below it slides down by the same delta — the rigid
+ * downward shift keeps every edge flowing down (the layout invariant) and
+ * leaves the graph's internal placement otherwise untouched.
+ *
+ * The extra space is added at the band's BOTTOM: graph nodes already sit at the
+ * top of their band and the label cell is top-aligned, so the surplus becomes
+ * trailing whitespace in whichever cell is shorter. Mirrors `reserveBadgeRow`'s
+ * shift (nodes by lane index, edge points by a y-cut). Lanes are processed in
+ * band order; each shift moves later lanes rigidly, so heights stay stable.
+ */
+export function reserveLaneHeights(layout: Layout, minHeights: number[]): void {
+  let total = 0;
+  for (let i = 0; i < layout.lanes.length; i++) {
+    const lane = layout.lanes[i];
+    const delta = (minHeights[i] ?? 0) - (lane.yBot - lane.yTop);
+    if (delta <= 0) continue;
+    const cut = lane.yBot;
+    lane.yBot += delta;
+    for (let j = i + 1; j < layout.lanes.length; j++) {
+      layout.lanes[j].yTop += delta;
+      layout.lanes[j].yBot += delta;
+    }
+    for (const n of layout.nodes) {
+      if (n.phase > i) n.y += delta;
+    }
+    for (const e of layout.edges) {
+      for (const p of e.points) {
+        if (p.y > cut) (p as { y: number }).y += delta;
+      }
+    }
+    total += delta;
+  }
+  layout.height += total;
+}
+
+/**
+ * Snap adjacent lane bands together so the swimlane table reads as one
+ * continuous table with NO gaps between rows. The graph flow leaves a small,
+ * uneven gap between consecutive phases (some of `LANE_GAP_CROSS`/`STACK_GAP`
+ * that neither band's stripe covers); this moves every interior boundary to the
+ * midpoint of that gap, so row `i`'s bottom meets row `i+1`'s top exactly.
+ *
+ * Purely cosmetic and safe: only the painted band bounds move, and only OUTWARD
+ * into the gaps — a band can grow but never shrinks below its label cell — while
+ * nodes, edges, and the table's outer top/bottom are untouched, so
+ * `layout.height` is unchanged.
+ */
+export function closeLaneGaps(layout: Layout): void {
+  for (let i = 0; i < layout.lanes.length - 1; i++) {
+    const a = layout.lanes[i];
+    const b = layout.lanes[i + 1];
+    const mid = (a.yBot + b.yTop) / 2;
+    a.yBot = mid;
+    b.yTop = mid;
+  }
+}

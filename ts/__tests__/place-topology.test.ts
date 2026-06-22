@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { NODE_R, SPINE_X, placeTopology } from "../place-topology.js";
+import {
+  NODE_R,
+  SPINE_X,
+  closeLaneGaps,
+  placeTopology,
+  reserveLaneHeights,
+} from "../place-topology.js";
 import type { Meta } from "../model.js";
 import type {
   AgentStep,
@@ -347,5 +353,100 @@ describe("placeTopology — sub-shapes", () => {
     expect(layout.loops).toHaveLength(1);
     expect(layout.notes.some((n) => n.includes("spans phases"))).toBe(true);
     expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+});
+
+describe("reserveLaneHeights — swimlane-table co-registration", () => {
+  // A 3-lane sequential graph: one agent per phase, joined by cross-phase
+  // edges — exactly the shape the table co-registration has to slide down.
+  const threeLane = () =>
+    placeTopology(
+      topo(
+        [agent("a", "One"), agent("b", "Two"), agent("c", "Three")],
+        [band("One"), band("Two"), band("Three")],
+      ),
+      meta(["One", "Two", "Three"]),
+    );
+
+  it("inflates a too-short lane and slides everything below down by the delta", () => {
+    const layout = threeLane();
+    const before = {
+      lane0H: layout.lanes[0].yBot - layout.lanes[0].yTop,
+      lane1Top: layout.lanes[1].yTop,
+      lane2Top: layout.lanes[2].yTop,
+      height: layout.height,
+      nodeY: layout.nodes.map((n) => n.y),
+    };
+    const target = before.lane0H + 100;
+    reserveLaneHeights(layout, [target, 0, 0]);
+
+    // lane 0 grew to exactly the requested height (delta +100)...
+    expect(layout.lanes[0].yBot - layout.lanes[0].yTop).toBe(target);
+    // ...later lanes slid down rigidly by the same delta (height preserved)...
+    expect(layout.lanes[1].yTop).toBe(before.lane1Top + 100);
+    expect(layout.lanes[2].yTop).toBe(before.lane2Top + 100);
+    // ...lane-0 node stayed put; later-lane nodes moved down by the delta...
+    expect(layout.nodes[0].y).toBe(before.nodeY[0]);
+    expect(layout.nodes[1].y).toBe(before.nodeY[1] + 100);
+    expect(layout.nodes[2].y).toBe(before.nodeY[2] + 100);
+    // ...the page grew by the delta and every edge still flows downward.
+    expect(layout.height).toBe(before.height + 100);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+
+  it("leaves lanes already taller than their min untouched", () => {
+    const layout = threeLane();
+    const snapshot = JSON.stringify(layout);
+    reserveLaneHeights(layout, [0, 0, 0]); // every band already exceeds 0
+    expect(JSON.stringify(layout)).toBe(snapshot);
+  });
+
+  it("accumulates deltas when several lanes inflate", () => {
+    const layout = threeLane();
+    const lane2TopBefore = layout.lanes[2].yTop;
+    const h0 = layout.lanes[0].yBot - layout.lanes[0].yTop;
+    const h1 = layout.lanes[1].yBot - layout.lanes[1].yTop;
+    reserveLaneHeights(layout, [h0 + 30, h1 + 20, 0]);
+    // lane 2 sits below both inflations → shifted by 30 + 20.
+    expect(layout.lanes[2].yTop).toBe(lane2TopBefore + 50);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+});
+
+describe("closeLaneGaps — seamless swimlane table", () => {
+  const threeLane = () =>
+    placeTopology(
+      topo(
+        [agent("a", "One"), agent("b", "Two"), agent("c", "Three")],
+        [band("One"), band("Two"), band("Three")],
+      ),
+      meta(["One", "Two", "Three"]),
+    );
+
+  it("snaps every interior boundary so rows touch (no gaps), midpointing the gap", () => {
+    const layout = threeLane();
+    const before = layout.lanes.map((l) => ({ yTop: l.yTop, yBot: l.yBot }));
+    // The flow leaves a real gap between consecutive bands to begin with.
+    expect(before[1].yTop).toBeGreaterThan(before[0].yBot);
+
+    closeLaneGaps(layout);
+
+    // Adjacent bands now share an edge — row i's bottom IS row i+1's top.
+    for (let i = 0; i < layout.lanes.length - 1; i++) {
+      expect(layout.lanes[i].yBot).toBe(layout.lanes[i + 1].yTop);
+      // ...and that shared edge is the midpoint of the original gap.
+      expect(layout.lanes[i].yBot).toBe((before[i].yBot + before[i + 1].yTop) / 2);
+    }
+  });
+
+  it("leaves the table's outer top/bottom (and page height) untouched", () => {
+    const layout = threeLane();
+    const firstTop = layout.lanes[0].yTop;
+    const lastBot = layout.lanes[layout.lanes.length - 1].yBot;
+    const height = layout.height;
+    closeLaneGaps(layout);
+    expect(layout.lanes[0].yTop).toBe(firstTop);
+    expect(layout.lanes[layout.lanes.length - 1].yBot).toBe(lastBot);
+    expect(layout.height).toBe(height);
   });
 });

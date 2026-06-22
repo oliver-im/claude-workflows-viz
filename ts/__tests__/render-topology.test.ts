@@ -103,9 +103,9 @@ describe("renderTopology", () => {
     expect(opens).toBe(closes);
   });
 
-  it("draws phase overview cards, swimlane stripes, agent circles, a coral barrier, and a loop badge", () => {
+  it("draws phase label cells, swimlane rows, agent circles, a coral barrier, and a loop badge", () => {
     const svg = tournament();
-    expect(svg).toContain('class="phase-card"');
+    expect(svg).toContain('class="lane-label"');
     expect(svg).toContain('class="swimlane"');
     expect(svg).toContain('class="agent-node"');
     expect(svg).toContain('class="barrier"');
@@ -115,6 +115,10 @@ describe("renderTopology", () => {
     expect(svg).not.toContain("xband");
     expect(svg).not.toContain("gutter");
     expect(svg).not.toContain("graph-band");
+    // The in-graph chrome (per-stripe chip/title/badge) is gone — the labels
+    // live in the left cells now, and the graph is translated into its column.
+    expect(svg).not.toContain("lane-chrome");
+    expect(svg).toMatch(/<g class="topology" transform="translate\(\d/);
   });
 
   it("renders a control-only phase as a slim strip, not a numbered card", () => {

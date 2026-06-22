@@ -4,7 +4,7 @@ Render a Claude Code **dynamic workflow** `.js` file's static structure into a c
 
 ![A workflow rendered by claude-workflows-viz](examples/review-pr.png)
 
-Dynamic workflows are JavaScript files that begin with `export const meta = { name, description, phases }` and then orchestrate subagents in the body. `claude-workflows-viz` reads the declarative `meta` block **and statically analyzes the imperative body — without ever executing the workflow** — then draws the whole body as **one continuous agent graph flowing top-to-bottom, with the phases as a faint swimlane overlay behind it**: fan-outs into a barrier, pipeline stages, decision diamonds, and loops summarized as local "↻ repeat" badges. Because phases are paint, not containers, a cross-phase edge is just a short ordinary edge — no edge is ever routed across a card wall. Everything is read straight off the parsed AST as static data: no `eval`, no `vm`, no `import()`, and no headless browser.
+Dynamic workflows are JavaScript files that begin with `export const meta = { name, description, phases }` and then orchestrate subagents in the body. `claude-workflows-viz` reads the declarative `meta` block **and statically analyzes the imperative body — without ever executing the workflow** — then draws it as a **swimlane table**: one model-tinted row per phase, with the phase label (chip, title, model, detail) in a left cell and that phase's slice of the agent graph in the right cell. The graph itself is **one continuous flow top-to-bottom** — fan-outs into a barrier, pipeline stages, decision diamonds, and loops summarized as local "↻ repeat" badges — and a cross-phase edge is just a short ordinary edge, because phases are rows beside the graph, not containers it has to break out of. Everything is read straight off the parsed AST as static data: no `eval`, no `vm`, no `import()`, and no headless browser.
 
 > The topology view is the default. `--view phases` renders the original meta-only phase cards (the v1 output, preserved byte-for-byte).
 
@@ -30,7 +30,7 @@ claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--vi
 | --- | --- |
 | `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
 | `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. |
-| `--view <view>` | `topology` (default) draws the body as one graph-first swimlane diagram; `phases` renders the v1 meta-only phase cards. |
+| `--view <view>` | `topology` (default) draws the body as a swimlane table — phase labels beside the agent graph; `phases` renders the v1 meta-only phase cards. |
 | `--open` | Open the rendered output in your default app after writing. |
 | `-v, --version` | Print the version. |
 
@@ -102,7 +102,7 @@ Two pieces close that gap without compromising determinism:
 1. Parse the file with [acorn](https://github.com/acornjs/acorn) and locate the top-level `export const meta`.
 2. Evaluate **only** that object as a static literal — every executable construct (calls, identifiers, getters, spreads, template expressions) is rejected, never run. This is what makes "never execute the workflow" hold.
 3. Validate the result with [zod](https://zod.dev), lay out the cards, and emit SVG.
-4. For the topology view, the body is **statically analyzed off the same AST — never executed** into a nested tree, then placed as **one graph-first swimlane layout**: `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches become a single vertical graph, with each phase painted as a stripe behind wherever its nodes landed (phase-as-overlay, not phase-as-container — so loops stay local "↻ repeat" badges and no edge crosses a card wall). The analysis never invents what it can't prove: counts come only from literals (an unresolvable fan-out renders as `×N`), condition labels are verbatim source slices, unrecognized orchestration degrades to an honest opaque step, and a body with nothing recovered falls back byte-for-byte to the plain v1 phases page.
+4. For the topology view, the body is **statically analyzed off the same AST — never executed** into a nested tree, then placed as one continuous vertical agent graph and rendered as a **swimlane table**: `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches become a single graph, and each phase becomes a co-registered row — its label cell on the left, its slice of the graph on the right (phase-as-row, not phase-as-container — so loops stay local "↻ repeat" badges and a cross-phase edge is just a short ordinary edge). The analysis never invents what it can't prove: counts come only from literals (an unresolvable fan-out renders as `×N`), condition labels are verbatim source slices, unrecognized orchestration degrades to an honest opaque step, and a body with nothing recovered falls back byte-for-byte to the plain v1 phases page.
 5. For `--format png`, rasterize the SVG with [`@resvg/resvg-js`](https://www.npmjs.com/package/@resvg/resvg-js) — a native renderer, no browser.
 
 ## From source
@@ -116,4 +116,4 @@ node dist/cli.js examples/review-pr.js -o review.svg
 
 ## Status
 
-v2.1. Renders the body's statically-inferred agent topology by default as a graph-first swimlane diagram — one continuous vertical graph with phases painted as stripes behind it (`--view phases` keeps the v1 meta-only cards, byte-identical). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured dialect), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.
+v2.2. Renders the body's statically-inferred agent topology by default as a swimlane table — one continuous vertical graph in a right column, with each phase a co-registered row whose label cell sits to its left (`--view phases` keeps the v1 meta-only cards, byte-identical). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured dialect), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.

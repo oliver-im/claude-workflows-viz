@@ -1,10 +1,15 @@
 import type { Meta } from "./model.js";
 import type { GEdge, GLane, GLoop, GNode, Layout } from "./topo-geometry.js";
-import { renderHeader, renderModelBadge, renderPhaseCard } from "./render-svg.js";
+import { renderHeader } from "./render-svg.js";
+import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
+  type Block,
   GAP,
+  GRAPH_X,
+  LEFT_COL_W,
   MARGIN,
   MODEL_FALLBACK,
+  TOPO_PAGE_W,
   arrowHead,
   escapeSvgText,
   round,
@@ -14,63 +19,72 @@ import {
   text,
   truncatePlain,
   truncateToWidth,
+  wrapToWidth,
 } from "./svg-primitives.js";
 
 /**
- * The topology renderer: a positioned `Layout` → a standalone SVG string. It
- * only paints what `place-topology` already positioned — phase stripes, edges,
- * nodes, and local loop badges — in the resvg-safe SVG 1.1 subset (plain
- * shapes/paths, arrowheads as explicit filled triangles, no `<marker>`). The
- * header card reuses v1's `renderHeader`, so the page reads as one family with
- * `--view phases`. Every raw IR string is escaped here; the full text behind a
- * truncation rides along as a `<title>` (resvg ignores it, browsers tooltip it).
+ * The topology renderer: a positioned `Layout` → a standalone SVG string, laid
+ * out as a swimlane TABLE. A full-width header banner (v1's `renderHeader`, so
+ * the page reads as one family with `--view phases`) sits on top; below it, one
+ * model-tinted row per phase — the phase LABEL (chip + title + model badge +
+ * detail) in a left cell, and the phase's slice of the graph in the right cell.
+ * The graph is the same positioned `Layout` `place-topology` produced, drawn in
+ * its own coordinate frame (`layout.width` == `W`) and translated right by
+ * `GRAPH_X` into the graph column — so placement is byte-identical to before;
+ * only the page gains a left label column and goes landscape.
  *
- * Draw order is deliberate: stripe rects (faint tints) first, then edges, then
- * nodes, then loop badges, then the lane chrome (chip + title + model) on top —
- * so a cross-phase connector entering a lane never paints over its title.
+ * Because the labels now live beside the graph, the in-graph chrome (the old
+ * per-stripe chip/title/badge) is GONE — the graph cell is pure topology. Each
+ * row is co-registered to `max(graph band height, label cell height)` via
+ * `reserveLaneHeights`, so a label and its graph slice always share one row.
  *
- * All paint and typography live in the named constants below; restyling is a
- * constant swap, never logic surgery. Determinism: output is a pure function of
- * the layout (no Date/random); arrays are drawn in their canonical order.
+ * Everything is the resvg-safe SVG 1.1 subset (plain shapes/paths, arrowheads
+ * as explicit filled triangles, no `<marker>`); every raw IR string is escaped
+ * here, with the full pre-truncation text riding along as a `<title>`. All
+ * paint and typography live in the named constants below. Determinism: output
+ * is a pure function of the layout; arrays are drawn in canonical order.
  */
 export function renderTopology(layout: Layout, meta: Meta): string {
-  const width = layout.width;
-  const blocks = [
-    renderHeader(meta, MARGIN, width - 2 * MARGIN),
-    ...meta.phases.map((phase, i) => renderPhaseCard(phase, i + 1, MARGIN, width - 2 * MARGIN)),
-  ];
-  let cardY = MARGIN;
-  const cards: string[] = [];
-  for (const block of blocks) {
-    cards.push(`<g transform="translate(0 ${round(cardY)})">${block.body}</g>`);
-    cardY += block.height + GAP;
-  }
-  const yOffset = cardY;
-  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  const gw = layout.width; // the graph's own frame width (== W), unchanged
+  const header = renderHeader(meta, MARGIN, TOPO_PAGE_W - 2 * MARGIN);
+  const yOffset = MARGIN + header.height + GAP;
 
-  const stripes = layout.lanes.map((l) => renderStripe(l, width)).join("");
+  // Build each lane's left label cell, then inflate its band to fit so the
+  // label and its graph slice co-register into one row.
+  const detailByTitle = new Map(
+    meta.phases.filter((p) => p.detail?.trim()).map((p) => [p.title, p.detail as string]),
+  );
+  const cells = layout.lanes.map((l) =>
+    renderLaneLabelCell(l.phaseIndex + 1, l.title, detailByTitle.get(l.title), l.model, l.empty),
+  );
+  reserveLaneHeights(layout, cells.map((c) => c.height));
+  closeLaneGaps(layout); // seamless table — no gaps between phase rows
+
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  const rows = layout.lanes.map(renderRow).join("");
+  const labels = layout.lanes
+    .map((l, i) => `<g transform="translate(0 ${round(l.yTop)})">${cells[i].body}</g>`)
+    .join("");
   const edges = layout.edges.map((e) => renderEdge(e)).join("");
-  const nodes = layout.nodes.map((n) => renderNode(n, width)).join("");
-  const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, width)).join("");
-  const chrome = layout.lanes.map((l) => renderChrome(l, width)).join("");
-  const graph =
-    `<g class="topology" transform="translate(0 ${round(yOffset)})">` +
-    stripes +
-    edges +
-    nodes +
-    loops +
-    chrome +
+  const nodes = layout.nodes.map((n) => renderNode(n, gw)).join("");
+  const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, gw)).join("");
+  // Tints behind, then labels, then the graph translated into its column.
+  const content =
+    `<g transform="translate(0 ${round(yOffset)})">` +
+    rows +
+    labels +
+    `<g class="topology" transform="translate(${round(GRAPH_X)} 0)">${edges}${nodes}${loops}</g>` +
     `</g>`;
 
+  const width = TOPO_PAGE_W;
   const height = round(yOffset + layout.height + MARGIN);
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${width} ${height}" ` +
     `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
     `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
-    cards.join("\n") +
-    "\n" +
-    graph +
+    `<g transform="translate(0 ${round(MARGIN)})">${header.body}</g>\n` +
+    content +
     `\n</svg>\n`
   );
 }
@@ -85,6 +99,7 @@ const EDGE = "#64748b";
 const EDGE_LABEL = "#94a3b8";
 const NODE_LABEL = "#334155";
 const TITLE = "#0f172a";
+const DETAIL = "#475569"; // label-cell detail text (matches the phases-view card)
 const MUTED = "#94a3b8";
 const CONTROL_FILL = "#fff7ed";
 const CONTROL_STROKE = "#fb923c";
@@ -94,9 +109,7 @@ const STRIPE_EMPTY_FILL = "#eef2f7";
 const CHIP_FILL = "#334155";
 const STRIPE_OPACITY = 0.55;
 
-const STRIPE_INSET = MARGIN;
 const STRIPE_RX = 10;
-const CHROME_PAD = 14;
 const CHIP_R = 11;
 const TITLE_FONT = 15;
 const LABEL_FONT = 12.5;
@@ -107,44 +120,55 @@ const EDGE_W = 1.3;
 const FAN_W = 1.1;
 const NODE_STROKE_W = 1.25;
 
-const laneWidth = (width: number): number => width - 2 * STRIPE_INSET;
-
 // ---------------------------------------------------------------------------
-// Lanes — a faint tinted stripe (rect) drawn behind, chrome drawn on top.
+// Rows — a full-width, model-tinted band per phase, spanning BOTH columns; the
+// left label cell and the right graph slice sit inside it.
 // ---------------------------------------------------------------------------
 
-function renderStripe(lane: GLane, width: number): string {
-  const x = STRIPE_INSET;
-  const w = round(laneWidth(width));
+function renderRow(lane: GLane): string {
+  const x = MARGIN;
+  const w = round(TOPO_PAGE_W - 2 * MARGIN);
+  const y = round(lane.yTop);
   const h = round(lane.yBot - lane.yTop);
   if (lane.empty) {
     return (
-      `<rect class="swimlane-empty" x="${x}" y="${round(lane.yTop)}" width="${w}" height="${h}" ` +
+      `<rect class="swimlane-empty" x="${x}" y="${y}" width="${w}" height="${h}" ` +
       `rx="${STRIPE_RX}" fill="${STRIPE_EMPTY_FILL}" stroke="${STRIPE_STROKE}" stroke-width="1" stroke-dasharray="4 3"/>`
     );
   }
   const swatch = lane.model !== undefined ? swatchFor(lane.model) : MODEL_FALLBACK;
   return (
-    `<rect class="swimlane" x="${x}" y="${round(lane.yTop)}" width="${w}" height="${h}" ` +
+    `<rect class="swimlane" x="${x}" y="${y}" width="${w}" height="${h}" ` +
     `rx="${STRIPE_RX}" fill="${swatch.fill}" fill-opacity="${STRIPE_OPACITY}" stroke="${STRIPE_STROKE}" stroke-width="1"/>`
   );
 }
 
-/** The lane's chip, title, and model badge (and the "control only" hint for an
- *  empty strip), drawn on top of everything so connectors can't occlude them. */
-function renderChrome(lane: GLane, width: number): string {
-  const x = STRIPE_INSET;
-  const chromeTop = lane.empty
-    ? lane.yTop + Math.max(0, (lane.yBot - lane.yTop - 2 * CHIP_R) / 2)
-    : lane.yTop + CHROME_PAD;
-  const chipCx = x + CHROME_PAD + CHIP_R;
-  const chipCy = chromeTop + CHIP_R;
-  const textX = x + CHROME_PAD + 2 * CHIP_R + 12;
-  const rightX = x + laneWidth(width) - CHROME_PAD;
+/**
+ * The left label cell for one phase row: the numbered chip, the phase title,
+ * the model badge on its OWN row beneath the title (the narrow column can't fit
+ * a top-right badge beside a long title without collision), then the wrapped
+ * detail. A control-only (empty) lane shows the title plus a muted "control
+ * only" note instead of a badge/detail. Drawn relative to (`X`, 0); the caller
+ * translates it to the lane's top. Returns its measured height so the row can
+ * be co-registered to fit it.
+ */
+function renderLaneLabelCell(
+  index: number,
+  title: string,
+  detail: string | undefined,
+  model: string | undefined,
+  empty: boolean,
+): Block {
+  const x = MARGIN;
+  const pad = 16;
+  const chipCx = x + pad + CHIP_R;
+  const chipCy = pad + CHIP_R;
+  const textX = x + pad + 2 * CHIP_R + 12;
+  const innerW = x + LEFT_COL_W - pad - textX;
 
   const parts: string[] = [
     `<circle cx="${round(chipCx)}" cy="${round(chipCy)}" r="${CHIP_R}" fill="${CHIP_FILL}"/>`,
-    text(chipCx, chipCy + 3.7, String(lane.phaseIndex + 1), {
+    text(chipCx, chipCy + 3.7, String(index), {
       size: 11.5,
       weight: 700,
       fill: "#ffffff",
@@ -152,37 +176,54 @@ function renderChrome(lane: GLane, width: number): string {
     }),
   ];
 
-  if (lane.empty) {
-    const title = truncateToWidth(lane.title, rightX - textX - 86, TITLE_FONT - 1);
-    parts.push(
-      text(textX, chipCy + 4.5, title, { size: TITLE_FONT - 1, weight: 600, fill: TITLE }),
-      text(rightX, chipCy + 4.5, "control only", {
-        size: 11,
-        style: "italic",
-        fill: MUTED,
-        anchor: "end",
-      }),
-    );
-    return `<g class="lane-chrome">${parts.join("")}</g>`;
-  }
-
-  let badge = "";
-  let badgeW = 0;
-  if (lane.model !== undefined) {
-    const rendered = renderModelBadge(lane.model, rightX, chromeTop);
-    badge = rendered.svg;
-    badgeW = rendered.width;
-  }
-  const titleW = (badge ? rightX - badgeW - 10 : rightX) - textX;
+  const titleBaseline = pad + 15;
   parts.push(
-    text(textX, chromeTop + 15, truncateToWidth(lane.title, titleW, TITLE_FONT), {
+    text(textX, titleBaseline, truncateToWidth(title, innerW, TITLE_FONT), {
       size: TITLE_FONT,
       weight: 700,
       fill: TITLE,
     }),
-    badge,
   );
-  return `<g class="lane-chrome">${parts.join("")}</g>`;
+
+  if (empty) {
+    parts.push(
+      text(textX, titleBaseline + 19, "control only", { size: 11, style: "italic", fill: MUTED }),
+    );
+    return { body: `<g class="lane-label">${parts.join("")}</g>`, height: titleBaseline + 19 + 12 };
+  }
+
+  let y = titleBaseline;
+  if (model !== undefined) {
+    const badge = modelBadgeLeft(model, textX, y + 9);
+    parts.push(badge.svg);
+    y = y + 9 + badge.height;
+  }
+  const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, 12.5, 3) : [];
+  for (const line of detailLines) {
+    y += 17;
+    parts.push(text(textX, y, line, { size: 12.5, fill: DETAIL }));
+  }
+  return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + pad };
+}
+
+/** A left-aligned model badge pill at (`x`, `yTop`) — the right-aligned
+ *  `renderModelBadge` pins to a card's top-right corner, but the label cell
+ *  stacks the badge under the title, so it needs a left-anchored variant. */
+function modelBadgeLeft(model: string, x: number, yTop: number): { svg: string; height: number } {
+  const swatch = swatchFor(model);
+  const label = truncatePlain(model, 28);
+  const font = 11;
+  const h = 19;
+  const w = Math.ceil(label.length * font * 0.62) + 16;
+  const svg =
+    roundRect(x, yTop, w, h, 9, swatch.fill, swatch.stroke) +
+    text(x + w / 2, yTop + 13, label, {
+      size: font,
+      weight: 600,
+      fill: swatch.text,
+      anchor: "middle",
+    });
+  return { svg, height: h };
 }
 
 // ---------------------------------------------------------------------------

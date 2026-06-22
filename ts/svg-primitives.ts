@@ -19,6 +19,24 @@ export const W = 760;
 export const MARGIN = 24;
 export const GAP = 16;
 
+// ---------------------------------------------------------------------------
+// Topology-page geometry — the swimlane *table* (phase label cells beside the
+// graph cells). `W` above stays the graph's internal coordinate frame AND the
+// phases-view (`renderSvg`) card width, so it is never changed here; the
+// landscape page is produced by translating the graph into a right column and
+// adding a left label column. So the graph placement is byte-identical and the
+// phases snapshot gate is untouched.
+// ---------------------------------------------------------------------------
+
+/** Left label-cell column width (chip + title + model badge + wrapped detail). */
+export const LEFT_COL_W = 290;
+/** Gap between the label column and the graph column. */
+export const COL_GAP = 24;
+/** X-offset the whole graph group is translated to (its local frame is `W`). */
+export const GRAPH_X = MARGIN + LEFT_COL_W + COL_GAP;
+/** Full landscape page width: label column + graph frame + margins. */
+export const TOPO_PAGE_W = GRAPH_X + W + MARGIN;
+
 export interface Block {
   body: string;
   height: number;
