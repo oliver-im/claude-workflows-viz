@@ -21,6 +21,7 @@ const span = { start: 0, end: 0 };
 const agent = (label: string, phase: string | null, over: Partial<AgentStep> = {}): AgentStep => ({
   kind: "agent",
   label,
+  labelExplicit: true, // default: an authored label (pass { labelExplicit: false } for derived)
   phase,
   multiplicity: { kind: "one" },
   span,
@@ -78,7 +79,8 @@ const tournament = () => {
       [
         fanout({ kind: "named", names: ["a", "b", "c"] }, [draftBody], "Draft"),
         loop("bracket.length > 1", [agent("match", "Judge", { model: "opus" })], "Judge"),
-        agent("Document the winner", "Write up", { model: "haiku" }),
+        // Unauthored finisher (label sliced from the prompt) — its text is dropped.
+        agent("Document the winner", "Write up", { model: "haiku", labelExplicit: false }),
       ],
       [band("Draft"), band("Judge"), band("Advance"), band("Write up")],
     ),
@@ -127,12 +129,18 @@ describe("renderTopology", () => {
     expect(svg).toContain("control only");
   });
 
-  it("tints lanes by model and keeps the header card", () => {
+  it("wraps the phases in one rounded white card with hairline separators", () => {
     const svg = tournament();
     expect(svg).toContain('class="header-card"');
-    expect(svg).toContain("#dcfce7"); // sonnet stripe
-    expect(svg).toContain("#ede9fe"); // opus stripe
-    expect(svg).toContain("#dbeafe"); // haiku stripe
+    // Two white rounded cards now: the header above and the table below it.
+    const cards = svg.match(/rx="12"[^>]*fill="#ffffff"[^>]*stroke="#e2e8f0"/g) ?? [];
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    // Phases are divided by hairlines, not tinted rows.
+    expect(svg).toMatch(/<line [^>]*stroke="#e2e8f0"/);
+    // The model swatches still appear — on the badges and agent circles.
+    expect(svg).toContain("#dcfce7"); // sonnet swatch (badge / node)
+    expect(svg).toContain("#ede9fe"); // opus swatch
+    expect(svg).toContain("#dbeafe"); // haiku swatch
   });
 
   it("renders control nodes and loop tooltips", () => {
@@ -152,6 +160,15 @@ describe("renderTopology", () => {
     for (const label of ["draft:a", "draft:b", "draft:c"]) {
       expect(svg).toContain(label);
     }
+  });
+
+  it("drops a derived node label but keeps authored ones (phase row names the node)", () => {
+    const svg = tournament();
+    // Authored labels survive: the fan-out members and the loop's match node.
+    expect(svg).toContain("draft:a");
+    expect(svg).toContain(">match<");
+    // The unauthored finisher (labelExplicit:false) renders as a bare node.
+    expect(svg).not.toContain("Document the winner");
   });
 
   it("escapes <, >, &, and \" in every label, leaking no raw payload", () => {

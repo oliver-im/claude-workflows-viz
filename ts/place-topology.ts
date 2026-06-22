@@ -368,6 +368,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
       r: NODE_R,
       label: members.labels[0],
       phase: band,
+      ...(single ? { labelExplicit: single.labelExplicit } : {}),
       ...(model !== undefined ? { model } : {}),
       ...(members.badge !== undefined ? { mult: members.badge } : {}),
     });
@@ -388,6 +389,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
       label,
       labelBelow: true,
       phase: band,
+      ...(single ? { labelExplicit: single.labelExplicit } : {}),
       ...(model !== undefined ? { model } : {}),
     });
     connect(ctx, source.id, n.id, "fan");
@@ -661,6 +663,7 @@ function placeStageCell(
       y: top + NODE_R,
       r: NODE_R,
       label,
+      labelExplicit: s.labelExplicit,
       labelBelow: true,
       phase: band,
       ...(s.model !== undefined ? { model: s.model } : {}),
@@ -678,6 +681,7 @@ function placeStageCell(
       label: inner?.label ?? "task",
       labelBelow: true,
       phase: band,
+      ...(inner ? { labelExplicit: inner.labelExplicit } : {}),
       ...(inner?.model !== undefined ? { model: inner.model } : {}),
       mult: badge,
     });
@@ -902,6 +906,7 @@ function placeAgent(step: AgentStep, ctx: Ctx, topY: number): Placed {
     y: cy,
     r: NODE_R,
     label: step.label,
+    labelExplicit: step.labelExplicit,
     phase: band,
     ...(step.model !== undefined ? { model: step.model } : {}),
     ...(mult !== undefined ? { mult } : {}),

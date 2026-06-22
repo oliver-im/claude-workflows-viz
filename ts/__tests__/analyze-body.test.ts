@@ -73,6 +73,7 @@ describe("analyzeBody — agent opts", () => {
     const t = analyze(`await agent("p", { label: "build", model: "opus", agentType: "codex" });`);
     const a = firstAgent(t);
     expect(a.label).toBe("build");
+    expect(a.labelExplicit).toBe(true); // author wrote `{ label }`
     expect(a.model).toBe("opus");
     expect(a.agentType).toBe("codex");
     expect(t.notes).toEqual([]);
@@ -80,7 +81,9 @@ describe("analyzeBody — agent opts", () => {
 
   it("keeps a template label as its verbatim inner source", () => {
     const t = analyze("await agent(\"p\", { label: `fix:${area}` });");
-    expect(firstAgent(t).label).toBe("fix:${area}");
+    const a = firstAgent(t);
+    expect(a.label).toBe("fix:${area}");
+    expect(a.labelExplicit).toBe(true); // a template label is still authored
   });
 
   it("opts.phase overrides the ambient phase and registers the band", () => {
@@ -101,9 +104,18 @@ describe("analyzeBody — agent opts", () => {
 
   it("notes non-object options and falls back to the prompt label", () => {
     const t = analyze(`await agent("do the thing", options);`);
-    expect(firstAgent(t).label).toBe("do the thing");
+    const a = firstAgent(t);
+    expect(a.label).toBe("do the thing");
+    expect(a.labelExplicit).toBe(false); // label came from the prompt, not the author
     expect(t.notes).toHaveLength(1);
     expect(t.notes[0].message).toMatch(/options are not an inline object/);
+  });
+
+  it("marks a prompt-derived label as not author-supplied (labelExplicit=false)", () => {
+    const t = analyze(`await agent("Document the winning approach");`);
+    const a = firstAgent(t);
+    expect(a.label).toBe("Document the winning approach");
+    expect(a.labelExplicit).toBe(false); // no `{ label }` → derived → renderer drops the text
   });
 });
 

@@ -33,6 +33,10 @@ export interface GNode {
   h?: number;
   /** RAW label (escaped at render). */
   label: string;
+  /** Agent nodes only: did the author write the label? When `false`, the label
+   *  was sliced from the prompt and is redundant with the phase row, so the
+   *  renderer paints a bare node. Absent (hubs/barriers/etc., or unset) ⇒ shown. */
+  labelExplicit?: boolean;
   /** Agent model key for the color swatch (RAW); absent ⇒ neutral. */
   model?: string;
   /** Pre-rendered multiplicity badge, e.g. "×4" / "×N" (RAW); absent ⇒ one. */

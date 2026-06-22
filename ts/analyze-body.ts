@@ -1077,6 +1077,10 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
   return {
     kind: "agent",
     label,
+    // Did the author write `{ label }`? Derived (prompt-sliced) labels are
+    // redundant with the phase row that now groups them; the renderer drops
+    // their text. Authored labels (incl. templates like `refute:${lens}`) stay.
+    labelExplicit: optLabel !== undefined,
     multiplicity: ctx.fanoutMult ?? { kind: "one" },
     phase,
     span: spanOf(call),

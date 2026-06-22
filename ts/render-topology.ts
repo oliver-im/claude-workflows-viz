@@ -61,6 +61,21 @@ export function renderTopology(layout: Layout, meta: Meta): string {
   closeLaneGaps(layout); // seamless table — no gaps between phase rows
 
   const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  // One rounded white card behind every phase — same radius/border/fill as the
+  // header card, so the table reads as the same kind of surface.
+  const first = layout.lanes[0];
+  const last = layout.lanes[layout.lanes.length - 1];
+  const tableTop = first ? first.yTop : 0;
+  const tableBot = last ? last.yBot : layout.height;
+  const tableCard = roundRect(
+    MARGIN,
+    tableTop,
+    TOPO_PAGE_W - 2 * MARGIN,
+    tableBot - tableTop,
+    TABLE_RX,
+    ROW_BG,
+    ROW_SEP,
+  );
   const rows = layout.lanes.map(renderRow).join("");
   const labels = layout.lanes
     .map((l, i) => `<g transform="translate(0 ${round(l.yTop)})">${cells[i].body}</g>`)
@@ -68,9 +83,10 @@ export function renderTopology(layout: Layout, meta: Meta): string {
   const edges = layout.edges.map((e) => renderEdge(e)).join("");
   const nodes = layout.nodes.map((n) => renderNode(n, gw)).join("");
   const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, gw)).join("");
-  // Tints behind, then labels, then the graph translated into its column.
+  // Card behind, then phase separators, then labels, then the graph column.
   const content =
     `<g transform="translate(0 ${round(yOffset)})">` +
+    tableCard +
     rows +
     labels +
     `<g class="topology" transform="translate(${round(GRAPH_X)} 0)">${edges}${nodes}${loops}</g>` +
@@ -104,12 +120,12 @@ const MUTED = "#94a3b8";
 const CONTROL_FILL = "#fff7ed";
 const CONTROL_STROKE = "#fb923c";
 const HUB_FILL = "#94a3b8";
-const STRIPE_STROKE = "#e8edf3";
-const STRIPE_EMPTY_FILL = "#eef2f7";
+const ROW_BG = "#ffffff"; // the phases sit on one plain white card — no model tint
+const ROW_SEP = "#e2e8f0"; // card border + hairline between phases (matches the header card)
+const TABLE_RX = 12; // table card corner radius — same as the header card above it
 const CHIP_FILL = "#334155";
-const STRIPE_OPACITY = 0.55;
 
-const STRIPE_RX = 10;
+const DETAIL_MAX_LINES = 99; // effectively uncapped — the phase detail wraps in full
 const CHIP_R = 11;
 const TITLE_FONT = 15;
 const LABEL_FONT = 12.5;
@@ -125,32 +141,29 @@ const NODE_STROKE_W = 1.25;
 // left label cell and the right graph slice sit inside it.
 // ---------------------------------------------------------------------------
 
-function renderRow(lane: GLane): string {
+function renderRow(lane: GLane, i: number): string {
+  // The phases share ONE rounded white card (drawn once in renderTopology, like
+  // the header card above). A row only contributes a full-width hairline at its
+  // top boundary — every phase but the first — so phases still read as a table
+  // without any tint. The class stays as a semantic hook (incl. control-only).
   const x = MARGIN;
   const w = round(TOPO_PAGE_W - 2 * MARGIN);
-  const y = round(lane.yTop);
-  const h = round(lane.yBot - lane.yTop);
-  if (lane.empty) {
-    return (
-      `<rect class="swimlane-empty" x="${x}" y="${y}" width="${w}" height="${h}" ` +
-      `rx="${STRIPE_RX}" fill="${STRIPE_EMPTY_FILL}" stroke="${STRIPE_STROKE}" stroke-width="1" stroke-dasharray="4 3"/>`
-    );
-  }
-  const swatch = lane.model !== undefined ? swatchFor(lane.model) : MODEL_FALLBACK;
-  return (
-    `<rect class="swimlane" x="${x}" y="${y}" width="${w}" height="${h}" ` +
-    `rx="${STRIPE_RX}" fill="${swatch.fill}" fill-opacity="${STRIPE_OPACITY}" stroke="${STRIPE_STROKE}" stroke-width="1"/>`
-  );
+  const sep =
+    i > 0
+      ? `<line x1="${x}" y1="${round(lane.yTop)}" x2="${round(x + w)}" y2="${round(lane.yTop)}" ` +
+        `stroke="${ROW_SEP}" stroke-width="1"/>`
+      : "";
+  return `<g class="${lane.empty ? "swimlane-empty" : "swimlane"}">${sep}</g>`;
 }
 
 /**
  * The left label cell for one phase row: the numbered chip, the phase title,
- * the model badge on its OWN row beneath the title (the narrow column can't fit
- * a top-right badge beside a long title without collision), then the wrapped
- * detail. A control-only (empty) lane shows the title plus a muted "control
- * only" note instead of a badge/detail. Drawn relative to (`X`, 0); the caller
- * translates it to the lane's top. Returns its measured height so the row can
- * be co-registered to fit it.
+ * the wrapped detail, then — last and quietest — a muted italic `model: xx`
+ * line (the model is secondary, so it reads as a footnote under the detail, not
+ * a colored badge). A control-only (empty) lane shows the title plus a muted
+ * "control only" note instead. Drawn relative to (`X`, 0); the caller translates
+ * it to the lane's top. Returns its measured height so the row can be
+ * co-registered to fit it.
  */
 function renderLaneLabelCell(
   index: number,
@@ -193,37 +206,26 @@ function renderLaneLabelCell(
   }
 
   let y = titleBaseline;
-  if (model !== undefined) {
-    const badge = modelBadgeLeft(model, textX, y + 9);
-    parts.push(badge.svg);
-    y = y + 9 + badge.height;
-  }
-  const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, 12.5, 3) : [];
+  // No line cap: the phase explanation wraps in full (the row grows to fit via
+  // reserveLaneHeights) rather than being clipped with an ellipsis.
+  const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, 12.5, DETAIL_MAX_LINES) : [];
   for (const line of detailLines) {
     y += 17;
     parts.push(text(textX, y, line, { size: 12.5, fill: DETAIL }));
   }
+  // The model is secondary: a quiet "model: xx" line in muted italic BELOW the
+  // detail, not a colored badge.
+  if (model !== undefined) {
+    y += 18;
+    parts.push(
+      text(textX, y, truncateToWidth(`model: ${model}`, innerW, 11.5), {
+        size: 11.5,
+        style: "italic",
+        fill: MUTED,
+      }),
+    );
+  }
   return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + pad };
-}
-
-/** A left-aligned model badge pill at (`x`, `yTop`) — the right-aligned
- *  `renderModelBadge` pins to a card's top-right corner, but the label cell
- *  stacks the badge under the title, so it needs a left-anchored variant. */
-function modelBadgeLeft(model: string, x: number, yTop: number): { svg: string; height: number } {
-  const swatch = swatchFor(model);
-  const label = truncatePlain(model, 28);
-  const font = 11;
-  const h = 19;
-  const w = Math.ceil(label.length * font * 0.62) + 16;
-  const svg =
-    roundRect(x, yTop, w, h, 9, swatch.fill, swatch.stroke) +
-    text(x + w / 2, yTop + 13, label, {
-      size: font,
-      weight: 600,
-      fill: swatch.text,
-      anchor: "middle",
-    });
-  return { svg, height: h };
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +339,11 @@ function renderControl(n: GNode): string {
  *  exits the node's bottom and leaves the side clear. */
 function nodeLabel(n: GNode, width: number): string[] {
   if (!n.label) return [];
+  // Derived (prompt-sliced) labels are redundant with the phase row that groups
+  // the node — drop the text and let the row name it. Authored labels stay. The
+  // prompt still rides along as the node's <title> (renderAgent), so nothing is
+  // lost; the JSON read contract keeps the full label either way.
+  if (n.labelExplicit === false) return [];
   if (n.labelBelow === true) {
     return [
       text(n.x, n.y + n.r + 12, truncateToWidth(n.label, 150, MEMBER_FONT), {

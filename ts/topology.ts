@@ -44,6 +44,14 @@ export interface AgentStep extends StepBase {
   kind: "agent";
   label: string;
   /**
+   * True iff the author supplied `{ label }` (string or template). False when
+   * `label` was DERIVED by slicing the prompt because no label was given — a
+   * derived label is redundant with the phase row, so the topology renderer
+   * draws a bare node and lets the row name it. The label string is identical
+   * either way; this only records its provenance.
+   */
+  labelExplicit: boolean;
+  /**
    * Present only when multiplicity is `named` AND the label template's every
    * expression is the bare fan-out parameter: the pure textual substitution
    * of each name (e.g. `` `refute:${lens}` `` → refute:correctness, …).
