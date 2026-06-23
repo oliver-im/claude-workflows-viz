@@ -6,7 +6,7 @@ Render a Claude Code **dynamic workflow** `.js` file's static structure into a c
 
 Dynamic workflows are JavaScript files that begin with `export const meta = { name, description, phases }` and then orchestrate subagents in the body. `claude-workflows-viz` reads the declarative `meta` block **and statically analyzes the imperative body — without ever executing the workflow** — then draws it as a **swimlane table** — one rounded white card (matching the header above it), split into a hairline-separated row per phase, with the phase label (chip, title, detail, and a quiet muted `model:` line) in a left cell and that phase's slice of the agent graph in the right cell. The graph itself is **one continuous flow top-to-bottom** — fan-outs into a barrier, pipeline stages, decision diamonds, and loops summarized as local "↻ repeat" badges — and a cross-phase edge is just a short ordinary edge, because phases are rows beside the graph, not containers it has to break out of. Everything is read straight off the parsed AST as static data: no `eval`, no `vm`, no `import()`, and no headless browser.
 
-> The topology view is the default. `--view phases` renders the original meta-only phase cards (the v1 output, preserved byte-for-byte).
+> The topology view is the default. `--view phases` renders the original meta-only phase cards (preserved byte-for-byte).
 
 ## Install
 
@@ -30,7 +30,7 @@ claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--vi
 | --- | --- |
 | `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
 | `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. |
-| `--view <view>` | `topology` (default) draws the body as a swimlane table — phase labels beside the agent graph; `phases` renders the v1 meta-only phase cards. |
+| `--view <view>` | `topology` (default) draws the body as a swimlane table — phase labels beside the agent graph; `phases` renders the original meta-only phase cards. |
 | `--open` | Open the rendered output in your default app after writing. |
 | `-v, --version` | Print the version. |
 
@@ -89,7 +89,7 @@ One nuance keeps the graph uncluttered now that phases are rows: **a node shows 
 
 Two pieces close that gap without compromising determinism:
 
-- **`--format json`** dumps the full static analysis — the validated `meta` plus the body's topology tree (every label, count, condition, and source span) — as machine-readable JSON. It is the read contract for tooling that wants the structure without scraping SVG.
+- **`--format json`** dumps the full static analysis — the validated `meta` plus the body's topology tree (every label, count, condition, and source span, plus the file's `requiredDialect`/`recognizerTarget` epoch pair — see [Dialect tracking](#dialect-tracking)) — as machine-readable JSON. It is the read contract for tooling that wants the structure without scraping SVG.
 
   ```sh
   claude-workflows-viz your-workflow.js --format json | jq .topology.steps
@@ -104,8 +104,20 @@ Two pieces close that gap without compromising determinism:
 1. Parse the file with [acorn](https://github.com/acornjs/acorn) and locate the top-level `export const meta`.
 2. Evaluate **only** that object as a static literal — every executable construct (calls, identifiers, getters, spreads, template expressions) is rejected, never run. This is what makes "never execute the workflow" hold.
 3. Validate the result with [zod](https://zod.dev), lay out the cards, and emit SVG.
-4. For the topology view, the body is **statically analyzed off the same AST — never executed** into a nested tree, then placed as one continuous vertical agent graph and rendered as a **swimlane table**: `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches become a single graph, and each phase becomes a co-registered row — its label cell on the left, its slice of the graph on the right (phase-as-row, not phase-as-container — so loops stay local "↻ repeat" badges and a cross-phase edge is just a short ordinary edge). The analysis never invents what it can't prove: counts come only from literals (an unresolvable fan-out renders as `×N`), condition labels are verbatim source slices, unrecognized orchestration degrades to an honest opaque step, and a body with nothing recovered falls back byte-for-byte to the plain v1 phases page.
+4. For the topology view, the body is **statically analyzed off the same AST — never executed** into a nested tree, then placed as one continuous vertical agent graph and rendered as a **swimlane table**: `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches become a single graph, and each phase becomes a co-registered row — its label cell on the left, its slice of the graph on the right (phase-as-row, not phase-as-container — so loops stay local "↻ repeat" badges and a cross-phase edge is just a short ordinary edge). The analysis never invents what it can't prove: counts come only from literals (an unresolvable fan-out renders as `×N`), condition labels are verbatim source slices, unrecognized orchestration degrades to an honest opaque step, and a body with nothing recovered falls back byte-for-byte to the plain meta-only phases page.
 5. For `--format png`, rasterize the SVG with [`@resvg/resvg-js`](https://www.npmjs.com/package/@resvg/resvg-js) — a native renderer, no browser.
+
+## Dialect tracking
+
+The workflow grammar — the `meta` block plus the `agent` / `workflow` / `parallel` / `pipeline` / `phase` body — is owned by Claude Code and **not** formally versioned upstream. This tool recognizes a static subset of it and pins that moving target under its own monotonic **dialect epoch** (`D1`, `D2`, …), reconciled against a captured upstream baseline. The recognizer currently targets **D1** (`cc-2.1.173`); the ledger — what each epoch pins and how a bump is minted when upstream drifts — is [`docs/DIALECT-CHANGELOG.md`](docs/DIALECT-CHANGELOG.md), and the drift check is `npm run check-dialect` (run it wherever Claude Code is installed).
+
+Per-file **feature detection** rides on that pin. When a workflow awaits a call the recognizer doesn't know — or otherwise leans on constructs newer than the targeted epoch — the CLI prints a one-line warning to **stderr** and still renders (exit 0); the unrecognized parts may degrade to opaque steps. It's a heads-up, never a failure:
+
+```
+claude-workflows-viz: warning: awaited `race` not recognized as orchestration — possibly newer than dialect D1
+```
+
+The same reading rides along in `--format json` as `topology.requiredDialect` (the minimum epoch the file needs) and `topology.recognizerTarget` (the epoch the recognizer targets) — a caniuse-style pair, so tooling can spot drift without scraping the warning text.
 
 ## From source
 
@@ -118,4 +130,4 @@ node dist/cli.js examples/review-pr.js -o review.svg
 
 ## Status
 
-v2.3. Renders the body's statically-inferred agent topology by default as a swimlane table — one continuous vertical graph in a right column, with each phase a co-registered row whose label cell sits to its left (`--view phases` keeps the v1 meta-only cards, byte-identical). Node text now shows only for author-supplied labels; an unlabeled agent is a bare node named by its phase row (the prompt stays in `--format json` and the hover `<title>`). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured dialect), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.
+**0.1.0** (beta). Renders the body's statically-inferred agent topology by default as a swimlane table — one continuous vertical graph in a right column, with each phase a co-registered row whose label cell sits to its left (`--view phases` keeps the original meta-only cards, byte-identical). Node text now shows only for author-supplied labels; an unlabeled agent is a bare node named by its phase row (the prompt stays in `--format json` and the hover `<title>`). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured dialect), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.
