@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** 05-reconciliation-drift-gate-and-lexicon-consistency-test (not started).
+**Cursor:** all units complete — Unit 05 done. Remaining: the plan-level review (below), then archive `active/ → completed/` and merge `plan/…` into `main` (both user-directed).
 
 ## Pre-execution review
 
@@ -56,6 +56,21 @@ This plan is worked in its own git worktree, one branch per unit:
   New `feature-detect.test.ts` + 2 cli.smoke cases + `uses-unknown-primitive.js` fixture.
   173/173, tsc clean. Review: 4 finder agents + codex — no correctness findings; the
   "compute once" recompute documented as deliberate.
+- **Unit 05 — reconciliation drift gate and lexicon-consistency test** (`f820200`).
+  `scripts/capture-dialect.mjs` gains a `--check` mode + `npm run check-dialect`:
+  re-captures from the install and compares each artifact's sha256 against the latest
+  `spec/upstream/` snapshot on disk — exit 0 in sync / non-zero on drift (fails loud on
+  no-install / moved anchor / no baseline); default capture refactored to share the core,
+  output byte-identical. `DIALECT-CHANGELOG.md` flips the gate Planned → Implemented
+  (closes Unit 02's forward-reference); the stale "planned consistency test" notes in
+  `workflow-js-structure.md` + `ts/dialect.ts` go present-tense. New
+  `ts/__tests__/dialect.test.ts`: CC-independent lexicon ↔ recognizer consistency — wired
+  round-trips + behavioral dispatch probes for both hardcoded switches, lexicon-iterated so
+  a new wired token fails loudly. 185/185, tsc clean; gate verified in sync (exit 0) and on
+  simulated drift (exit 1). Review: 5 finder agents + codex — fixes applied: numeric-collation
+  baseline sort, malformed-manifest tolerance, honest schema-probe comments, and the
+  "committed" → "on disk" wording (codex intent-match; working-tree read is what the
+  acceptance requires).
 
 ## Blockers
 
