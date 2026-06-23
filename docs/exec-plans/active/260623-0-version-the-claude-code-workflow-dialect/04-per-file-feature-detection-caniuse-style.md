@@ -41,8 +41,8 @@ Compute a per-file *required-minimum dialect epoch* from the lexicon tokens a fi
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — 4 finder agents (behavior-preservation + CLI restructure; feature-detection logic; acceptance/intent mapping; cleanup/gaps). **No correctness findings.** Verified empirically against the live CLI: `run()` preserves every format×view combo (incl. `phases×png`), render output byte-identical (new IR fields unread by placement/render), corpus stays zero-notes, detector is total/NaN-safe with correct `D1<D2<D10` ordering. The intended bare-`await`-helper noise was judged acceptable (stderr-only, the signal's purpose).
+- [x] `codex exec -s read-only` — ran on the staged diff; **no high-confidence findings**. Flagged one **low** intent-drift: `warnDialect` recomputes vs reading the attached `Topology` (the "compute once" wording). Resolved as a **deliberate, documented** choice — the detector is a pure function of `program` so the two seams can't disagree, and the alternative defeats the warn-before-early-return requirement (panel agreed defensible).
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---

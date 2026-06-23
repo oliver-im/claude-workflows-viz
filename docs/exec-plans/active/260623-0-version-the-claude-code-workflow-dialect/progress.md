@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** 04-per-file-feature-detection-caniuse-style (not started).
+**Cursor:** 05-reconciliation-drift-gate-and-lexicon-consistency-test (not started).
 
 ## Pre-execution review
 
@@ -44,6 +44,18 @@ This plan is worked in its own git worktree, one branch per unit:
   (3 finder agents incl. differential old-vs-new testing) + codex — no correctness
   findings. Note: a **pre-existing** tsc error in `ts/__tests__/place-topology.test.ts`
   (`labelExplicit`) reproduces on clean HEAD — unrelated to this plan, left untouched.
+- **Pre-existing tsc fix** (`1fb0734`, standalone — not a unit). The `labelExplicit`
+  error above: defaulted it in the `place-topology` agent builder. Whole repo now
+  typechecks clean; behavior-identical (159/159).
+- **Unit 04 — per-file feature-detection (caniuse-style)** (`cec7bed`). New
+  `ts/feature-detect.ts`: `requiredDialect` (max wired-token epoch, floored D1) +
+  a soft "awaited unrecognized callee" signal, in one AST pass. `analyzeBody` attaches
+  `requiredDialect`/`recognizerTarget` to `Topology` (JSON rides along) + notes each
+  unrecognized callee; `run()` warns on stderr (exit 0) before the `hasOrchestration`
+  early return. `DialectEpoch` widened to `` `D${number}` ``; schema kept `@1` (additive).
+  New `feature-detect.test.ts` + 2 cli.smoke cases + `uses-unknown-primitive.js` fixture.
+  173/173, tsc clean. Review: 4 finder agents + codex — no correctness findings; the
+  "compute once" recompute documented as deliberate.
 
 ## Blockers
 
