@@ -13,6 +13,13 @@ authority for it: `ts/extract-meta.ts` (the `meta` block) and
 > template expressions) in `meta` is *rejected*, not evaluated. This is the
 > security spine of the whole tool.
 
+> **Dialect provenance.** The recognizer targets dialect epoch **≤ D1**, reconciled
+> against `cc-2.1.173` on 2026-06-23. Upstream snapshots live in
+> [`spec/upstream/`](../spec/upstream/); the epoch ledger — what D1 pins and how a
+> bump is minted — is [`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md). When the
+> dialect drifts, [§5 Maintenance](#5-maintenance-what-a-dialect-change-touches) is
+> the edit-site map.
+
 ---
 
 ## 1. Overall shape
@@ -86,6 +93,18 @@ free-form: `opus`/`sonnet`/`haiku` are matched for color **even inside a full id
 is a **total function**: every statement is walked in a try/catch, and anything
 unreadable degrades to an `OpaqueStep` (a visible blob) and/or an `AnalysisNote`
 — **never** a silent drop, never a throw.
+
+> **The lexicon (data) vs this section (semantics).** Every token described below
+> is enumerated in [`ts/dialect.ts`](../ts/dialect.ts) — the machine-readable
+> lexicon, each entry tagged with the dialect epoch that introduced it. This prose
+> stays the *meaning*; that module is the *table*. Only its **wired** entries (the
+> `orchestration-call` and `agent-option` tokens) are imported by the recognizer,
+> so the analyzer reads the lexicon rather than a hand-kept copy (the
+> lexicon-consistency test in [`ts/__tests__/dialect.test.ts`](../ts/__tests__/dialect.test.ts)
+> asserts that round-trip and that each wired token is still dispatched). The **descriptive**
+> entries (`marker`, `width-idiom`, `host-construct`) are
+> recognized by AST node shape, not a callee name, and are carried for documentation
+> and per-file feature-detection only.
 
 ### 3.1 What counts as orchestration
 
@@ -204,3 +223,7 @@ Regression guardrails that should stay green through any such change:
 `--view phases` byte-identical (snapshot), **0 cross-card edges** across
 `examples/*.svg` (corpus test), and the v1 fallback path (analysis failure or
 `hasOrchestration === false` ⇒ phases page, exit 0).
+
+*Detecting* that the dialect changed in the first place — and the dialect-epoch
+bump that follows an edit here — is the reconciliation ritual in
+[`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md#how-to-reconcile-when-upstream-drifts).

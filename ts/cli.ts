@@ -11,6 +11,7 @@ import {
   parseWorkflowSource,
   readWorkflowSource,
 } from "./extract-meta.js";
+import { detectDialectUse, dialectWarning } from "./feature-detect.js";
 import { wrapSvgHtml } from "./html.js";
 import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
@@ -100,6 +101,26 @@ function renderTopologyView(meta: Meta, program: acorn.Node, src: string): strin
   }
 }
 
+/**
+ * Emit a one-line stderr warning when the file needs a newer dialect epoch than
+ * the recognizer targets — or awaits an unrecognized orchestration-shaped call.
+ * The warning is advisory: it never changes the output or the (0) exit code.
+ *
+ * It detects straight from the AST rather than reading the detection off the
+ * `Topology` `analyzeBody` attaches, on purpose: in the render path that
+ * `Topology` is produced *inside* `renderTopologyView`, behind a defensive
+ * try/catch and the `hasOrchestration` early return — the very return this
+ * warning must precede so a newer-construct file that recovers no orchestration
+ * still warns. `detectDialectUse` is a pure, deterministic function of `program`,
+ * so this call and the fields on the emitted `Topology` are always identical for
+ * the same file (no drift) — it is one shared computation invoked at each seam
+ * that needs it, not a divergent second pass.
+ */
+function warnDialect(program: acorn.Node): void {
+  const message = dialectWarning(detectDialectUse(program));
+  if (message) process.stderr.write(`claude-workflows-viz: warning: ${message}\n`);
+}
+
 function run(workflow: string, opts: CliOpts): void {
   const format = resolveFormat(opts.format, opts.out);
   const view = resolveView(opts.view);
@@ -115,9 +136,18 @@ function run(workflow: string, opts: CliOpts): void {
     if (format === "json") {
       // The structured analysis is a dump of facts, not a rendered view, so
       // `--view` is ignored here by design.
+      warnDialect(program);
       data = emitAnalysisJson(meta, program, src, workflow);
     } else {
-      const svg = view === "phases" ? renderSvg(meta) : renderTopologyView(meta, program, src);
+      let svg: string;
+      if (view === "phases") {
+        svg = renderSvg(meta); // meta-only view: the body and its dialect go untouched
+      } else {
+        // Warn BEFORE renderTopologyView so a file whose newer construct recovers
+        // no orchestration (hitting its hasOrchestration early return) still surfaces it.
+        warnDialect(program);
+        svg = renderTopologyView(meta, program, src);
+      }
       data =
         format === "png" ? svgToPng(svg) : format === "html" ? wrapSvgHtml(svg, meta.name) : svg;
     }

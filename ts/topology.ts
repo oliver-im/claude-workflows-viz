@@ -1,3 +1,4 @@
+import type { DialectEpoch } from "./dialect.js";
 import { truncatePlain } from "./svg-primitives.js";
 
 /**
@@ -161,6 +162,15 @@ export interface Topology {
    * to the v1 phase cards wholesale.
    */
   hasOrchestration: boolean;
+  /**
+   * The minimum dialect epoch needed to understand this file — `max sinceEpoch`
+   * over the wired lexicon tokens it uses, floored at `D1` (see
+   * `feature-detect.ts`). Carried for the caniuse-style comparison and the JSON
+   * emit; does not affect placement or rendering.
+   */
+  requiredDialect: DialectEpoch;
+  /** The dialect epoch the recognizer targets (`RECOGNIZER_TARGET`), for comparison. */
+  recognizerTarget: DialectEpoch;
 }
 
 // ---------------------------------------------------------------------------

@@ -12,8 +12,12 @@ An author never needs our terms, and our code never invents theirs. The bridge
 table in §C maps one to the other.
 
 > **Source of truth.** The dialect (A) is defined by what `ts/extract-meta.ts`
-> and `ts/analyze-body.ts` actually recognize — not by the runtime's full
-> surface. The internals (B) are defined by `ts/topology.ts` (the tree IR) and
+> and `ts/analyze-body.ts` actually recognize — a static subset of the runtime's
+> grammar, which Claude Code owns and does not formally version. What that subset
+> is reconciled *against* — the pinned upstream baseline — lives in
+> [`spec/upstream/`](../spec/upstream/), named with a dialect epoch in
+> [`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md) (currently **D1**, `cc-2.1.173`).
+> The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
 > [`workflow-js-structure.md`](./workflow-js-structure.md).
@@ -86,6 +90,9 @@ table in §C maps one to the other.
 - **`extract-meta`** — source → validated `Meta` (reads the `meta` literal off
   the AST; never runs it).
 - **`analyze-body`** — source AST → `Topology` (the tree IR). Total function.
+- **`feature-detect`** — AST → the file's required-minimum dialect epoch
+  (caniuse-style) + any awaited-but-unrecognized callees. Read-only; feeds
+  `Topology.requiredDialect` and the CLI's one-line dialect warning.
 - **`place-topology`** — `Topology` → `Layout` (positioned geometry). Total.
 - **`render-topology`** — `Layout` → SVG string (the swimlane view).
 - **`render-svg`** — `Meta` → SVG string (the v1 `phases` view; byte-frozen).
@@ -97,7 +104,8 @@ table in §C maps one to the other.
   to improve the source's authored strings.
 
 ### Tree IR — `topology.ts` (what the body *says*)
-- **`Topology`** — `{ steps, bands, notes, hasOrchestration }`.
+- **`Topology`** — `{ steps, bands, notes, hasOrchestration, requiredDialect,
+  recognizerTarget }`.
 - **`Step`** — a node in the source-faithful tree. Union of: `AgentStep`,
   `WorkflowStep`, `OpaqueStep`, `ParallelStep` (`fanout` | `branches`),
   `PipelineStep`, `LoopStep`, `BranchStep`.
@@ -110,6 +118,9 @@ table in §C maps one to the other.
 - **`AnalysisNote`** — a recorded degradation ("saw it, couldn't draw it fully").
 - **`SourceSpan`** — `{ start, end }` byte offsets into the source.
 - **`hasOrchestration`** — false ⇒ nothing real was recovered ⇒ fall back to v1.
+- **`requiredDialect` / `recognizerTarget`** — the file's required-minimum dialect
+  epoch (`feature-detect`) vs the epoch the recognizer targets (`RECOGNIZER_TARGET`);
+  a caniuse-style pair carried for the JSON emit and the CLI dialect warning.
 
 ### Geometry IR — `topo-geometry.ts` (where it goes)
 - **`Layout`** — `{ width, height, lanes, nodes, edges, loops, notes }`. One flat

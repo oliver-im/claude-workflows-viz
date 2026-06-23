@@ -60,6 +60,8 @@ const topo = (steps: Step[], bands: BandRef[]): Topology => ({
   bands,
   notes: [],
   hasOrchestration: true,
+  requiredDialect: "D1",
+  recognizerTarget: "D1",
 });
 const meta = (phases: Meta["phases"]): Meta => ({ name: "wf", description: "d", phases });
 

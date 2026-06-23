@@ -91,6 +91,14 @@ describe("cli smoke", () => {
     expect(kinds).toContain("parallel");
   });
 
+  it("carries the per-file dialect epoch in the JSON topology block", () => {
+    const res = runCli([summarizeExample, "--format", "json"]);
+    expect(res.status).toBe(0);
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.topology.requiredDialect).toBe("D1");
+    expect(parsed.topology.recognizerTarget).toBe("D1");
+  });
+
   it("infers json format from the -o extension and is deterministic", () => {
     const out = join(workDir, "analysis.json");
     const res = runCli([summarizeExample, "-o", out]);
@@ -151,6 +159,18 @@ describe("cli smoke — views", () => {
     expect(res.stdout).not.toContain("agent-node");
     expect(res.stdout).toContain('class="phase-card"');
     expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
+  });
+
+  it("warns about an unrecognized awaited primitive yet still renders (exit 0), proving the warning is independent of the hasOrchestration fallback", () => {
+    const unknownFixture = join(here, "fixtures", "uses-unknown-primitive.js");
+    const res = runCli([unknownFixture]);
+    expect(res.status).toBe(0);
+    // The softer feature-detection signal fires on `await race(...)`...
+    expect(res.stderr).toMatch(/not recognized as orchestration/);
+    // ...even though no orchestration was recovered, so the topology view fell
+    // back to the byte-identical v1 phases page (the warning ran before that).
+    expect(res.stdout).not.toContain("agent-node");
+    expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture)));
   });
 
   it("rasterizes the topology view to a real PNG", () => {
