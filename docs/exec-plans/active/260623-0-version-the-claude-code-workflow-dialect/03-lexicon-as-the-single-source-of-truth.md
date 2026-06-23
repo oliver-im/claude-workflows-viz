@@ -42,8 +42,8 @@ Replace the scattered hard-coded vocabulary with one machine-usable lexicon, eac
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — 3 finder agents (behavior-equivalence via differential old-vs-new testing; lexicon completeness vs recognizers; cleanup/links/gaps). **No correctness findings.** Behavior proven byte-identical across all agent-option key classes; lexicon confirmed an exact mirror of the recognizers. Two non-blocking notes: `width-idiom` scoped to `.map`/`Array.from` per the unit spec (descriptive, doc-only — left as-is); the present-tense consistency-test forward-reference **softened to deferred** in `ts/dialect.ts` + the docs blockquote.
+- [x] `codex exec -s read-only` — ran on the staged diff; **no findings** (confirmed `ORCHESTRATION_CALLEES` member-equal to the old set, the option-guard behavior-preserving for schema/unknown/undefined keys, lexicon coverage complete, no unused imports).
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---

@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** 03-lexicon-as-the-single-source-of-truth (not started).
+**Cursor:** 04-per-file-feature-detection-caniuse-style (not started).
 
 ## Pre-execution review
 
@@ -35,6 +35,15 @@ This plan is worked in its own git worktree, one branch per unit:
   `workflow-js-structure.md`; `glossary.md` §A names the ledger + `spec/upstream/`.
   Review: `/code-review` (2 finder agents) + codex read-only — all three re-hashed the
   artifacts, no findings.
+- **Unit 03 — lexicon as the single source of truth** (`29ecfe7`). New `ts/dialect.ts`
+  enumerates the recognized vocabulary as `{ token, kind, wired, sinceEpoch }` (all D1),
+  with the wired (`orchestration-call`/`agent-option`, derived into `ORCHESTRATION_CALLEES`
+  + `AGENT_OPTION_KEYS`) vs descriptive (`marker`/`width-idiom`/`host-construct`) split.
+  `analyze-body.ts` imports the two wired sets instead of hardcoding them; behavior
+  byte-identical (159/159, snapshots + zero-opaque corpus). Review: `/code-review`
+  (3 finder agents incl. differential old-vs-new testing) + codex — no correctness
+  findings. Note: a **pre-existing** tsc error in `ts/__tests__/place-topology.test.ts`
+  (`labelExplicit`) reproduces on clean HEAD — unrelated to this plan, left untouched.
 
 ## Blockers
 
