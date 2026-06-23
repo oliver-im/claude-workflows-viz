@@ -30,6 +30,7 @@ const agent = (label: string, phase: string | null, over: Partial<AgentStep> = {
   label,
   phase,
   multiplicity: { kind: "one" },
+  labelExplicit: false,
   span,
   ...over,
 });
