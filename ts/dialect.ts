@@ -59,6 +59,7 @@ export const LEXICON: readonly LexiconEntry[] = [
   { token: "agentType", kind: "agent-option", wired: true, sinceEpoch: "D1", note: "recorded — string literal only" },
   { token: "phase", kind: "agent-option", wired: true, sinceEpoch: "D1", note: "overrides the ambient phase for this node — string literal only" },
   { token: "schema", kind: "agent-option", wired: true, sinceEpoch: "D1", note: "recognized as an option, but carries no visual meaning" },
+  { token: "isolation", kind: "agent-option", wired: true, sinceEpoch: "D1", note: "'worktree' runs the agent in a fresh worktree — recognized, but carries no visual meaning" },
 
   // ── descriptive · recognized by AST node shape, not by a callee name ──
   // (`phase` is listed twice on purpose: a bare statement is the band marker

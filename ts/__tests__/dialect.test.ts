@@ -22,11 +22,11 @@ import type { AgentStep, Step, Topology } from "../topology.js";
  * dispatch has an observable effect — the recognizer actually dispatches it.
  * Iterating the lexicon means a newly-added wired token with no probe below fails
  * loudly — you cannot extend the vocabulary without wiring both the recognizer and
- * this test. (The lone exception is the `schema` agent option: its dispatch arm is
- * a bare `break`, behaviorally indistinguishable from no arm at all, so no probe
- * can prove it is *dispatched*. Its real guarantee is gate membership — the
- * round-trip — and its probe only checks that supplying it does not disrupt
- * recognition.)
+ * this test. (The exceptions are the inert `schema` and `isolation` agent options:
+ * each dispatch arm is a bare `break`, behaviorally indistinguishable from no arm at
+ * all, so no probe can prove they are *dispatched*. Their real guarantee is gate
+ * membership — the round-trip — and their probes only check that supplying them does
+ * not disrupt recognition.)
  *
  * Descriptive kinds (`marker` / `width-idiom` / `host-construct`) are recognized
  * by AST node shape, not by a callee name, so they have no identifier set to
@@ -89,11 +89,11 @@ describe("every orchestration-call token is dispatched to a recognized step", ()
 // recognizer's option switch (`analyze-body.ts`, `switch (key)`) actually read it.
 // Keyed by token so a NEW option with no entry fails loudly. Four options set a
 // field — deleting their switch case (while keeping the lexicon key) leaves the
-// field unset and the probe fails, so these have real dispatch teeth. `schema` is
-// the exception: its `case "schema": break` is inert, so the same observation
-// (no note, agent untouched) also holds for an *unrecognized* key — its probe is a
-// "doesn't disrupt recognition" smoke check, NOT a dispatch proof. Schema's actual
-// coverage is gate membership, asserted by the round-trip suite above.
+// field unset and the probe fails, so these have real dispatch teeth. `schema` and
+// `isolation` are the exceptions: their `case …: break` arms are inert, so the same
+// observation (no note, agent untouched) also holds for an *unrecognized* key — their
+// probes are "doesn't disrupt recognition" smoke checks, NOT dispatch proofs. Their
+// actual coverage is gate membership, asserted by the round-trip suite above.
 const OPTION_DISPATCH: Record<
   string,
   { opt: string; check: (a: AgentStep, t: Topology) => void }
@@ -114,6 +114,15 @@ const OPTION_DISPATCH: Record<
       // Smoke check only (see the note above): supplying schema leaves the agent
       // clean — no degradation note, label still prompt-derived. This holds for
       // any inert key; schema's recognition is proven by the round-trip suite.
+      expect(t.notes).toEqual([]);
+      expect(a.label).toBe("p");
+    },
+  },
+  isolation: {
+    opt: `isolation: "worktree"`,
+    check: (a, t) => {
+      // Inert like schema (see the note above): recognized but no visual meaning,
+      // so this only checks it doesn't disrupt the agent; round-trip proves it.
       expect(t.notes).toEqual([]);
       expect(a.label).toBe("p");
     },

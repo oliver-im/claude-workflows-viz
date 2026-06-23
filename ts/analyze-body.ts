@@ -1027,7 +1027,8 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             break;
           }
           case "schema":
-            break; // recognized as a dialect option, but carries no visual meaning
+          case "isolation":
+            break; // recognized dialect options that carry no visual meaning
         }
       }
     }
