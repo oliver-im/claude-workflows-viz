@@ -1,6 +1,7 @@
 import type * as acorn from "acorn";
 import { AGENT_OPTION_KEYS, ORCHESTRATION_CALLEES } from "./dialect.js";
 import { tryEvalLiteral } from "./extract-meta.js";
+import { detectDialectUse } from "./feature-detect.js";
 import {
   type AgentStep,
   type AnalysisNote,
@@ -58,11 +59,24 @@ export function analyzeBody(
     expansion: null,
   };
   const steps = walkStatements(ctx, (program as any).body ?? []);
+  // One feature-detection pass over the AST: its required-minimum epoch rides on
+  // the Topology (so the JSON emit carries it), and each awaited-but-unrecognized
+  // callee is noted — surfaced, never silently dropped. The CLI reads the same
+  // detection for its stderr warning, independent of `hasOrchestration`.
+  const dialect = detectDialectUse(program);
+  for (const name of dialect.unrecognized) {
+    note(
+      ctx,
+      `awaited \`${name}(…)\` is not a recognized orchestration call — possibly newer than dialect ${dialect.recognizerTarget}`,
+    );
+  }
   return {
     steps,
     bands: ctx.bands,
     notes: ctx.notes,
     hasOrchestration: stepsHaveOrchestration(steps),
+    requiredDialect: dialect.requiredDialect,
+    recognizerTarget: dialect.recognizerTarget,
   };
 }
 

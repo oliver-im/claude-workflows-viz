@@ -42,6 +42,8 @@ const topo = (steps: Step[], bands: BandRef[], over: Partial<Topology> = {}): To
   bands,
   notes: [],
   hasOrchestration: true,
+  requiredDialect: "D1",
+  recognizerTarget: "D1",
   ...over,
 });
 

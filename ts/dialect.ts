@@ -25,7 +25,7 @@
  */
 
 /** This project's tracking version of the externally-owned grammar (D1, D2, …). */
-export type DialectEpoch = "D1";
+export type DialectEpoch = `D${number}`;
 
 export type LexiconKind =
   | "orchestration-call" // wired: a bare callee whose presence means "orchestrates"
@@ -92,3 +92,29 @@ export const ORCHESTRATION_CALLEES: ReadonlySet<string> = wiredSet("orchestratio
  * gates its option switch on this set; a key outside it draws nothing.
  */
 export const AGENT_OPTION_KEYS: ReadonlySet<string> = wiredSet("agent-option");
+
+/**
+ * The dialect epoch the recognizer is currently reconciled to (the provenance
+ * header in `docs/workflow-js-structure.md` and the ledger's latest entry). A
+ * file that needs a higher epoch than this uses constructs newer than what the
+ * recognizer understands — the caniuse-style comparison in `feature-detect.ts`.
+ */
+export const RECOGNIZER_TARGET: DialectEpoch = "D1";
+
+/** Numeric rank of an epoch, for ordering and max (`D1` → 1, `D2` → 2, …). */
+export function epochRank(epoch: DialectEpoch): number {
+  return Number(epoch.slice(1));
+}
+
+/**
+ * Map every **wired** token to the epoch that introduced it — the lookup
+ * feature-detection uses to turn "tokens this file uses" into a required-minimum
+ * epoch. Descriptive tokens have no round-tripped identifier and are excluded.
+ * Defaults to the real `LEXICON`; the lexicon is a parameter so the
+ * min-computation can be unit-tested against a synthetic (e.g. `D2`) table.
+ */
+export function wiredEpochs(lexicon: readonly LexiconEntry[] = LEXICON): Map<string, DialectEpoch> {
+  const m = new Map<string, DialectEpoch>();
+  for (const e of lexicon) if (e.wired) m.set(e.token, e.sinceEpoch);
+  return m;
+}
