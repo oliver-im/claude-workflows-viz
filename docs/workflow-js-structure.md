@@ -94,6 +94,17 @@ is a **total function**: every statement is walked in a try/catch, and anything
 unreadable degrades to an `OpaqueStep` (a visible blob) and/or an `AnalysisNote`
 — **never** a silent drop, never a throw.
 
+> **The lexicon (data) vs this section (semantics).** Every token described below
+> is enumerated in [`ts/dialect.ts`](../ts/dialect.ts) — the machine-readable
+> lexicon, each entry tagged with the dialect epoch that introduced it. This prose
+> stays the *meaning*; that module is the *table*. Only its **wired** entries (the
+> `orchestration-call` and `agent-option` tokens) are imported by the recognizer,
+> so the analyzer reads the lexicon rather than a hand-kept copy (a planned
+> lexicon-consistency test will further assert the round-trip). The **descriptive**
+> entries (`marker`, `width-idiom`, `host-construct`) are
+> recognized by AST node shape, not a callee name, and are carried for documentation
+> and per-file feature-detection only.
+
 ### 3.1 What counts as orchestration
 
 Exactly four bare calls: **`agent`**, **`workflow`**, **`parallel`**,

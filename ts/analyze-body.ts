@@ -1,4 +1,5 @@
 import type * as acorn from "acorn";
+import { AGENT_OPTION_KEYS, ORCHESTRATION_CALLEES } from "./dialect.js";
 import { tryEvalLiteral } from "./extract-meta.js";
 import {
   type AgentStep,
@@ -266,7 +267,8 @@ export function collectModuleConsts(program: acorn.Node): Map<string, unknown> {
 // Orchestration gate
 // ---------------------------------------------------------------------------
 
-const ORCHESTRATION_CALLEES = new Set(["agent", "parallel", "pipeline", "workflow"]);
+// `ORCHESTRATION_CALLEES` is the lexicon's wired `orchestration-call` set
+// (`ts/dialect.ts`) — the single source of truth, imported above.
 
 /**
  * Does this subtree contain a bare `agent(…)`/`parallel(…)`/`pipeline(…)`/
@@ -963,6 +965,10 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             : prop.key.type === "Literal"
               ? String(prop.key.value)
               : undefined;
+        // The recognized agent options are the lexicon's wired `agent-option`
+        // tokens (`ts/dialect.ts`); any other key draws nothing — unchanged from
+        // the old `default` no-op, but now the switch and the lexicon can't drift.
+        if (key === undefined || !AGENT_OPTION_KEYS.has(key)) continue;
         switch (key) {
           case "label": {
             const lit = stringLiteralValue(prop.value);
@@ -1006,8 +1012,8 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             }
             break;
           }
-          default:
-            break; // schema etc. — no visual meaning
+          case "schema":
+            break; // recognized as a dialect option, but carries no visual meaning
         }
       }
     }
