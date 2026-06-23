@@ -12,8 +12,12 @@ An author never needs our terms, and our code never invents theirs. The bridge
 table in §C maps one to the other.
 
 > **Source of truth.** The dialect (A) is defined by what `ts/extract-meta.ts`
-> and `ts/analyze-body.ts` actually recognize — not by the runtime's full
-> surface. The internals (B) are defined by `ts/topology.ts` (the tree IR) and
+> and `ts/analyze-body.ts` actually recognize — a static subset of the runtime's
+> grammar, which Claude Code owns and does not formally version. What that subset
+> is reconciled *against* — the pinned upstream baseline — lives in
+> [`spec/upstream/`](../spec/upstream/), named with a dialect epoch in
+> [`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md) (currently **D1**, `cc-2.1.173`).
+> The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
 > [`workflow-js-structure.md`](./workflow-js-structure.md).

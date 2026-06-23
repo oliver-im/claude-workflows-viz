@@ -13,6 +13,13 @@ authority for it: `ts/extract-meta.ts` (the `meta` block) and
 > template expressions) in `meta` is *rejected*, not evaluated. This is the
 > security spine of the whole tool.
 
+> **Dialect provenance.** The recognizer targets dialect epoch **≤ D1**, reconciled
+> against `cc-2.1.173` on 2026-06-23. Upstream snapshots live in
+> [`spec/upstream/`](../spec/upstream/); the epoch ledger — what D1 pins and how a
+> bump is minted — is [`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md). When the
+> dialect drifts, [§5 Maintenance](#5-maintenance-what-a-dialect-change-touches) is
+> the edit-site map.
+
 ---
 
 ## 1. Overall shape
@@ -204,3 +211,7 @@ Regression guardrails that should stay green through any such change:
 `--view phases` byte-identical (snapshot), **0 cross-card edges** across
 `examples/*.svg` (corpus test), and the v1 fallback path (analysis failure or
 `hasOrchestration === false` ⇒ phases page, exit 0).
+
+*Detecting* that the dialect changed in the first place — and the dialect-epoch
+bump that follows an edit here — is the reconciliation ritual in
+[`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md#how-to-reconcile-when-upstream-drifts).
