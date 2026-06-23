@@ -37,8 +37,8 @@ Add a `scripts/capture-dialect.mjs` that snapshots the upstream dialect's defini
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — 2 finder agents; one simplification applied (buffer-scan replaces the fixed 60 KB window). No correctness bugs.
+- [x] `codex exec -s read-only` — ran on the staged diff; **no findings** (independently confirmed 19078B / sha256 `15e8f855…`, the wiring, and the per-interface slice).
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---

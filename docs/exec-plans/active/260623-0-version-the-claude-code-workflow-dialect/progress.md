@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** 01-capture-machinery-and-the-d1-baseline-snapshot (not started).
+**Cursor:** 02-dialect-epoch-ledger-and-provenance-headers (not started).
 
 ## Pre-execution review
 
@@ -22,7 +22,12 @@ This plan is worked in its own git worktree, one branch per unit:
 
 ## Done
 
-_Nothing yet._
+- **Unit 01 — capture machinery and the D1 baseline snapshot** (`04eebed`).
+  `scripts/capture-dialect.mjs` + `npm run capture-dialect` snapshot the upstream Workflow
+  dialect into `spec/upstream/2026-06-23-cc-2.1.173/` (prose 19078B sha256 `15e8f855…`,
+  schema 3064B), content-hashed in `manifest.json`. Review: `/code-review` (one
+  simplification applied — buffer-scan vs fixed window) + codex read-only (no findings).
+  159/159 tests green.
 
 ## Blockers
 
