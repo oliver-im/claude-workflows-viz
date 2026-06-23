@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** all units complete + plan-level review done (1 MED finding fixed in `48bc658`). Remaining: archive `active/ → completed/` and merge `plan/…` into `main` (both user-directed).
+**Status: COMPLETE** — all 5 units landed, reviewed per-unit and at the plan level (1 MED finding fixed, `48bc658`). Archived `active/ → completed/` on 2026-06-23. Branch `plan/260623-0-version-the-claude-code-workflow-dialect` (off `main`); 186/186 tests green, tsc clean, `npm run check-dialect` exit 0. **Pending:** `git merge --no-ff` into `main` + `git worktree remove` — awaiting explicit approval.
 
 ## Pre-execution review
 
