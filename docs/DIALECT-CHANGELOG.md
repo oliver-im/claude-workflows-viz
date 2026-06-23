@@ -85,8 +85,13 @@ move with no signal to us. The reconciliation ritual is how we catch that.
 This is a **local / dev-machine** ritual: it needs the installed `claude` binary to
 capture from, which a generic CI runner does not have.
 
-> **Planned — not yet implemented.** `npm run check-dialect` and the
-> `scripts/capture-dialect.mjs --check` mode it wraps do **not** exist yet; this
-> section documents the ritual ahead of the tooling so the vocabulary is already in
-> place when the gate lands. Until then, reconciliation is manual: re-run
-> `npm run capture-dialect` and `git diff` the `spec/upstream/` snapshot.
+> **Implemented.** `npm run check-dialect` (the `scripts/capture-dialect.mjs --check`
+> mode) re-captures from the installed package and compares each artifact's sha256
+> against the latest `spec/upstream/` snapshot (the checked-in baseline, read from
+> disk) — exit **0** in sync, **non-zero** on any drift, and a loud failure if
+> `claude` isn't installed or an anchor moved.
+> As noted above, it runs only where the `claude` binary lives, never on a generic CI
+> runner. Its CC-independent companion — the lexicon ↔ recognizer consistency test
+> (`ts/__tests__/dialect.test.ts`, asserting the wired vocabulary still matches what the
+> recognizer dispatches) — needs no install, and so is the half that *does* run in
+> ordinary `vitest` CI.

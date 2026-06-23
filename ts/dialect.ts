@@ -13,9 +13,9 @@
  *     `orchestration-call` (the bare callees that count as orchestration) and
  *     `agent-option` (the keys the `agent()` options object is read for). These
  *     two sets are derived below and imported by `analyze-body.ts` — so the
- *     analyzer reads the lexicon directly rather than a hand-kept copy. (A planned
- *     lexicon-consistency test will further assert the round-trip against the
- *     recognizer's own cases.)
+ *     analyzer reads the lexicon directly rather than a hand-kept copy. (The
+ *     lexicon-consistency test in `ts/__tests__/dialect.test.ts` asserts the
+ *     round-trip against the recognizer's own dispatch.)
  *
  *   - **descriptive** (`false`) — recognized by **AST node shape, not by a callee
  *     name** (`marker` = `phase()`; `width-idiom` = `.map` / `Array.from`;

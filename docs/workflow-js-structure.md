@@ -99,8 +99,9 @@ unreadable degrades to an `OpaqueStep` (a visible blob) and/or an `AnalysisNote`
 > lexicon, each entry tagged with the dialect epoch that introduced it. This prose
 > stays the *meaning*; that module is the *table*. Only its **wired** entries (the
 > `orchestration-call` and `agent-option` tokens) are imported by the recognizer,
-> so the analyzer reads the lexicon rather than a hand-kept copy (a planned
-> lexicon-consistency test will further assert the round-trip). The **descriptive**
+> so the analyzer reads the lexicon rather than a hand-kept copy (the
+> lexicon-consistency test in [`ts/__tests__/dialect.test.ts`](../ts/__tests__/dialect.test.ts)
+> asserts that round-trip and that each wired token is still dispatched). The **descriptive**
 > entries (`marker`, `width-idiom`, `host-construct`) are
 > recognized by AST node shape, not a callee name, and are carried for documentation
 > and per-file feature-detection only.

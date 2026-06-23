@@ -16,6 +16,7 @@
     "build": "node scripts/build.mjs",
     "regen-examples": "node scripts/build.mjs && node scripts/regen-examples.mjs",
     "capture-dialect": "node scripts/capture-dialect.mjs",
+    "check-dialect": "node scripts/capture-dialect.mjs --check",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
