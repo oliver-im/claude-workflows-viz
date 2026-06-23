@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** all units complete — Unit 05 done. Remaining: the plan-level review (below), then archive `active/ → completed/` and merge `plan/…` into `main` (both user-directed).
+**Cursor:** all units complete + plan-level review done (1 MED finding fixed in `48bc658`). Remaining: archive `active/ → completed/` and merge `plan/…` into `main` (both user-directed).
 
 ## Pre-execution review
 
@@ -87,6 +87,6 @@ _None._
 
 After the last unit's review lands and is committed, run the **`/jidoka:plan-review-prompt`** composer against the cumulative plan diff — don't run the vehicle(s) below directly. The composer aims a cross-unit focus and drives whatever is configured: it injects jidoka's own plan-level review prompt into a `{ run, mode }` template (then `print`/`exec` per its mode), or composes the focus into a slash command for you. Configured vehicle(s):
 
-- [ ] `codex exec -s read-only "{focus}"` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `codex exec -s read-only "{focus}"` — **exec**: ran via the `/jidoka:plan-review-prompt` composer, which injected jidoka's plan-level prompt + 7 cross-unit focus targets; codex (gpt-5.5) paged the 26-file cumulative diff under a read-only sandbox. **One MED finding, verified and fixed in `48bc658`:** the D1 lexicon omitted `agent()`'s captured `isolation` option (Unit 01↔03 seam — per-unit review couldn't catch it because the lexicon and the recognizer agreed, both omitting it; only the lexicon↔captured-grammar comparison surfaced it). Everything else — drift gate, Topology field wiring, the warn-before-early-return path, provenance hashes — found consistent. Verdict "ship with fixes"; fix landed, 186/186 green.
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
