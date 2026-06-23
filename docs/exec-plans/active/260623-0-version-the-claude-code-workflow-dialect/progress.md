@@ -1,6 +1,6 @@
 # 260623-0-version-the-claude-code-workflow-dialect — Progress
 
-**Cursor:** 02-dialect-epoch-ledger-and-provenance-headers (not started).
+**Cursor:** 03-lexicon-as-the-single-source-of-truth (not started).
 
 ## Pre-execution review
 
@@ -28,6 +28,13 @@ This plan is worked in its own git worktree, one branch per unit:
   schema 3064B), content-hashed in `manifest.json`. Review: `/code-review` (one
   simplification applied — buffer-scan vs fixed window) + codex read-only (no findings).
   159/159 tests green.
+- **Unit 02 — dialect epoch ledger and provenance headers** (`102f2bf`). Docs-only:
+  new `docs/DIALECT-CHANGELOG.md` (epoch model; D1 baseline `cc-2.1.173`/2026-06-23 with
+  the prose `15e8f855…`/schema `fe6f86e0…` hashes; reconcile ritual, `check-dialect`
+  labeled deferred to Unit 05); provenance header + §5 back-link on
+  `workflow-js-structure.md`; `glossary.md` §A names the ledger + `spec/upstream/`.
+  Review: `/code-review` (2 finder agents) + codex read-only — all three re-hashed the
+  artifacts, no findings.
 
 ## Blockers
 

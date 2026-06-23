@@ -30,8 +30,8 @@ Establish the versioning *scheme* in docs: a `DIALECT-CHANGELOG.md` that defines
 
 ## Review pipeline
 
-- [ ] `/code-review`
-- [ ] `codex exec -s read-only 'Second opinion on the working-tree diff. Plan at {plan_dir} — read the relevant unit md for intent-match; deferred forward-references it notes are expected, not bugs. Flag local correctness + intent-drift; be brief.'` — **exec**: the resuming agent runs this via the Bash tool, then surfaces the findings
+- [x] `/code-review` — 2 finder agents (factual/intent vs code+manifest+plan; links/consistency/coverage). Both **no findings**; each re-hashed the artifacts and confirmed the deferred `check-dialect` label is accurate.
+- [x] `codex exec -s read-only` — ran on the staged diff; **no findings** (independently re-verified D1 version/date/bytes/sha256 vs `manifest.json`, that the prose matches `capture-dialect.mjs`, and that the cross-links/anchors resolve).
 
 _Template steps are recorded verbatim; the **resuming agent** substitutes their placeholders per the resume protocol before running — the renderer never substitutes._
 ---
