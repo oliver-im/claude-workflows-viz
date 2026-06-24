@@ -1,6 +1,6 @@
 import type { Meta } from "./model.js";
 import type { GEdge, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
-import { renderHeader } from "./render-svg.js";
+import { type Provenance, renderFooter, renderHeader } from "./render-svg.js";
 import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
   type Block,
@@ -48,7 +48,7 @@ import {
  * paint and typography live in the named constants below. Determinism: output
  * is a pure function of the layout; arrays are drawn in canonical order.
  */
-export function renderTopology(layout: Layout, meta: Meta): string {
+export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): string {
   const gw = layout.width; // the graph's own frame width (== W)
 
   // Build each lane's left label cell, then inflate its band to fit so the
@@ -111,7 +111,15 @@ export function renderTopology(layout: Layout, meta: Meta): string {
     `</g>`;
 
   const width = pageW;
-  const height = round(yOffset + layout.height + MARGIN);
+  let height = round(yOffset + layout.height + MARGIN);
+
+  let footer = "";
+  if (prov) {
+    const f = renderFooter(prov, pageW, height);
+    footer = f.body;
+    height = round(height + f.height);
+  }
+
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${width} ${height}" ` +
@@ -119,6 +127,7 @@ export function renderTopology(layout: Layout, meta: Meta): string {
     `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
     `<g transform="translate(0 ${round(MARGIN)})">${header.body}</g>\n` +
     content +
+    (footer ? `\n${footer}` : "") +
     `\n</svg>\n`
   );
 }

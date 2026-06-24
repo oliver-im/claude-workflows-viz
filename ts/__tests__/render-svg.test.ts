@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderSvg } from "../render-svg.js";
+import { type Provenance, renderSvg } from "../render-svg.js";
 import type { Meta } from "../model.js";
 
 const meta = (over: Partial<Meta> = {}): Meta => ({
@@ -105,5 +105,23 @@ describe("renderSvg", () => {
       }),
     );
     expect(svg).toMatchSnapshot();
+  });
+
+  const prov: Provenance = { toolVersion: "9.9.9" };
+
+  it("omits the provenance footer without provenance (v1 byte-stability)", () => {
+    expect(renderSvg(meta({ phases: [{ title: "A", model: "opus" }] }))).not.toContain(
+      'class="provenance"',
+    );
+  });
+
+  it("stamps a right-aligned provenance footer when given provenance, growing the page", () => {
+    const m = meta({ phases: [{ title: "A", model: "opus" }] });
+    const stamped = renderSvg(m, prov);
+    expect(stamped).toContain('class="provenance"');
+    expect(stamped).toContain("v9.9.9");
+    expect(stamped).toContain('text-anchor="end"'); // bottom-right
+    const h = (s: string) => Number(/height="(\d+)"/.exec(s)?.[1]);
+    expect(h(stamped)).toBeGreaterThan(h(renderSvg(m)));
   });
 });

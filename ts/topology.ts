@@ -1,4 +1,4 @@
-import type { DialectEpoch } from "./dialect.js";
+import type { GrammarLevel } from "./grammar.js";
 import { truncatePlain } from "./svg-primitives.js";
 
 /**
@@ -163,14 +163,14 @@ export interface Topology {
    */
   hasOrchestration: boolean;
   /**
-   * The minimum dialect epoch needed to understand this file — `max sinceEpoch`
-   * over the wired lexicon tokens it uses, floored at `D1` (see
+   * The minimum grammar level needed to understand this file — `max sinceLevel`
+   * over the wired lexicon tokens it uses, floored at level `1` (see
    * `feature-detect.ts`). Carried for the caniuse-style comparison and the JSON
    * emit; does not affect placement or rendering.
    */
-  requiredDialect: DialectEpoch;
-  /** The dialect epoch the recognizer targets (`RECOGNIZER_TARGET`), for comparison. */
-  recognizerTarget: DialectEpoch;
+  requiredLevel: GrammarLevel;
+  /** The grammar level the recognizer supports (`RECOGNIZER_LEVEL`), for comparison. */
+  recognizerLevel: GrammarLevel;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,11 +1,13 @@
 /**
  * workflow-readability demo — BEFORE.
  *
- * A verbatim copy of examples/choose-approach.js: a faithful, honest diagram
+ * A verbatim copy of examples/level-1/choose-approach.js: a faithful, honest diagram
  * whose node labels read like code (`draft:${p}`, `match:${i / 2}`) and whose
  * bye-branch reads `!b`. Render it, then compare with the `.after.js` sibling:
  *
  *   claude-workflows-viz choose-approach.before.js -o before.svg
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Choose an implementation approach",

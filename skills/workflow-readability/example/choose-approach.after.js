@@ -13,6 +13,8 @@
  *                              `!opponent` instead of `!b`)
  *
  *   claude-workflows-viz choose-approach.after.js -o after.svg
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Choose an implementation approach",

@@ -6,6 +6,8 @@
  *
  * Only the `meta` block below is drawn; the orchestration body beneath it is
  * never executed — it's here just so this reads like a real workflow.
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Adversarially verify a fix",

@@ -1,37 +1,37 @@
 import type * as acorn from "acorn";
 import {
   AGENT_OPTION_KEYS,
-  type DialectEpoch,
-  epochRank,
+  type GrammarLevel,
   ORCHESTRATION_CALLEES,
-  RECOGNIZER_TARGET,
-  wiredEpochs,
-} from "./dialect.js";
+  RECOGNIZER_LEVEL,
+  wiredLevels,
+} from "./grammar.js";
 
 /**
- * Caniuse-style per-file feature detection over the dialect lexicon. Reads the
+ * Caniuse-style per-file feature detection over the grammar lexicon. Reads the
  * acorn AST (never executes it) and answers two honest questions:
  *
- *   - **requiredDialect** — the minimum dialect epoch needed to understand the
- *     file, computed as `max sinceEpoch` over the **wired** lexicon tokens it
+ *   - **requiredLevel** — the minimum grammar level needed to understand the
+ *     file, computed as `max sinceLevel` over the **wired** lexicon tokens it
  *     actually uses (orchestration calls + recognized `agent()` options),
- *     floored at `D1`. Descriptive/native-JS constructs (loops, `.map`, …) are
- *     always-present and never raise it — only the wired vocabulary is versioned.
+ *     floored at level `1`. Descriptive/native-JS constructs (loops, `.map`, …)
+ *     are always-present and never raise it — only the wired vocabulary is
+ *     versioned.
  *   - **unrecognized** — a softer, distinct signal: bare callees that are
  *     *awaited like orchestration* (`await foo(…)`) yet are not recognized
- *     orchestration calls. The dialect's primitives are overwhelmingly awaited,
+ *     orchestration calls. The grammar's primitives are overwhelmingly awaited,
  *     so an awaited unknown callee is the strongest cheap hint of a primitive
  *     newer than the recognizer targets. Surfaced rather than silently ignored.
  *
  * Both feed one consumer each off a single computation: `analyzeBody` attaches
- * `requiredDialect`/`recognizerTarget` to the `Topology` (so the JSON emit
- * carries them) and notes each unrecognized callee; the CLI consults
- * `dialectWarning` for a one-line stderr warning, independent of whether any
- * orchestration was recovered.
+ * `requiredLevel`/`recognizerLevel` to the `Topology` (so the JSON emit carries
+ * them) and notes each unrecognized callee; the CLI consults `grammarWarning`
+ * for a one-line stderr warning, independent of whether any orchestration was
+ * recovered.
  */
-export interface DialectUse {
-  requiredDialect: DialectEpoch;
-  recognizerTarget: DialectEpoch;
+export interface GrammarUse {
+  requiredLevel: GrammarLevel;
+  recognizerLevel: GrammarLevel;
   /** Sorted, de-duplicated awaited-but-unrecognized callee names. */
   unrecognized: string[];
 }
@@ -42,32 +42,25 @@ export interface DialectUse {
 const BENIGN_AWAITED = new Set(["phase", "log"]);
 
 /**
- * The max epoch over `used` tokens looked up through `epochs`, floored at
+ * The max grammar level over `used` tokens looked up through `levels`, floored at
  * `floor`. A pure function of its inputs — the unit-testable core of the
- * required-minimum computation (feed a synthetic `epochs` to exercise `D2`+).
+ * required-minimum computation (feed a synthetic `levels` to exercise level 2+).
  */
-export function requiredEpoch(
+export function requiredGrammarLevel(
   used: Iterable<string>,
-  epochs: ReadonlyMap<string, DialectEpoch> = wiredEpochs(),
-  floor: DialectEpoch = "D1",
-): DialectEpoch {
+  levels: ReadonlyMap<string, GrammarLevel> = wiredLevels(),
+  floor: GrammarLevel = 1,
+): GrammarLevel {
   let best = floor;
-  let bestRank = epochRank(floor);
   for (const token of used) {
-    const epoch = epochs.get(token);
-    if (epoch !== undefined) {
-      const rank = epochRank(epoch);
-      if (rank > bestRank) {
-        best = epoch;
-        bestRank = rank;
-      }
-    }
+    const level = levels.get(token);
+    if (level !== undefined && level > best) best = level;
   }
   return best;
 }
 
-/** Detect the dialect epoch a parsed workflow requires, and any newer-looking calls. */
-export function detectDialectUse(program: acorn.Node): DialectUse {
+/** Detect the grammar level a parsed workflow requires, and any newer-looking calls. */
+export function detectGrammarUse(program: acorn.Node): GrammarUse {
   const used = new Set<string>();
   const unrecognized = new Set<string>();
   walk(program, (node) => {
@@ -88,24 +81,24 @@ export function detectDialectUse(program: acorn.Node): DialectUse {
     }
   });
   return {
-    requiredDialect: requiredEpoch(used),
-    recognizerTarget: RECOGNIZER_TARGET,
+    requiredLevel: requiredGrammarLevel(used),
+    recognizerLevel: RECOGNIZER_LEVEL,
     unrecognized: [...unrecognized].sort(),
   };
 }
 
 /**
- * The one-line warning for a file whose dialect needs exceed the recognizer's
- * target, or `null` when nothing does. The hard signal (a known token newer
- * than the target) wins over the soft one (an awaited unknown callee).
+ * The one-line warning for a file whose grammar needs exceed the recognizer's
+ * level, or `null` when nothing does. The hard signal (a known token newer than
+ * the level) wins over the soft one (an awaited unknown callee).
  */
-export function dialectWarning(use: DialectUse): string | null {
-  if (epochRank(use.requiredDialect) > epochRank(use.recognizerTarget)) {
-    return `file uses constructs from dialect ${use.requiredDialect}; recognizer targets ${use.recognizerTarget} — newer constructs may render opaque`;
+export function grammarWarning(use: GrammarUse): string | null {
+  if (use.requiredLevel > use.recognizerLevel) {
+    return `file requires grammar level ${use.requiredLevel}; recognizer supports up to level ${use.recognizerLevel} — newer constructs may render opaque`;
   }
   if (use.unrecognized.length > 0) {
     const calls = use.unrecognized.map((n) => `\`${n}\``).join(", ");
-    return `awaited ${calls} not recognized as orchestration — possibly newer than dialect ${use.recognizerTarget}`;
+    return `awaited ${calls} not recognized as orchestration — possibly newer than grammar level ${use.recognizerLevel}`;
   }
   return null;
 }

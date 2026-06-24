@@ -8,6 +8,8 @@
  * never executed — it's here just so this reads like a real workflow.
  *
  * (The final phase deliberately has a title but no `detail`.)
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Hunt bugs until the search goes dry",

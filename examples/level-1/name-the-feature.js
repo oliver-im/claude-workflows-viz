@@ -8,6 +8,8 @@
  * never executed — it's here just so this reads like a real workflow.
  *
  * (This one deliberately omits `whenToUse` to exercise the sparse header.)
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Name a new feature",

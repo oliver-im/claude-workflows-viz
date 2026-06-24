@@ -9,6 +9,8 @@
  *
  * (The "External review" phase names a non-Claude model, so it renders with
  * the neutral fallback badge instead of an opus/sonnet/haiku color.)
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Review a change with two lineages",

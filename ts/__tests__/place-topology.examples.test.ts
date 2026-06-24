@@ -15,7 +15,7 @@ import type { Layout } from "../topo-geometry.js";
  * per-shape facts the swimlane composition has to get right.
  */
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples");
+const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples", "level-1");
 
 const place = (name: string): Layout => {
   const src = readFileSync(join(dir, name), "utf8");

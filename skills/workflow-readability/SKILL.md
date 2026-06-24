@@ -54,7 +54,7 @@ prompt preview, and source span.
 
 Pipe the JSON through the bundled report script. It flags the code-shaped labels,
 the verbatim conditions, the phases missing a `detail`, and any analyzer notes —
-and tells you *how* each one is fixed within the dialect.
+and tells you *how* each one is fixed within the grammar.
 
 ```sh
 claude-workflows-viz path/to/workflow.js --format json \

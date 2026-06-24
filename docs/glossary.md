@@ -2,7 +2,7 @@
 
 Two vocabularies meet in this project, and we keep them apart on purpose:
 
-- **A — the workflow JS dialect:** the *input* language an author writes. We do
+- **A — the workflow JS grammar:** the *input* language an author writes. We do
   not define it (Claude Code's dynamic-workflows runtime does); we only read a
   static subset of it.
 - **B — claude-workflows-viz internals:** the names *we* use for the pipeline
@@ -11,12 +11,12 @@ Two vocabularies meet in this project, and we keep them apart on purpose:
 An author never needs our terms, and our code never invents theirs. The bridge
 table in §C maps one to the other.
 
-> **Source of truth.** The dialect (A) is defined by what `ts/extract-meta.ts`
+> **Source of truth.** The grammar (A) is defined by what `ts/extract-meta.ts`
 > and `ts/analyze-body.ts` actually recognize — a static subset of the runtime's
 > grammar, which Claude Code owns and does not formally version. What that subset
 > is reconciled *against* — the pinned upstream baseline — lives in
-> [`spec/upstream/`](../spec/upstream/), named with a dialect epoch in
-> [`DIALECT-CHANGELOG.md`](./DIALECT-CHANGELOG.md) (currently **D1**, `cc-2.1.173`).
+> [`spec/upstream/`](../spec/upstream/), named with a grammar level in
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 1**, `cc-2.1.173`).
 > The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
@@ -24,7 +24,7 @@ table in §C maps one to the other.
 
 ---
 
-## A. The workflow JS dialect (input)
+## A. The workflow JS grammar (input)
 
 ### The file
 - **dynamic workflow** — a `.js` file that begins with `export const meta = {…}`
@@ -90,9 +90,9 @@ table in §C maps one to the other.
 - **`extract-meta`** — source → validated `Meta` (reads the `meta` literal off
   the AST; never runs it).
 - **`analyze-body`** — source AST → `Topology` (the tree IR). Total function.
-- **`feature-detect`** — AST → the file's required-minimum dialect epoch
+- **`feature-detect`** — AST → the file's required-minimum grammar level
   (caniuse-style) + any awaited-but-unrecognized callees. Read-only; feeds
-  `Topology.requiredDialect` and the CLI's one-line dialect warning.
+  `Topology.requiredLevel` and the CLI's one-line grammar warning.
 - **`place-topology`** — `Topology` → `Layout` (positioned geometry). Total.
 - **`render-topology`** — `Layout` → SVG string (the swimlane view).
 - **`render-svg`** — `Meta` → SVG string (the v1 `phases` view; byte-frozen).
@@ -104,8 +104,8 @@ table in §C maps one to the other.
   to improve the source's authored strings.
 
 ### Tree IR — `topology.ts` (what the body *says*)
-- **`Topology`** — `{ steps, bands, notes, hasOrchestration, requiredDialect,
-  recognizerTarget }`.
+- **`Topology`** — `{ steps, bands, notes, hasOrchestration, requiredLevel,
+  recognizerLevel }`.
 - **`Step`** — a node in the source-faithful tree. Union of: `AgentStep`,
   `WorkflowStep`, `OpaqueStep`, `ParallelStep` (`fanout` | `branches`),
   `PipelineStep`, `LoopStep`, `BranchStep`.
@@ -118,9 +118,9 @@ table in §C maps one to the other.
 - **`AnalysisNote`** — a recorded degradation ("saw it, couldn't draw it fully").
 - **`SourceSpan`** — `{ start, end }` byte offsets into the source.
 - **`hasOrchestration`** — false ⇒ nothing real was recovered ⇒ fall back to v1.
-- **`requiredDialect` / `recognizerTarget`** — the file's required-minimum dialect
-  epoch (`feature-detect`) vs the epoch the recognizer targets (`RECOGNIZER_TARGET`);
-  a caniuse-style pair carried for the JSON emit and the CLI dialect warning.
+- **`requiredLevel` / `recognizerLevel`** — the file's required-minimum grammar
+  level (`feature-detect`) vs the level the recognizer supports (`RECOGNIZER_LEVEL`);
+  a caniuse-style pair carried for the JSON emit and the CLI grammar warning.
 
 ### Geometry IR — `topo-geometry.ts` (where it goes)
 - **`Layout`** — `{ width, height, lanes, nodes, edges, loops, notes }`. One flat

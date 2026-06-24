@@ -1,7 +1,7 @@
 import type * as acorn from "acorn";
-import { AGENT_OPTION_KEYS, ORCHESTRATION_CALLEES } from "./dialect.js";
+import { AGENT_OPTION_KEYS, ORCHESTRATION_CALLEES } from "./grammar.js";
 import { tryEvalLiteral } from "./extract-meta.js";
-import { detectDialectUse } from "./feature-detect.js";
+import { detectGrammarUse } from "./feature-detect.js";
 import {
   type AgentStep,
   type AnalysisNote,
@@ -59,15 +59,15 @@ export function analyzeBody(
     expansion: null,
   };
   const steps = walkStatements(ctx, (program as any).body ?? []);
-  // One feature-detection pass over the AST: its required-minimum epoch rides on
+  // One feature-detection pass over the AST: its required-minimum level rides on
   // the Topology (so the JSON emit carries it), and each awaited-but-unrecognized
   // callee is noted — surfaced, never silently dropped. The CLI reads the same
   // detection for its stderr warning, independent of `hasOrchestration`.
-  const dialect = detectDialectUse(program);
-  for (const name of dialect.unrecognized) {
+  const grammar = detectGrammarUse(program);
+  for (const name of grammar.unrecognized) {
     note(
       ctx,
-      `awaited \`${name}(…)\` is not a recognized orchestration call — possibly newer than dialect ${dialect.recognizerTarget}`,
+      `awaited \`${name}(…)\` is not a recognized orchestration call — possibly newer than grammar level ${grammar.recognizerLevel}`,
     );
   }
   return {
@@ -75,8 +75,8 @@ export function analyzeBody(
     bands: ctx.bands,
     notes: ctx.notes,
     hasOrchestration: stepsHaveOrchestration(steps),
-    requiredDialect: dialect.requiredDialect,
-    recognizerTarget: dialect.recognizerTarget,
+    requiredLevel: grammar.requiredLevel,
+    recognizerLevel: grammar.recognizerLevel,
   };
 }
 
@@ -282,7 +282,7 @@ export function collectModuleConsts(program: acorn.Node): Map<string, unknown> {
 // ---------------------------------------------------------------------------
 
 // `ORCHESTRATION_CALLEES` is the lexicon's wired `orchestration-call` set
-// (`ts/dialect.ts`) — the single source of truth, imported above.
+// (`ts/grammar.ts`) — the single source of truth, imported above.
 
 /**
  * Does this subtree contain a bare `agent(…)`/`parallel(…)`/`pipeline(…)`/
@@ -980,7 +980,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
               ? String(prop.key.value)
               : undefined;
         // The recognized agent options are the lexicon's wired `agent-option`
-        // tokens (`ts/dialect.ts`); any other key draws nothing — unchanged from
+        // tokens (`ts/grammar.ts`); any other key draws nothing — unchanged from
         // the old `default` no-op, but now the switch and the lexicon can't drift.
         if (key === undefined || !AGENT_OPTION_KEYS.has(key)) continue;
         switch (key) {
@@ -1028,7 +1028,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
           }
           case "schema":
           case "isolation":
-            break; // recognized dialect options that carry no visual meaning
+            break; // recognized agent options that carry no visual meaning
         }
       }
     }

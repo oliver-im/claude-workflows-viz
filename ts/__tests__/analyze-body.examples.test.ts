@@ -22,7 +22,7 @@ import type {
  * regression, not an acceptable fallback.
  */
 
-const examplesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples");
+const examplesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples", "level-1");
 
 const analyzeExample = (name: string): Topology => {
   const src = readFileSync(join(examplesDir, name), "utf8");

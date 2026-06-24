@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { analyzeBody } from "../analyze-body.js";
 import {
@@ -5,16 +8,17 @@ import {
   type LexiconEntry,
   LEXICON,
   ORCHESTRATION_CALLEES,
-} from "../dialect.js";
+  RECOGNIZER_LEVEL_CC,
+} from "../grammar.js";
 import { parseWorkflowSource } from "../extract-meta.js";
 import type { AgentStep, Step, Topology } from "../topology.js";
 
 /**
- * Lexicon ↔ recognizer consistency — the CC-independent half of the dialect
- * drift gate (its install-dependent half is `scripts/capture-dialect.mjs --check`,
- * `npm run check-dialect`). This suite needs no `claude` binary, so it runs in
+ * Lexicon ↔ recognizer consistency — the CC-independent half of the grammar
+ * drift gate (its install-dependent half is `scripts/capture-grammar.mjs --check`,
+ * `npm run check-grammar`). This suite needs no `claude` binary, so it runs in
  * ordinary `vitest` CI, and guards the seam Unit 03 opened: the lexicon
- * (`ts/dialect.ts`) is the single source of truth, but `analyze-body.ts` keys on
+ * (`ts/grammar.ts`) is the single source of truth, but `analyze-body.ts` keys on
  * it in *two* ways — a derived gate set (`ORCHESTRATION_CALLEES` / `AGENT_OPTION_KEYS`)
  * and a hand-written dispatch `switch` per token. The gate can't drift (it's
  * derived); the dispatch switches can. So each wired token is checked twice: its
@@ -38,6 +42,26 @@ const analyze = (src: string): Topology => analyzeBody(parseWorkflowSource(src),
 const tokensOfKind = (kind: LexiconEntry["kind"]): string[] =>
   LEXICON.filter((e) => e.kind === kind).map((e) => e.token);
 const sorted = (xs: Iterable<string>): string[] => [...xs].sort();
+
+describe("RECOGNIZER_LEVEL_CC is pinned to the latest baseline", () => {
+  // `RECOGNIZER_LEVEL_CC` is the concrete CC version behind the current grammar
+  // level — a maintenance anchor for `docs/GRAMMAR-CHANGELOG.md` (it is NOT shown
+  // in the rendered footer). This pins it to the `ccVersion` of the latest
+  // committed `spec/upstream/` snapshot, so a re-capture that lands a newer
+  // baseline can't leave the changelog anchor stale. Numeric collation matches
+  // `capture-grammar.mjs`'s latest-baseline rule (cc-2.1.9 < cc-2.1.100).
+  it("equals the latest spec/upstream baseline's ccVersion", () => {
+    const upstreamDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "spec", "upstream");
+    const baselines = readdirSync(upstreamDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}-cc-/.test(d.name))
+      .map((d) => d.name)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    expect(baselines.length).toBeGreaterThan(0);
+    const latest = baselines[baselines.length - 1];
+    const manifest = JSON.parse(readFileSync(join(upstreamDir, latest, "manifest.json"), "utf8"));
+    expect(RECOGNIZER_LEVEL_CC).toBe(manifest.ccVersion);
+  });
+});
 
 describe("wired lexicon ↔ derived recognizer sets round-trip", () => {
   it("orchestration-call tokens are all wired and equal ORCHESTRATION_CALLEES", () => {

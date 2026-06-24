@@ -11,16 +11,26 @@ import {
   parseWorkflowSource,
   readWorkflowSource,
 } from "./extract-meta.js";
-import { detectDialectUse, dialectWarning } from "./feature-detect.js";
+import { detectGrammarUse, grammarWarning } from "./feature-detect.js";
 import { wrapSvgHtml } from "./html.js";
 import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
 import { placeTopology } from "./place-topology.js";
 import { svgToPng } from "./render-png.js";
-import { renderSvg } from "./render-svg.js";
+import { type Provenance, renderSvg } from "./render-svg.js";
 import { renderTopology } from "./render-topology.js";
 
 declare const __CWV_VERSION__: string;
+
+/**
+ * The provenance stamped into every rendered diagram: the tool version. A
+ * build-time constant, so the footer is deterministic and identical across views.
+ * Grammar level is not stamped here — it is tracked by the example corpus under
+ * `examples/level-N/`, not pinned into each diagram.
+ */
+const PROVENANCE: Provenance = {
+  toolVersion: __CWV_VERSION__,
+};
 
 const FORMATS = ["svg", "png", "html", "json"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -90,20 +100,20 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
 function renderTopologyView(meta: Meta, program: acorn.Node, src: string): string {
   try {
     const topology = analyzeBody(program, src, meta.phases.map((p) => p.title));
-    if (!topology.hasOrchestration) return renderSvg(meta);
-    return renderTopology(placeTopology(topology, meta), meta);
+    if (!topology.hasOrchestration) return renderSvg(meta, PROVENANCE);
+    return renderTopology(placeTopology(topology, meta), meta, PROVENANCE);
   } catch (e) {
     const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
     process.stderr.write(
       `claude-workflows-viz: warning: body analysis failed (${reason}); rendering meta phases only\n`,
     );
-    return renderSvg(meta);
+    return renderSvg(meta, PROVENANCE);
   }
 }
 
 /**
- * Emit a one-line stderr warning when the file needs a newer dialect epoch than
- * the recognizer targets — or awaits an unrecognized orchestration-shaped call.
+ * Emit a one-line stderr warning when the file needs a higher grammar level than
+ * the recognizer supports — or awaits an unrecognized orchestration-shaped call.
  * The warning is advisory: it never changes the output or the (0) exit code.
  *
  * It detects straight from the AST rather than reading the detection off the
@@ -111,13 +121,13 @@ function renderTopologyView(meta: Meta, program: acorn.Node, src: string): strin
  * `Topology` is produced *inside* `renderTopologyView`, behind a defensive
  * try/catch and the `hasOrchestration` early return — the very return this
  * warning must precede so a newer-construct file that recovers no orchestration
- * still warns. `detectDialectUse` is a pure, deterministic function of `program`,
+ * still warns. `detectGrammarUse` is a pure, deterministic function of `program`,
  * so this call and the fields on the emitted `Topology` are always identical for
  * the same file (no drift) — it is one shared computation invoked at each seam
  * that needs it, not a divergent second pass.
  */
-function warnDialect(program: acorn.Node): void {
-  const message = dialectWarning(detectDialectUse(program));
+function warnGrammar(program: acorn.Node): void {
+  const message = grammarWarning(detectGrammarUse(program));
   if (message) process.stderr.write(`claude-workflows-viz: warning: ${message}\n`);
 }
 
@@ -136,16 +146,16 @@ function run(workflow: string, opts: CliOpts): void {
     if (format === "json") {
       // The structured analysis is a dump of facts, not a rendered view, so
       // `--view` is ignored here by design.
-      warnDialect(program);
+      warnGrammar(program);
       data = emitAnalysisJson(meta, program, src, workflow);
     } else {
       let svg: string;
       if (view === "phases") {
-        svg = renderSvg(meta); // meta-only view: the body and its dialect go untouched
+        svg = renderSvg(meta, PROVENANCE); // meta-only view: the body and its grammar go untouched
       } else {
         // Warn BEFORE renderTopologyView so a file whose newer construct recovers
         // no orchestration (hitting its hasOrchestration early return) still surfaces it.
-        warnDialect(program);
+        warnGrammar(program);
         svg = renderTopologyView(meta, program, src);
       }
       data =

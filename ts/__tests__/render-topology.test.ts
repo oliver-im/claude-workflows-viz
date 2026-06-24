@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { placeTopology } from "../place-topology.js";
+import type { Provenance } from "../render-svg.js";
 import { renderTopology } from "../render-topology.js";
 import type { Meta } from "../model.js";
 import type {
@@ -60,8 +61,8 @@ const topo = (steps: Step[], bands: BandRef[]): Topology => ({
   bands,
   notes: [],
   hasOrchestration: true,
-  requiredDialect: "D1",
-  recognizerTarget: "D1",
+  requiredLevel: 1,
+  recognizerLevel: 1,
 });
 const meta = (phases: Meta["phases"]): Meta => ({ name: "wf", description: "d", phases });
 
@@ -206,5 +207,18 @@ describe("renderTopology", () => {
 
   it("matches the tournament snapshot", () => {
     expect(tournament()).toMatchSnapshot();
+  });
+
+  it("stamps a provenance footer only when given provenance, growing the page", () => {
+    const prov: Provenance = { toolVersion: "9.9.9" };
+    const t = topo([agent("go", "Solo")], [band("Solo")]);
+    const m = meta([{ title: "Solo", model: "sonnet" }]);
+    const bare = renderTopology(placeTopology(t, m), m);
+    const stamped = renderTopology(placeTopology(t, m), m, prov);
+    expect(bare).not.toContain('class="provenance"');
+    expect(stamped).toContain('class="provenance"');
+    expect(stamped).toContain("v9.9.9");
+    const h = (s: string) => Number(/height="(\d+)"/.exec(s)?.[1]);
+    expect(h(stamped)).toBeGreaterThan(h(bare));
   });
 });

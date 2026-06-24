@@ -13,14 +13,51 @@ import {
 } from "./svg-primitives.js";
 
 /**
+ * Provenance of a rendered diagram: the tool version, stamped into the image so a
+ * PNG/SVG that has travelled away from its source `.js` still says what produced
+ * it. Injected by the CLI (it owns the build-time tool version); the renderers
+ * stay pure and only draw it when given. Grammar level is deliberately *not* here
+ * — it is a property of the versioned example corpus (`examples/level-N/`), not of
+ * every render, so the footer needn't restamp on each level bump.
+ */
+export interface Provenance {
+  /** The tool version (`__CWV_VERSION__`). */
+  toolVersion: string;
+}
+
+const FOOTER_FILL = "#94a3b8"; // muted slate — quiet, secondary to the diagram
+const FOOTER_FONT = 10.5;
+const FOOTER_BAND = 22; // height appended below the content for the caption
+
+/**
+ * A quiet, bottom-right provenance caption — the tool version that rendered the
+ * diagram. Drawn on the page background below the content (`topY` is the band's
+ * top), right-aligned `MARGIN` from the page's right edge so it lines up with the
+ * card column. Because the PNG is rasterized from this SVG, the caption rides
+ * along into the PNG too. Returns its height so the caller extends the page.
+ */
+export function renderFooter(prov: Provenance, pageW: number, topY: number): Block {
+  const label = `v${prov.toolVersion}`;
+  const body =
+    `<g class="provenance">` +
+    text(pageW - MARGIN, topY + 13, label, { size: FOOTER_FONT, fill: FOOTER_FILL, anchor: "end" }) +
+    `</g>`;
+  return { body, height: FOOTER_BAND };
+}
+
+/**
  * Render a workflow `Meta` as a standalone SVG string: a header card
  * (name + description + optional "when to use"), then a vertical stack of
  * phase cards — each an index chip, a single-line title, wrapped detail text,
  * and a model-colored badge. Pure layout: every coordinate is computed here,
  * with no external layout engine (phases are already ordered, so the flow is
  * a deliberate vertical stack — dependency layering is out of scope for v1).
+ *
+ * When `prov` is given, a quiet provenance footer is appended below the content;
+ * omitting it leaves the output byte-identical to v1 (the snapshot gate relies on
+ * this — only the CLI passes provenance).
  */
-export function renderSvg(meta: Meta): string {
+export function renderSvg(meta: Meta, prov?: Provenance): string {
   const blocks: Block[] = [renderHeader(meta, CARD_X, CARD_W)];
   meta.phases.forEach((phase, i) =>
     blocks.push(renderPhaseCard(phase, i + 1, CARD_X, CARD_W)),
@@ -32,7 +69,14 @@ export function renderSvg(meta: Meta): string {
     placed.push(`<g transform="translate(0 ${y})">${block.body}</g>`);
     y += block.height + GAP;
   }
-  const height = y - GAP + MARGIN;
+  let height = y - GAP + MARGIN;
+
+  let footer = "";
+  if (prov) {
+    const f = renderFooter(prov, W, height);
+    footer = f.body;
+    height += f.height;
+  }
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${height}" ` +
@@ -40,6 +84,7 @@ export function renderSvg(meta: Meta): string {
     `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
     `<rect width="${W}" height="${height}" fill="#f8fafc"/>\n` +
     placed.join("\n") +
+    (footer ? `\n${footer}` : "") +
     `\n</svg>\n`
   );
 }

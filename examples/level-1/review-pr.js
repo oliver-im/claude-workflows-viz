@@ -6,6 +6,8 @@
  *
  * The tool draws the `meta` block below and NEVER runs the orchestration code
  * beneath it — the body is here only so this reads like a real workflow.
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Review a pull request",

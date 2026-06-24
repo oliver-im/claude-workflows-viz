@@ -9,6 +9,8 @@
  *
  * (The "Advance the bracket" phase deliberately omits `model` — pure control
  * flow — so it renders with no model badge.)
+ *
+ * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Choose an implementation approach",

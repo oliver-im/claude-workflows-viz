@@ -5,15 +5,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { extractMeta } from "../extract-meta.js";
-import { renderSvg } from "../render-svg.js";
+import { type Provenance, renderSvg } from "../render-svg.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
 const cli = join(root, "dist", "cli.js");
 const fixture = join(here, "fixtures", "full.js");
 const exoticFixture = join(here, "fixtures", "exotic-body.js");
-const summarizeExample = join(root, "examples", "summarize-codebase.js");
+const summarizeExample = join(root, "examples", "level-1", "summarize-codebase.js");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+
+// The provenance the CLI stamps into every render — reconstructed here so the
+// byte-equality assertions below compare against the SAME footer the CLI emits,
+// rather than hardcoding the strings. (`__CWV_VERSION__` is `pkg.version`.)
+const prov: Provenance = {
+  toolVersion: pkg.version,
+};
 
 // Scratch dir for written artifacts; `pretest` builds dist/cli.js first.
 const workDir = mkdtempSync(join(tmpdir(), "cwv-smoke-"));
@@ -91,12 +98,12 @@ describe("cli smoke", () => {
     expect(kinds).toContain("parallel");
   });
 
-  it("carries the per-file dialect epoch in the JSON topology block", () => {
+  it("carries the per-file grammar level in the JSON topology block", () => {
     const res = runCli([summarizeExample, "--format", "json"]);
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout);
-    expect(parsed.topology.requiredDialect).toBe("D1");
-    expect(parsed.topology.recognizerTarget).toBe("D1");
+    expect(parsed.topology.requiredLevel).toBe(1);
+    expect(parsed.topology.recognizerLevel).toBe(1);
   });
 
   it("infers json format from the -o extension and is deterministic", () => {
@@ -135,13 +142,25 @@ describe("cli smoke — views", () => {
     expect(res.stdout).not.toContain("xband"); // no card-wall routing survives
   });
 
+  it("stamps the provenance footer into the rendered diagram", () => {
+    const res = runCli([summarizeExample]);
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('class="provenance"');
+    // The tool version — so an image that has travelled away from its `.js`
+    // source still says what produced it. Grammar level is tracked by the example
+    // corpus under examples/level-N/, not stamped into the diagram.
+    expect(res.stdout).toContain(`v${pkg.version}`);
+    expect(res.stdout).not.toContain("grammar level");
+  });
+
   it("--view phases renders the byte-stable v1 page", () => {
     const res = runCli([summarizeExample, "--view", "phases"]);
     expect(res.status).toBe(0);
     expect(res.stdout).not.toContain("agent-node");
     // Byte-for-byte the v1 renderer's output (itself pinned by its snapshot
-    // suite) — the permanent regression surface for the old view.
-    expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample)));
+    // suite) — the permanent regression surface for the old view, now including
+    // the provenance footer the CLI stamps.
+    expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample), prov));
   });
 
   it("exits non-zero with a clear message for a bad --view", () => {
@@ -158,7 +177,7 @@ describe("cli smoke — views", () => {
     expect(res.stderr).toBe("");
     expect(res.stdout).not.toContain("agent-node");
     expect(res.stdout).toContain('class="phase-card"');
-    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
+    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture), prov));
   });
 
   it("warns about an unrecognized awaited primitive yet still renders (exit 0), proving the warning is independent of the hasOrchestration fallback", () => {
@@ -170,7 +189,7 @@ describe("cli smoke — views", () => {
     // ...even though no orchestration was recovered, so the topology view fell
     // back to the byte-identical v1 phases page (the warning ran before that).
     expect(res.stdout).not.toContain("agent-node");
-    expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture)));
+    expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture), prov));
   });
 
   it("rasterizes the topology view to a real PNG", () => {

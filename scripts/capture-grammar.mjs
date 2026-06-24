@@ -12,10 +12,10 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Capture — and check — the upstream Claude Code "workflow dialect": the grammar
+ * Capture — and check — the upstream Claude Code workflow grammar: the language
  * this tool statically parses, which Claude Code owns and does not formally
  * version, read from the locally installed `@anthropic-ai/claude-code` package,
- * content-hashed and dated. Two artifacts define the dialect:
+ * content-hashed and dated. Two artifacts define the grammar:
  *
  *   - the Workflow tool *description* prose (the `meta`/`agent`/`parallel`/
  *     `pipeline`/`phase` authoring contract), embedded as a plaintext template
@@ -25,19 +25,19 @@ import { fileURLToPath } from "node:url";
  *
  * Nothing is executed: the binary is scanned for a known string range and the
  * `.d.ts` is sliced as text. Anchors are matched strictly: a missing anchor
- * throws ("the dialect's shape moved; reconcile manually") rather than capturing
+ * throws ("the grammar's shape moved; reconcile manually") rather than capturing
  * garbage.
  *
  * Two modes:
  *   - default — write the capture to `spec/upstream/<YYYY-MM-DD>-cc-<version>/`
- *     with a `manifest.json` of per-artifact sha256s (the epoch baseline).
+ *     with a `manifest.json` of per-artifact sha256s (the grammar-level baseline).
  *   - `--check` — re-capture in memory and compare against the latest snapshot
  *     in `spec/upstream/` (the checked-in baseline as it sits on disk), exiting
  *     non-zero on any drift. Reading the working-tree files — not a git blob — is
  *     deliberate: it lets the reconcile loop re-capture and re-check before
  *     committing, and means a hand-edited snapshot byte is caught directly. This
- *     is the reconciliation gate (`npm run check-dialect`); see
- *     `docs/DIALECT-CHANGELOG.md` "How to reconcile". It needs the installed
+ *     is the reconciliation gate (`npm run check-grammar`); see
+ *     `docs/GRAMMAR-CHANGELOG.md` "How to reconcile". It needs the installed
  *     `claude` binary, so it runs where Claude Code lives — a dev machine or a
  *     scheduled local agent — not a generic CI runner.
  */
@@ -60,7 +60,7 @@ function locateClaudeCode() {
   try {
     onPath = execSync("command -v claude", { encoding: "utf8" }).trim();
   } catch {
-    throw new Error("`claude` is not on PATH — install Claude Code to capture its dialect");
+    throw new Error("`claude` is not on PATH — install Claude Code to capture its grammar");
   }
   // `bin/claude.exe` is the package's canonical bin entry on every platform (the
   // per-OS binaries are optionalDependencies the postinstall copies in), so the
@@ -86,7 +86,7 @@ function captureProse(ccDir) {
   const start = buf.indexOf(PROSE_START);
   if (start < 0) {
     throw new Error(
-      `Workflow description anchor not found in ${binPath} — the dialect's wording moved; reconcile manually`,
+      `Workflow description anchor not found in ${binPath} — the grammar's wording moved; reconcile manually`,
     );
   }
   // Slice [start, the closing delimiter) straight from the buffer: no fixed
@@ -164,7 +164,7 @@ function runCapture() {
   }
   writeFileSync(join(outDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-  console.log(`Captured cc-${version} dialect → ${relative(root, outDir)}`);
+  console.log(`Captured cc-${version} grammar → ${relative(root, outDir)}`);
   for (const [name, { bytes, sha256: hash }] of Object.entries(manifest.artifacts)) {
     console.log(`  ${name}: ${bytes}B  sha256 ${hash.slice(0, 16)}…`);
   }
@@ -181,7 +181,7 @@ function runCheck() {
   const baselineName = latestBaselineName(upstreamDir);
   if (!baselineName) {
     throw new Error(
-      `no baseline snapshot under ${relative(root, upstreamDir)} — run \`npm run capture-dialect\` first`,
+      `no baseline snapshot under ${relative(root, upstreamDir)} — run \`npm run capture-grammar\` first`,
     );
   }
   const baselineDir = join(upstreamDir, baselineName);
@@ -226,23 +226,23 @@ function runCheck() {
 
   if (drift) {
     console.error(
-      "\n✗ dialect drift — the upstream grammar moved, or the committed snapshot was edited.\n" +
-        '  Reconcile per docs/DIALECT-CHANGELOG.md "How to reconcile": re-run\n' +
-        "  `npm run capture-dialect`, diff the snapshot, then decide whether it stays on\n" +
-        "  the current epoch (incidental wording) or earns the next one (grammar change).",
+      "\n✗ grammar drift — the upstream grammar moved, or the committed snapshot was edited.\n" +
+        '  Reconcile per docs/GRAMMAR-CHANGELOG.md "How to reconcile": re-run\n' +
+        "  `npm run capture-grammar`, diff the snapshot, then decide whether it stays on\n" +
+        "  the current grammar level (incidental wording) or earns the next one (grammar change).",
     );
     process.exit(1);
   }
 
   // In sync. A version bump that ships a byte-identical grammar is provenance
-  // drift, not dialect drift — the same epoch still holds, so note it and pass.
+  // drift, not grammar drift — the same level still holds, so note it and pass.
   if (version !== baselineVersion) {
     console.log(
       `\nNote: installed cc-${version} differs from the baseline's cc-${baselineVersion}, ` +
-        "but the grammar is byte-identical — same epoch.",
+        "but the grammar is byte-identical — same grammar level.",
     );
   }
-  console.log("\n✓ dialect in sync with the latest baseline — the recognizer is still reconciled.");
+  console.log("\n✓ grammar in sync with the latest baseline — the recognizer is still reconciled.");
 }
 
 if (process.argv.includes("--check")) {

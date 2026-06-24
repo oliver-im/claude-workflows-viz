@@ -1,83 +1,83 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBody } from "../analyze-body.js";
-import type { DialectEpoch } from "../dialect.js";
+import type { GrammarLevel } from "../grammar.js";
 import { parseWorkflowSource } from "../extract-meta.js";
-import { detectDialectUse, dialectWarning, requiredEpoch } from "../feature-detect.js";
+import { detectGrammarUse, grammarWarning, requiredGrammarLevel } from "../feature-detect.js";
 
 const parse = (src: string) => parseWorkflowSource(src);
 const META = `export const meta = { name: "x", description: "y" };\n`;
 
 /**
- * The min-computation core. The real lexicon is all-D1, so a synthetic epoch
- * table is the honest way to exercise the D2+ path (the acceptance's "assert via
- * a unit test on the min-computation").
+ * The min-computation core. The real lexicon is all level 1, so a synthetic level
+ * table is the honest way to exercise the level-2+ path (the acceptance's "assert
+ * via a unit test on the min-computation").
  */
-describe("requiredEpoch", () => {
-  const epochs = new Map<string, DialectEpoch>([
-    ["agent", "D1"],
-    ["race", "D2"],
+describe("requiredGrammarLevel", () => {
+  const levels = new Map<string, GrammarLevel>([
+    ["agent", 1],
+    ["race", 2],
   ]);
 
-  it("floors at D1 when no used token is newer (or none are used)", () => {
-    expect(requiredEpoch(["agent"], epochs)).toBe("D1");
-    expect(requiredEpoch([], epochs)).toBe("D1");
+  it("floors at level 1 when no used token is newer (or none are used)", () => {
+    expect(requiredGrammarLevel(["agent"], levels)).toBe(1);
+    expect(requiredGrammarLevel([], levels)).toBe(1);
   });
 
-  it("rises to the max epoch among the used tokens", () => {
-    expect(requiredEpoch(["agent", "race"], epochs)).toBe("D2");
-    expect(requiredEpoch(["race"], epochs)).toBe("D2");
+  it("rises to the max level among the used tokens", () => {
+    expect(requiredGrammarLevel(["agent", "race"], levels)).toBe(2);
+    expect(requiredGrammarLevel(["race"], levels)).toBe(2);
   });
 
-  it("ignores tokens absent from the epoch table", () => {
-    expect(requiredEpoch(["somethingElse"], epochs)).toBe("D1");
+  it("ignores tokens absent from the level table", () => {
+    expect(requiredGrammarLevel(["somethingElse"], levels)).toBe(1);
   });
 });
 
-describe("detectDialectUse", () => {
-  it("a D1 body: requiredDialect D1, target D1, nothing unrecognized", () => {
-    const d = detectDialectUse(parse(`${META}await agent("do it", { model: "opus" });`));
-    expect(d.requiredDialect).toBe("D1");
-    expect(d.recognizerTarget).toBe("D1");
+describe("detectGrammarUse", () => {
+  it("a level-1 body: requiredLevel 1, recognizerLevel 1, nothing unrecognized", () => {
+    const d = detectGrammarUse(parse(`${META}await agent("do it", { model: "opus" });`));
+    expect(d.requiredLevel).toBe(1);
+    expect(d.recognizerLevel).toBe(1);
     expect(d.unrecognized).toEqual([]);
   });
 
   it("flags an awaited unrecognized callee as possibly newer (soft signal)", () => {
-    const d = detectDialectUse(parse(`${META}const w = await race([candidateA(), candidateB()]);`));
+    const d = detectGrammarUse(parse(`${META}const w = await race([candidateA(), candidateB()]);`));
     expect(d.unrecognized).toEqual(["race"]);
     // An unknown token does not raise the *known*-token minimum.
-    expect(d.requiredDialect).toBe("D1");
+    expect(d.requiredLevel).toBe(1);
   });
 
   it("does not flag awaited recognized orchestration, nor non-awaited unknowns", () => {
-    const d = detectDialectUse(
+    const d = detectGrammarUse(
       parse(`${META}await parallel([() => agent("a")]);\nconst x = helper();`),
     );
     expect(d.unrecognized).toEqual([]);
   });
 
   it("de-duplicates and sorts the unrecognized callees", () => {
-    const d = detectDialectUse(parse(`${META}await zeta([]);\nawait alpha([]);\nawait zeta([]);`));
+    const d = detectGrammarUse(parse(`${META}await zeta([]);\nawait alpha([]);\nawait zeta([]);`));
     expect(d.unrecognized).toEqual(["alpha", "zeta"]);
   });
 });
 
-describe("dialectWarning", () => {
-  it("returns null when nothing exceeds the target (the D1 happy path)", () => {
+describe("grammarWarning", () => {
+  it("returns null when nothing exceeds the level (the level-1 happy path)", () => {
     expect(
-      dialectWarning({ requiredDialect: "D1", recognizerTarget: "D1", unrecognized: [] }),
+      grammarWarning({ requiredLevel: 1, recognizerLevel: 1, unrecognized: [] }),
     ).toBeNull();
   });
 
-  it("warns when the required epoch exceeds the target", () => {
-    const msg = dialectWarning({ requiredDialect: "D2", recognizerTarget: "D1", unrecognized: [] });
-    expect(msg).toMatch(/dialect D2/);
-    expect(msg).toMatch(/recognizer targets D1/);
+  it("warns when the required level exceeds the recognizer's", () => {
+    const msg = grammarWarning({ requiredLevel: 2, recognizerLevel: 1, unrecognized: [] });
+    expect(msg).toMatch(/requires grammar level 2/);
+    expect(msg).toMatch(/supports up to level 1/);
   });
 
-  it("warns (softer) on an unrecognized awaited callee even at D1", () => {
-    const msg = dialectWarning({
-      requiredDialect: "D1",
-      recognizerTarget: "D1",
+  it("warns (softer) on an unrecognized awaited callee even at level 1", () => {
+    const msg = grammarWarning({
+      requiredLevel: 1,
+      recognizerLevel: 1,
       unrecognized: ["race"],
     });
     expect(msg).toMatch(/`race`/);
@@ -85,13 +85,13 @@ describe("dialectWarning", () => {
   });
 });
 
-describe("analyzeBody dialect attachment", () => {
+describe("analyzeBody grammar attachment", () => {
   const analyze = (src: string) => analyzeBody(parse(src), src, []);
 
-  it("attaches requiredDialect + recognizerTarget to the Topology", () => {
+  it("attaches requiredLevel + recognizerLevel to the Topology", () => {
     const t = analyze(`${META}await agent("go");`);
-    expect(t.requiredDialect).toBe("D1");
-    expect(t.recognizerTarget).toBe("D1");
+    expect(t.requiredLevel).toBe(1);
+    expect(t.recognizerLevel).toBe(1);
   });
 
   it("a no-orchestration body with an unknown awaited primitive: hasOrchestration false, but the degradation is noted (not silently dropped)", () => {
