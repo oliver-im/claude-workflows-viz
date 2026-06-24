@@ -158,12 +158,15 @@ function renderRow(lane: GLane, i: number): string {
 
 /**
  * The left label cell for one phase row: the numbered chip, the phase title,
- * the wrapped detail, then — last and quietest — a muted italic `model: xx`
- * line (the model is secondary, so it reads as a footnote under the detail, not
- * a colored badge). A control-only (empty) lane shows the title plus a muted
- * "control only" note instead. Drawn relative to (`X`, 0); the caller translates
- * it to the lane's top. Returns its measured height so the row can be
- * co-registered to fit it.
+ * the wrapped detail, then — last and quietest — a `model: xx` footnote. The
+ * model stays secondary, but is set apart from a control-only note (both used to
+ * be the same muted italic): a small swatch dot keyed to the model — the same
+ * hue its agent nodes carry in the graph — then the id upright in slate. A
+ * control-only (empty) lane shows the title plus a muted italic "control only"
+ * note instead. Padding is harmonized with the header card (`renderHeader`) so
+ * the cell reads as the same surface and its content aligns down the left edge.
+ * Drawn relative to (`X`, 0); the caller translates it to the lane's top.
+ * Returns its measured height so the row can be co-registered to fit it.
  */
 function renderLaneLabelCell(
   index: number,
@@ -173,11 +176,13 @@ function renderLaneLabelCell(
   empty: boolean,
 ): Block {
   const x = MARGIN;
-  const pad = 16;
-  const chipCx = x + pad + CHIP_R;
-  const chipCy = pad + CHIP_R;
-  const textX = x + pad + 2 * CHIP_R + 12;
-  const innerW = x + LEFT_COL_W - pad - textX;
+  const padX = 22; // matches the header card so chips and banner share a left rule
+  const padTop = 18;
+  const padBottom = 18;
+  const chipCx = x + padX + CHIP_R;
+  const chipCy = padTop + CHIP_R;
+  const textX = x + padX + 2 * CHIP_R + 12;
+  const innerW = x + LEFT_COL_W - padX - textX;
 
   const parts: string[] = [
     `<circle cx="${round(chipCx)}" cy="${round(chipCy)}" r="${CHIP_R}" fill="${CHIP_FILL}"/>`,
@@ -189,7 +194,7 @@ function renderLaneLabelCell(
     }),
   ];
 
-  const titleBaseline = pad + 15;
+  const titleBaseline = padTop + 16;
   parts.push(
     text(textX, titleBaseline, truncateToWidth(title, innerW, TITLE_FONT), {
       size: TITLE_FONT,
@@ -200,12 +205,17 @@ function renderLaneLabelCell(
 
   if (empty) {
     parts.push(
-      text(textX, titleBaseline + 19, "control only", { size: 11, style: "italic", fill: MUTED }),
+      text(textX, titleBaseline + 20, "control only", { size: 11, style: "italic", fill: MUTED }),
     );
-    return { body: `<g class="lane-label">${parts.join("")}</g>`, height: titleBaseline + 19 + 12 };
+    return {
+      body: `<g class="lane-label">${parts.join("")}</g>`,
+      height: titleBaseline + 20 + padBottom,
+    };
   }
 
   let y = titleBaseline;
+  // A small breath under the title before the detail, echoing the header card.
+  if (detail?.trim()) y += 3;
   // No line cap: the phase explanation wraps in full (the row grows to fit via
   // reserveLaneHeights) rather than being clipped with an ellipsis.
   const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, 12.5, DETAIL_MAX_LINES) : [];
@@ -213,19 +223,24 @@ function renderLaneLabelCell(
     y += 17;
     parts.push(text(textX, y, line, { size: 12.5, fill: DETAIL }));
   }
-  // The model is secondary: a quiet "model: xx" line in muted italic BELOW the
-  // detail, not a colored badge.
+  // The model footnote: a swatch dot (a miniature of the agent node it tints in
+  // the graph) then the id upright in slate — quiet, but a clearly different
+  // category from the muted italic "control only" note above.
   if (model !== undefined) {
-    y += 18;
+    y += 19;
+    const sw = swatchFor(model);
+    const dotR = 4;
+    const labelX = textX + 2 * dotR + 7;
     parts.push(
-      text(textX, y, truncateToWidth(`model: ${model}`, innerW, 11.5), {
+      `<circle cx="${round(textX + dotR)}" cy="${round(y - 4)}" r="${dotR}" ` +
+        `fill="${sw.fill}" stroke="${sw.stroke}" stroke-width="1"/>`,
+      text(labelX, y, truncateToWidth(`model: ${model}`, x + LEFT_COL_W - padX - labelX, 11.5), {
         size: 11.5,
-        style: "italic",
-        fill: MUTED,
+        fill: EDGE,
       }),
     );
   }
-  return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + pad };
+  return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + padBottom };
 }
 
 // ---------------------------------------------------------------------------
