@@ -68,8 +68,8 @@ type Branches = ParallelStep & { form: "branches" };
 describe("analyzer corpus invariant", () => {
   const files = readdirSync(examplesDir).filter((f) => f.endsWith(".js"));
 
-  it("covers all 8 example workflows", () => {
-    expect(files).toHaveLength(8);
+  it("covers all 12 example workflows", () => {
+    expect(files).toHaveLength(12);
   });
 
   it("every example: orchestration recognized, ZERO opaques, ZERO notes, meta bands seeded", () => {

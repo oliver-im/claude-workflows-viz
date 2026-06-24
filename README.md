@@ -68,7 +68,7 @@ Each phase badge is colored by its `model`: opus, sonnet, and haiku each get a s
 
 ## Example gallery
 
-The eight bundled workflows cover the common orchestration patterns; each links to its committed renders.
+The twelve bundled workflows cover all six patterns from Anthropic's [*A harness for every task*](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code) post — and six more; each links to its committed renders.
 
 | Workflow | Pattern | Render |
 | --- | --- | --- |
@@ -79,6 +79,10 @@ The eight bundled workflows cover the common orchestration patterns; each links 
 | [`name-the-feature.js`](examples/level-1/name-the-feature.js) | generate-and-filter — diverse generators, one filter | [SVG](examples/level-1/name-the-feature.svg) · [PNG](examples/level-1/name-the-feature.png) |
 | [`choose-approach.js`](examples/level-1/choose-approach.js) | tournament — drafts, then a pairwise-judging loop until one stands | [SVG](examples/level-1/choose-approach.svg) · [PNG](examples/level-1/choose-approach.png) |
 | [`hunt-bugs.js`](examples/level-1/hunt-bugs.js) | loop-until-done — keep spawning finders until rounds come up dry | [SVG](examples/level-1/hunt-bugs.svg) · [PNG](examples/level-1/hunt-bugs.png) |
+| [`find-call-sites.js`](examples/level-1/find-call-sites.js) | multi-modal sweep — blind searchers fan out, then merge & dedupe | [SVG](examples/level-1/find-call-sites.svg) · [PNG](examples/level-1/find-call-sites.png) |
+| [`draft-the-announcement.js`](examples/level-1/draft-the-announcement.js) | judge panel — independent drafts, then a rubric panel scores in parallel | [SVG](examples/level-1/draft-the-announcement.svg) · [PNG](examples/level-1/draft-the-announcement.png) |
+| [`compile-api-reference.js`](examples/level-1/compile-api-reference.js) | completeness critic — a critic names the gaps; each round fills them | [SVG](examples/level-1/compile-api-reference.svg) · [PNG](examples/level-1/compile-api-reference.png) |
+| [`localize-release-notes.js`](examples/level-1/localize-release-notes.js) | map-reduce pipeline — a per-locale `pipeline()` with worktree isolation, reduced by a `workflow()` | [SVG](examples/level-1/localize-release-notes.svg) · [PNG](examples/level-1/localize-release-notes.png) |
 | [`dual-lineage-review.js`](examples/level-1/dual-lineage-review.js) | dual-lineage — two independent reviewer lineages, merged verdicts | [SVG](examples/level-1/dual-lineage-review.svg) · [PNG](examples/level-1/dual-lineage-review.png) |
 
 ## Making a diagram readable

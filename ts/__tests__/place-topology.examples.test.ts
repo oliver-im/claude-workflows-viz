@@ -40,8 +40,8 @@ const backRoutes = (layout: Layout) =>
 describe("placeTopology — corpus composition", () => {
   const files = readdirSync(dir).filter((f) => f.endsWith(".js"));
 
-  it("covers all 8 examples", () => {
-    expect(files).toHaveLength(8);
+  it("covers all 12 examples", () => {
+    expect(files).toHaveLength(12);
   });
 
   it("every example: ZERO back-routes (no edge points up or to an earlier band)", () => {
