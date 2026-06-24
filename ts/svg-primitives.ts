@@ -33,12 +33,11 @@ export const GAP = 16;
  *  still get a readable measure — the explanation is never trimmed, so a too-narrow
  *  column would only grow the row taller with more wrapped lines. */
 export const LEFT_COL_W = 420;
-/** Gap between the label column and the graph column. */
+/** Gap between the label column and the graph's leftmost drawn element. The
+ *  renderer fits the graph's x-translate and the page width to the graph's
+ *  actual content extent (`graphContentBounds`), so there is no fixed page width
+ *  or graph offset — the graph hugs the labels and the page ends at its right edge. */
 export const COL_GAP = 24;
-/** X-offset the whole graph group is translated to (its local frame is `W`). */
-export const GRAPH_X = MARGIN + LEFT_COL_W + COL_GAP;
-/** Full landscape page width: label column + graph frame + margins. */
-export const TOPO_PAGE_W = GRAPH_X + W + MARGIN;
 
 export interface Block {
   body: string;

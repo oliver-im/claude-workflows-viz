@@ -4,12 +4,12 @@ import { renderHeader } from "./render-svg.js";
 import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
   type Block,
+  COL_GAP,
   GAP,
-  GRAPH_X,
   LEFT_COL_W,
   MARGIN,
   MODEL_FALLBACK,
-  TOPO_PAGE_W,
+  W,
   arrowHead,
   escapeSvgText,
   round,
@@ -29,9 +29,13 @@ import {
  * model-tinted row per phase — the phase LABEL (chip + title + model badge +
  * detail) in a left cell, and the phase's slice of the graph in the right cell.
  * The graph is the same positioned `Layout` `place-topology` produced, drawn in
- * its own coordinate frame (`layout.width` == `W`) and translated right by
- * `GRAPH_X` into the graph column — so placement is byte-identical to before;
- * only the page gains a left label column and goes landscape.
+ * its own coordinate frame (`layout.width` == `W`) and translated right into the
+ * graph column — so placement is byte-identical to before; only the page gains a
+ * left label column and goes landscape. The graph's x-translate and the page
+ * width are NOT fixed: they are fit to the graph's actual horizontal content
+ * extent (`graphContentBounds`), so its leftmost drawn element hugs the label
+ * column and the page ends at its real right edge — no wide right void, no gap
+ * from a spine pinned at 0.4·W inside an over-wide frame.
  *
  * Because the labels now live beside the graph, the in-graph chrome (the old
  * per-stripe chip/title/badge) is GONE — the graph cell is pure topology. Each
@@ -45,9 +49,7 @@ import {
  * is a pure function of the layout; arrays are drawn in canonical order.
  */
 export function renderTopology(layout: Layout, meta: Meta): string {
-  const gw = layout.width; // the graph's own frame width (== W), unchanged
-  const header = renderHeader(meta, MARGIN, TOPO_PAGE_W - 2 * MARGIN);
-  const yOffset = MARGIN + header.height + GAP;
+  const gw = layout.width; // the graph's own frame width (== W)
 
   // Build each lane's left label cell, then inflate its band to fit so the
   // label and its graph slice co-register into one row.
@@ -63,6 +65,20 @@ export function renderTopology(layout: Layout, meta: Meta): string {
   closeLaneGaps(layout); // seamless table — no gaps between phase rows
 
   const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+
+  // Fit the graph to its real horizontal extent: anchor its leftmost drawn
+  // element one COL_GAP past the label column, and end the page at its right
+  // edge. This packs the graph against the labels and trims the right void that
+  // a fixed W-wide frame (spine pinned at 0.4·W) used to leave. A floor keeps the
+  // header readable when the graph is a thin single spine.
+  const { minX, maxX } = graphContentBounds(layout, byId, gw);
+  const graphX = Math.round(MARGIN + LEFT_COL_W + COL_GAP - minX);
+  const pageW = Math.max(Math.ceil(graphX + maxX + MARGIN), MIN_TOPO_PAGE_W);
+  const innerCardW = pageW - 2 * MARGIN;
+
+  const header = renderHeader(meta, MARGIN, innerCardW);
+  const yOffset = MARGIN + header.height + GAP;
+
   // One rounded white card behind every phase — same radius/border/fill as the
   // header card, so the table reads as the same kind of surface.
   const first = layout.lanes[0];
@@ -72,13 +88,13 @@ export function renderTopology(layout: Layout, meta: Meta): string {
   const tableCard = roundRect(
     MARGIN,
     tableTop,
-    TOPO_PAGE_W - 2 * MARGIN,
+    innerCardW,
     tableBot - tableTop,
     TABLE_RX,
     ROW_BG,
     ROW_SEP,
   );
-  const rows = layout.lanes.map(renderRow).join("");
+  const rows = layout.lanes.map((l, i) => renderRow(l, i, pageW)).join("");
   const labels = layout.lanes
     .map((l, i) => `<g transform="translate(0 ${round(l.yTop)})">${cells[i].body}</g>`)
     .join("");
@@ -91,10 +107,10 @@ export function renderTopology(layout: Layout, meta: Meta): string {
     tableCard +
     rows +
     labels +
-    `<g class="topology" transform="translate(${round(GRAPH_X)} 0)">${edges}${nodes}${loops}</g>` +
+    `<g class="topology" transform="translate(${graphX} 0)">${edges}${nodes}${loops}</g>` +
     `</g>`;
 
-  const width = TOPO_PAGE_W;
+  const width = pageW;
   const height = round(yOffset + layout.height + MARGIN);
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
@@ -127,6 +143,10 @@ const ROW_SEP = "#e2e8f0"; // card border + hairline between phases (matches the
 const TABLE_RX = 12; // table card corner radius — same as the header card above it
 const CHIP_FILL = "#334155";
 
+/** Page-width floor so a thin single-spine graph still gives the header card a
+ *  comfortable measure (matches the phases-view card width). */
+const MIN_TOPO_PAGE_W = W;
+
 const DETAIL_MAX_LINES = 99; // effectively uncapped — the phase detail wraps in full
 const CHIP_R = 11;
 const TITLE_FONT = 15;
@@ -143,13 +163,13 @@ const NODE_STROKE_W = 1.25;
 // left label cell and the right graph slice sit inside it.
 // ---------------------------------------------------------------------------
 
-function renderRow(lane: GLane, i: number): string {
+function renderRow(lane: GLane, i: number, pageW: number): string {
   // The phases share ONE rounded white card (drawn once in renderTopology, like
   // the header card above). A row only contributes a full-width hairline at its
   // top boundary — every phase but the first — so phases still read as a table
   // without any tint. The class stays as a semantic hook (incl. control-only).
   const x = MARGIN;
-  const w = round(TOPO_PAGE_W - 2 * MARGIN);
+  const w = round(pageW - 2 * MARGIN);
   const sep =
     i > 0
       ? `<line x1="${x}" y1="${round(lane.yTop)}" x2="${round(x + w)}" y2="${round(lane.yTop)}" ` +
@@ -308,6 +328,82 @@ function shortModel(model: string): string {
   const m = model.toLowerCase();
   for (const key of ["opus", "sonnet", "haiku"]) if (m.includes(key)) return key;
   return model;
+}
+
+// ---------------------------------------------------------------------------
+// Content bounds — the graph's real horizontal extent, so the page can pack to
+// it instead of the fixed W frame.
+// ---------------------------------------------------------------------------
+
+/** Conservative drawn-text width — mirrors the 0.58em glyph the text fitters
+ *  (`fitChars`) assume, so a bound built from it never under-fits a label. */
+function estTextW(s: string, size: number): number {
+  return s.length * size * 0.58;
+}
+
+/**
+ * The graph's horizontal content extent in its own (untranslated) frame: every
+ * shape body PLUS every label/badge that sticks out past it — below-set and
+ * right-side node labels, the ×N peek circle + badge, the decision condition,
+ * and the loop badge — and the edge points for good measure. Computed with the
+ * exact draw math the `render*` functions use (same fonts, same truncations,
+ * the same `gw`-derived clamps), so the page packs to content without ever
+ * clipping a label. Falls back to the full `gw` frame for a graph with no nodes.
+ */
+function graphContentBounds(
+  layout: Layout,
+  byId: Map<string, GNode>,
+  gw: number,
+): { minX: number; maxX: number } {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  const ext = (lo: number, hi: number): void => {
+    if (lo < minX) minX = lo;
+    if (hi > maxX) maxX = hi;
+  };
+  for (const n of layout.nodes) {
+    if (n.kind === "barrier" || n.kind === "task" || n.kind === "control") {
+      const w = n.w ?? 2 * n.r;
+      ext(n.x - w / 2, n.x + w / 2);
+      continue;
+    }
+    if (n.kind === "decision") {
+      ext(n.x - n.r, n.x + n.r);
+      ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT));
+      continue;
+    }
+    // agent / hub — the circle, plus the ×N peek circle + badge and the label.
+    ext(n.x - n.r, n.x + n.r + (n.mult !== undefined ? 2 : 0));
+    if (n.mult !== undefined) ext(n.x, n.x + n.r + 1 + estTextW(n.mult, BADGE_FONT));
+    if (n.label && n.labelExplicit !== false) {
+      if (n.labelBelow === true) {
+        const w = estTextW(truncateToWidth(n.label, 150, MEMBER_FONT), MEMBER_FONT);
+        ext(n.x - w / 2, n.x + w / 2);
+      } else {
+        const lx = n.x + n.r + 8;
+        const w = estTextW(truncateToWidth(n.label, gw - MARGIN - lx, LABEL_FONT), LABEL_FONT);
+        ext(lx, lx + w);
+      }
+    }
+  }
+  for (const e of layout.edges) {
+    for (const p of e.points) ext(p.x, p.x);
+    if (e.label !== undefined && e.points.length >= 2) {
+      const tip = e.points[e.points.length - 1];
+      const prev = e.points[e.points.length - 2];
+      const mx = (prev.x + tip.x) / 2 + 5;
+      ext(mx, mx + estTextW(e.label, 10.5));
+    }
+  }
+  for (const l of layout.loops) {
+    const node = byId.get(l.onNode);
+    if (!node) continue;
+    const lx = node.x + node.r + 8;
+    const w = estTextW(truncateToWidth(`↻ ${l.label}`, gw - MARGIN - lx, LOOP_FONT), LOOP_FONT);
+    ext(lx, lx + w);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return { minX: 0, maxX: gw };
+  return { minX, maxX };
 }
 
 // ---------------------------------------------------------------------------
