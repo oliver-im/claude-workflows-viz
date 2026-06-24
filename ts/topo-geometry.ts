@@ -84,14 +84,36 @@ export interface GLoop {
   tooltip?: string;
 }
 
+/**
+ * One arm of a collapsed parallel row: the sub-cell the left column draws for a
+ * phase whose work runs concurrently with its siblings. Carries its own chip
+ * number + title + model so each lineage stays legible side by side.
+ */
+export interface LaneMember {
+  /** 1-based chip number — the arm's ORIGINAL phase position. */
+  ordinal: number;
+  /** RAW band title. */
+  title: string;
+  /** Phase model for the swatch dot (RAW); absent for control-only arms. */
+  model?: string;
+}
+
 /** A phase as a painted swimlane stripe behind wherever its nodes landed. */
 export interface GLane {
-  /** Display order index (rendered as `phaseIndex + 1`). */
+  /** Position in `Layout.lanes` — the index every node's `phase` points at. */
   phaseIndex: number;
+  /** 1-based chip number shown for a single-phase lane (its ORIGINAL phase
+   *  position — which can differ from `phaseIndex` once a parallel group
+   *  collapses earlier phases into one row). */
+  ordinal: number;
   /** RAW band title. */
   title: string;
   /** Phase model for the tint + chip (RAW); absent for control-only bands. */
   model?: string;
+  /** When ≥2 concurrent phases collapsed into THIS one row, their per-arm
+   *  sub-cells to draw side by side (each its own chip/title/model). Absent for
+   *  an ordinary single-phase lane. */
+  members?: LaneMember[];
   /** Top of the painted stripe. */
   yTop: number;
   /** Bottom of the painted stripe. */

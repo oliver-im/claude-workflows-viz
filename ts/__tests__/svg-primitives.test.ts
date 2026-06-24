@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrowHead, roundedElbowPath, strokePath } from "../svg-primitives.js";
+import { arrowHead, roundedElbowPath, strokePath, wrapToWidth } from "../svg-primitives.js";
 
 // Only the NEW path helpers are tested here — the moved text/card primitives
 // stay covered through render-svg's snapshot (byte-identity is the gate).
@@ -44,6 +44,36 @@ describe("roundedElbowPath", () => {
       'd="M 0 0 L 10 0 L 20 0"',
     );
     expect(roundedElbowPath([], 10, "#000")).toBe("");
+  });
+});
+
+describe("wrapToWidth", () => {
+  // fitChars(width, size) = floor(width / (size * 0.58)); 58/(10*0.58) = 10.
+
+  it("wraps prose at word boundaries, leaving short words intact", () => {
+    expect(wrapToWidth("alpha beta gamma", 580, 10, 5)).toEqual(["alpha beta gamma"]);
+  });
+
+  it("hard-wraps an unbreakable token onto full lines instead of truncating", () => {
+    const token = "a".repeat(25);
+    const lines = wrapToWidth(token, 58, 10, 5); // max = 10
+    expect(lines).toEqual(["aaaaaaaaaa", "aaaaaaaaaa", "aaaaa"]);
+    expect(lines.join("")).toBe(token); // every character survives
+    expect(lines.some((l) => l.includes("…"))).toBe(false); // no ellipsis
+  });
+
+  it("lets a broken token's tail share a line with the following word", () => {
+    expect(wrapToWidth(`${"a".repeat(25)} bb`, 58, 10, 5)).toEqual([
+      "aaaaaaaaaa",
+      "aaaaaaaaaa",
+      "aaaaa bb",
+    ]);
+  });
+
+  it("still applies the maxLines backstop — the only residual clip", () => {
+    const lines = wrapToWidth("a".repeat(25), 58, 10, 2); // max = 10, cap = 2
+    expect(lines).toHaveLength(2);
+    expect(lines[lines.length - 1].endsWith("…")).toBe(true);
   });
 });
 

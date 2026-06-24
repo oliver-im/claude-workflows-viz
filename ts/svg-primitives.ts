@@ -28,8 +28,11 @@ export const GAP = 16;
 // phases snapshot gate is untouched.
 // ---------------------------------------------------------------------------
 
-/** Left label-cell column width (chip + title + model badge + wrapped detail). */
-export const LEFT_COL_W = 290;
+/** Left label-cell column width (chip + title + model badge + wrapped detail).
+ *  Wide enough that a collapsed parallel row's two side-by-side sub-cells each
+ *  still get a readable measure — the explanation is never trimmed, so a too-narrow
+ *  column would only grow the row taller with more wrapped lines. */
+export const LEFT_COL_W = 420;
 /** Gap between the label column and the graph column. */
 export const COL_GAP = 24;
 /** X-offset the whole graph group is translated to (its local frame is `W`). */
@@ -166,8 +169,24 @@ export function wrapToWidth(
       lines.push(truncatePlain(rest, max));
       return lines;
     }
-    if (cur) lines.push(cur);
-    cur = w.length <= max ? w : truncatePlain(w, max);
+    if (cur) {
+      lines.push(cur);
+      cur = "";
+    }
+    // A word with no break opportunity that is wider than the line is HARD-
+    // wrapped onto successive full lines rather than truncated, so no text is
+    // dropped. Only the overall `maxLines` cap can still clip — and callers that
+    // must not lose anything carry the full string in a <title> alongside.
+    let rest = w;
+    while (rest.length > max) {
+      if (lines.length === maxLines - 1) {
+        lines.push(truncatePlain(rest, max));
+        return lines;
+      }
+      lines.push(rest.slice(0, max));
+      rest = rest.slice(max);
+    }
+    cur = rest;
   }
   if (cur) lines.push(cur);
   return lines;

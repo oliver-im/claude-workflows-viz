@@ -11,7 +11,7 @@ import type {
   Step,
   Topology,
 } from "./topology.js";
-import type { GEdge, GEdgeKind, GLane, GLoop, GNode, Layout } from "./topo-geometry.js";
+import type { GEdge, GEdgeKind, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
 
 /**
  * The focused swimlane placement: an analyzer `Topology` tree (+ `Meta` for
@@ -29,8 +29,7 @@ import type { GEdge, GEdgeKind, GLane, GLoop, GNode, Layout } from "./topo-geome
  * emitted in tree order; ids are a stable counter.
  */
 export function placeTopology(topology: Topology, meta: Meta): Layout {
-  const lanes = buildLanes(topology, meta);
-  const titleToLane = new Map(lanes.map((l) => [l.title, l.phaseIndex]));
+  const { lanes, titleToLane } = buildLanes(topology, meta);
   const laneOf = (phase: string | null): number =>
     phase !== null && titleToLane.has(phase) ? (titleToLane.get(phase) as number) : 0;
 
@@ -277,6 +276,13 @@ function symmetricOffsets(n: number, step: number): number[] {
   return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * step);
 }
 
+/** The label of an arm's first step, when it's an agent — used to size the
+ *  side-by-side column so a wide arm label doesn't collide with its neighbor. */
+function firstChainLabel(arm: Step[]): string | undefined {
+  const head = arm[0];
+  return head?.kind === "agent" ? (head as AgentStep).label : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Per-step placement: one compact, self-contained template per analyzer shape,
 // each recursing over `Step` and exposing an entry/exit surface so siblings and
@@ -481,14 +487,84 @@ function representativeFanLabel(baseLabel: string, m: Multiplicity): string {
 }
 
 /**
- * Parallel branches (k distinct thunks): a fork hub fans to each arm, the arms
- * flow down their own lanes (an arm carrying its own `phase` lands in that
- * stripe), and every arm rejoins a shared barrier → sink. Arms stay stacked on
- * the spine rather than spread sideways, because each may live in a different
- * phase — the fork/join edges, not side-by-side columns, carry the concurrency.
+ * Parallel branches (k distinct thunks): a fork hub fans to each arm, every arm
+ * rejoins a shared barrier → sink. Two layouts:
+ *
+ *  - SIDE BY SIDE (`placeBranchesRow`) when every arm is a single step landing
+ *    in ONE shared lane (the common case — incl. a multi-phase parallel whose
+ *    phases `buildLanes` collapsed into one row): the arms spread as columns at
+ *    the SAME y, so the fork→arms→join diamond reads as concurrent at a glance.
+ *  - STACKED (`placeBranchesStacked`) otherwise (arms in distinct lanes, or
+ *    deep multi-step arms): arms stack down their own lanes, concurrency carried
+ *    by the fork/join edges — the honest fallback when columns can't co-register.
  */
 function placeBranches(step: ParallelStep & { form: "branches" }, ctx: Ctx, topY: number): Placed {
   const armBands = step.branches.map((arm) => (arm.length > 0 ? ctx.laneOf(arm[0].phase) : ctx.laneOf(step.phase)));
+  const oneLane = armBands.every((b) => b === armBands[0]);
+  const simpleArms = step.branches.every((arm) => arm.length <= 1);
+  return oneLane && simpleArms
+    ? placeBranchesRow(step, ctx, topY, armBands[0] ?? ctx.laneOf(step.phase))
+    : placeBranchesStacked(step, ctx, topY, armBands);
+}
+
+/** Arms as side-by-side columns in one shared lane (see `placeBranches`). */
+function placeBranchesRow(
+  step: ParallelStep & { form: "branches" },
+  ctx: Ctx,
+  topY: number,
+  band: number,
+): Placed {
+  const source = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: band });
+  const armTopY = source.y + HUB_R + FAN_GAP;
+  const armExits: string[] = [];
+  let minBand = band;
+  let maxBand = band;
+  const firstLabels = step.branches.map((arm) => firstChainLabel(arm) ?? "");
+  const cellW = Math.max(ARM_DX, rowCellWidth(firstLabels));
+  const xs = rowCenters(step.branches.length, cellW, SPINE_X);
+  let bottom = armTopY;
+  step.branches.forEach((arm, i) => {
+    const placed = placeTranslated(ctx, xs[i] - SPINE_X, () =>
+      placeChain(arm, ctx, armTopY) ?? placeChainStub(ctx, armTopY, band),
+    );
+    connect(ctx, source.id, placed.entry, "fan");
+    armExits.push(...placed.exits);
+    bottom = Math.max(bottom, placed.bottom);
+    minBand = Math.min(minBand, placed.minBand);
+    maxBand = Math.max(maxBand, placed.maxBand);
+  });
+
+  const span = xs[xs.length - 1] - xs[0] + 2 * NODE_R;
+  const barrier = addNode(ctx, {
+    kind: "barrier",
+    x: SPINE_X,
+    y: bottom + FAN_GAP + BARRIER_H / 2,
+    r: BARRIER_H / 2,
+    w: span,
+    h: BARRIER_H,
+    label: "",
+    phase: band,
+  });
+  for (const exit of armExits) connect(ctx, exit, barrier.id, "merge");
+  const sink = addNode(ctx, {
+    kind: "hub",
+    x: SPINE_X,
+    y: barrier.y + BARRIER_H / 2 + FAN_GAP + HUB_R,
+    r: HUB_R,
+    label: "",
+    phase: band,
+  });
+  connect(ctx, barrier.id, sink.id, "seq");
+  return { entry: source.id, exits: [sink.id], top: source.y - HUB_R, bottom: sink.y + HUB_R, minBand, maxBand };
+}
+
+/** Arms stacked down their own lanes (see `placeBranches`). */
+function placeBranchesStacked(
+  step: ParallelStep & { form: "branches" },
+  ctx: Ctx,
+  topY: number,
+  armBands: number[],
+): Placed {
   const headBand = armBands.length > 0 ? Math.min(...armBands) : ctx.laneOf(step.phase);
   const tailBand = armBands.length > 0 ? Math.max(...armBands) : ctx.laneOf(step.phase);
 
@@ -497,9 +573,6 @@ function placeBranches(step: ParallelStep & { form: "branches" }, ctx: Ctx, topY
   const armExits: string[] = [];
   let minBand = headBand;
   let maxBand = tailBand;
-  // Arms stack down (each carries its own lane) and fan off the spine so the
-  // fork edge to a lower arm never crosses an upper one — concurrency shown by
-  // the fork/join, lanes preserved by the stacking.
   const offsets = symmetricOffsets(step.branches.length, ARM_DX);
   let prevEndBand = -1;
   step.branches.forEach((arm, i) => {
@@ -1009,23 +1082,102 @@ function multBadge(m: Multiplicity): string | undefined {
  * appearance — which is exactly `topology.bands`. Model (for tint + chip) comes
  * from the matching meta phase; body-only bands carry none. A body with no
  * bands at all still gets one untitled lane so placement has somewhere to land.
+ *
+ * Concurrent phases collapse: when a `parallel([…])` runs each arm in a distinct
+ * (but consecutive) phase, those phases would otherwise stack as separate rows
+ * and read as sequential. `collapseRanges` folds each such run into ONE lane
+ * carrying its arms as side-by-side `members`, so the row reads as parallel and
+ * the side-by-side placement (`placeBranchesRow`) has a single lane to land in.
+ * Returns the lanes plus the title→lane-index map (member titles included).
  */
-function buildLanes(topology: Topology, meta: Meta): GLane[] {
+function buildLanes(topology: Topology, meta: Meta): { lanes: GLane[]; titleToLane: Map<string, number> } {
   const modelByTitle = new Map(
     meta.phases.filter((p) => p.model?.trim()).map((p) => [p.title, p.model as string]),
   );
-  const lanes: GLane[] = topology.bands.map((b, i) => ({
-    phaseIndex: i,
-    title: b.title,
-    ...(b.inMeta && modelByTitle.has(b.title) ? { model: modelByTitle.get(b.title) } : {}),
-    yTop: 0,
-    yBot: 0,
-    empty: true,
-  }));
-  if (lanes.length === 0) {
-    lanes.push({ phaseIndex: 0, title: "", yTop: 0, yBot: 0, empty: false });
+  const bands = topology.bands;
+  const modelOf = (i: number): string | undefined =>
+    bands[i].inMeta && modelByTitle.has(bands[i].title) ? modelByTitle.get(bands[i].title) : undefined;
+
+  const ranges = collapseRanges(topology, new Map(bands.map((b, i) => [b.title, i])));
+  const startOfRange = new Map(ranges.map((r) => [r[0], r]));
+  const insideRange = (i: number): boolean => ranges.some(([s, e]) => i > s && i <= e);
+
+  const lanes: GLane[] = [];
+  const titleToLane = new Map<string, number>();
+  for (let i = 0; i < bands.length; i++) {
+    if (insideRange(i)) continue; // folded into the lane its range started
+    const phaseIndex = lanes.length;
+    const range = startOfRange.get(i);
+    if (range) {
+      const members: LaneMember[] = [];
+      for (let j = range[0]; j <= range[1]; j++) {
+        members.push({ ordinal: j + 1, title: bands[j].title, ...(modelOf(j) !== undefined ? { model: modelOf(j) } : {}) });
+        titleToLane.set(bands[j].title, phaseIndex);
+      }
+      lanes.push({
+        phaseIndex,
+        ordinal: range[0] + 1,
+        title: bands[range[0]].title,
+        members,
+        yTop: 0,
+        yBot: 0,
+        empty: true,
+      });
+    } else {
+      titleToLane.set(bands[i].title, phaseIndex);
+      lanes.push({
+        phaseIndex,
+        ordinal: i + 1,
+        title: bands[i].title,
+        ...(modelOf(i) !== undefined ? { model: modelOf(i) } : {}),
+        yTop: 0,
+        yBot: 0,
+        empty: true,
+      });
+    }
   }
-  return lanes;
+  if (lanes.length === 0) {
+    lanes.push({ phaseIndex: 0, ordinal: 1, title: "", yTop: 0, yBot: 0, empty: false });
+  }
+  return { lanes, titleToLane };
+}
+
+/**
+ * The consecutive band ranges to collapse into one parallel row: each is a
+ * `branches` parallel whose arms are all single agents landing in ≥2 distinct,
+ * gap-free phases. Walks the whole tree (parallels nest), de-dupes, and keeps
+ * only genuine multi-band runs. A non-consecutive or single-band parallel is
+ * left alone — it places stacked, which never overlaps.
+ */
+function collapseRanges(topology: Topology, bandOf: Map<string, number>): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const visit = (steps: Step[]): void => {
+    for (const step of steps) {
+      if (step.kind === "parallel" && step.form === "branches") {
+        const eligible = step.branches.every((arm) => arm.length === 1 && arm[0].kind === "agent");
+        if (eligible) {
+          const idx = [
+            ...new Set(
+              step.branches
+                .map((arm) => bandOf.get((arm[0] as AgentStep).phase ?? ""))
+                .filter((b): b is number => b !== undefined),
+            ),
+          ].sort((a, b) => a - b);
+          if (idx.length >= 2 && idx[idx.length - 1] - idx[0] === idx.length - 1) {
+            ranges.push([idx[0], idx[idx.length - 1]]);
+          }
+        }
+        step.branches.forEach(visit);
+      } else if (step.kind === "parallel") visit(step.body);
+      else if (step.kind === "pipeline") step.stages.forEach(visit);
+      else if (step.kind === "branch") {
+        visit(step.thenSteps);
+        visit(step.elseSteps);
+      } else if (step.kind === "loop") visit(step.body);
+    }
+  };
+  visit(topology.steps);
+  return ranges;
 }
 
 /** Mark a lane as a slim strip at the current cursor; returns the bottom (the

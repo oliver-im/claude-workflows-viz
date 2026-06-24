@@ -188,6 +188,18 @@ describe("renderTopology", () => {
     expect(svg).toContain("<polygon"); // arrowheads / diamonds
   });
 
+  it("never trims the phase explanation: hard-wraps a long token, no ellipsis, full detail in a <title>", () => {
+    const longToken = "a".repeat(120); // unbreakable, far wider than the column
+    const detail = `prefix ${longToken} suffix`;
+    const svg = render(topo([agent("go", "Solo")], [band("Solo")]), meta([{ title: "Solo", detail }]));
+    // The only source of "…" is truncation — so its absence proves nothing was clipped.
+    expect(svg).not.toContain("…");
+    // The token hard-wrapped across ≥2 full detail lines instead of one truncated line.
+    expect((svg.match(/>a{40,}</g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // Safety net: the full, untruncated explanation rides along as the cell's <title>.
+    expect(svg).toContain(`<title>${detail}</title>`);
+  });
+
   it("is deterministic for the same input", () => {
     expect(tournament()).toBe(tournament());
   });

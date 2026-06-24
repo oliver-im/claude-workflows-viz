@@ -1,5 +1,5 @@
 import type { Meta } from "./model.js";
-import type { GEdge, GLane, GLoop, GNode, Layout } from "./topo-geometry.js";
+import type { GEdge, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
 import { renderHeader } from "./render-svg.js";
 import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
@@ -55,7 +55,9 @@ export function renderTopology(layout: Layout, meta: Meta): string {
     meta.phases.filter((p) => p.detail?.trim()).map((p) => [p.title, p.detail as string]),
   );
   const cells = layout.lanes.map((l) =>
-    renderLaneLabelCell(l.phaseIndex + 1, l.title, detailByTitle.get(l.title), l.model, l.empty),
+    l.members
+      ? renderParallelLaneCell(l.members, detailByTitle)
+      : renderLaneLabelCell(l.ordinal, l.title, detailByTitle.get(l.title), l.model, l.empty),
   );
   reserveLaneHeights(layout, cells.map((c) => c.height));
   closeLaneGaps(layout); // seamless table — no gaps between phase rows
@@ -156,6 +158,14 @@ function renderRow(lane: GLane, i: number): string {
   return `<g class="${lane.empty ? "swimlane-empty" : "swimlane"}">${sep}</g>`;
 }
 
+/** Sizing for one label cell — full-width (`MARGIN`/`LEFT_COL_W`) by default, or
+ *  a narrow `compact` sub-cell when several share a row (a collapsed parallel). */
+interface CellOpts {
+  cellX?: number;
+  cellW?: number;
+  compact?: boolean;
+}
+
 /**
  * The left label cell for one phase row: the numbered chip, the phase title,
  * the wrapped detail, then — last and quietest — a `model: xx` footnote. The
@@ -165,7 +175,14 @@ function renderRow(lane: GLane, i: number): string {
  * control-only (empty) lane shows the title plus a muted italic "control only"
  * note instead. Padding is harmonized with the header card (`renderHeader`) so
  * the cell reads as the same surface and its content aligns down the left edge.
- * Drawn relative to (`X`, 0); the caller translates it to the lane's top.
+ *
+ * In `compact` mode the cell shrinks to fit a sub-column of a collapsed
+ * parallel row: tighter padding, a smaller chip, the title wraps to two lines
+ * instead of truncating, and the model shows its short family name (full id in
+ * a `<title>`) so a long id doesn't blow the column. The detail is NOT capped —
+ * it wraps in full like a full-width cell, and the row grows to fit it.
+ *
+ * Drawn relative to (`cellX`, 0); the caller translates it to the lane's top.
  * Returns its measured height so the row can be co-registered to fit it.
  */
 function renderLaneLabelCell(
@@ -174,73 +191,123 @@ function renderLaneLabelCell(
   detail: string | undefined,
   model: string | undefined,
   empty: boolean,
+  opts: CellOpts = {},
 ): Block {
-  const x = MARGIN;
-  const padX = 22; // matches the header card so chips and banner share a left rule
-  const padTop = 18;
-  const padBottom = 18;
-  const chipCx = x + padX + CHIP_R;
-  const chipCy = padTop + CHIP_R;
-  const textX = x + padX + 2 * CHIP_R + 12;
-  const innerW = x + LEFT_COL_W - padX - textX;
+  const x = opts.cellX ?? MARGIN;
+  const colW = opts.cellW ?? LEFT_COL_W;
+  const compact = opts.compact ?? false;
+  const padX = compact ? 12 : 22; // full-width matches the header card's left rule
+  const padTop = compact ? 16 : 18;
+  const padBottom = compact ? 14 : 18;
+  const chipR = compact ? 9 : CHIP_R;
+  const titleFont = compact ? 13 : TITLE_FONT;
+  const detailFont = compact ? 11 : 12.5;
+  const modelFont = compact ? 10.5 : 11.5;
+  const lineH = compact ? 15 : 17;
+
+  const chipCx = x + padX + chipR;
+  const chipCy = padTop + chipR;
+  const textX = x + padX + 2 * chipR + (compact ? 8 : 12);
+  const innerW = x + colW - padX - textX;
 
   const parts: string[] = [
-    `<circle cx="${round(chipCx)}" cy="${round(chipCy)}" r="${CHIP_R}" fill="${CHIP_FILL}"/>`,
-    text(chipCx, chipCy + 3.7, String(index), {
-      size: 11.5,
+    `<circle cx="${round(chipCx)}" cy="${round(chipCy)}" r="${chipR}" fill="${CHIP_FILL}"/>`,
+    text(chipCx, chipCy + (compact ? 3.4 : 3.7), String(index), {
+      size: compact ? 10.5 : 11.5,
       weight: 700,
       fill: "#ffffff",
       anchor: "middle",
     }),
   ];
 
-  const titleBaseline = padTop + 16;
-  parts.push(
-    text(textX, titleBaseline, truncateToWidth(title, innerW, TITLE_FONT), {
-      size: TITLE_FONT,
-      weight: 700,
-      fill: TITLE,
-    }),
-  );
+  // One line (truncated) normally; up to two wrapped lines when compact, so a
+  // long phase name still fits a narrow side-by-side sub-cell.
+  const titleLines = compact
+    ? wrapToWidth(title, innerW, titleFont, 2)
+    : [truncateToWidth(title, innerW, titleFont)];
+  let y = padTop + (compact ? 13 : 16);
+  titleLines.forEach((line, i) => {
+    if (i > 0) y += titleFont + 2;
+    parts.push(text(textX, y, line, { size: titleFont, weight: 700, fill: TITLE }));
+  });
 
   if (empty) {
-    parts.push(
-      text(textX, titleBaseline + 20, "control only", { size: 11, style: "italic", fill: MUTED }),
-    );
-    return {
-      body: `<g class="lane-label">${parts.join("")}</g>`,
-      height: titleBaseline + 20 + padBottom,
-    };
+    y += compact ? 16 : 20;
+    parts.push(text(textX, y, "control only", { size: compact ? 10 : 11, style: "italic", fill: MUTED }));
+    return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + padBottom };
   }
 
-  let y = titleBaseline;
   // A small breath under the title before the detail, echoing the header card.
   if (detail?.trim()) y += 3;
-  // No line cap: the phase explanation wraps in full (the row grows to fit via
-  // reserveLaneHeights) rather than being clipped with an ellipsis.
-  const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, 12.5, DETAIL_MAX_LINES) : [];
+  // The explanation wraps in full and the row grows to fit via reserveLaneHeights
+  // (full-width and compact cells alike); an over-long unbreakable token hard-
+  // wraps rather than truncating. The only residual clip is the DETAIL_MAX_LINES
+  // backstop, and the full text rides along in the cell's <title> regardless — so
+  // the explanation is never silently lost.
+  const detailLines = detail?.trim() ? wrapToWidth(detail.trim(), innerW, detailFont, DETAIL_MAX_LINES) : [];
   for (const line of detailLines) {
-    y += 17;
-    parts.push(text(textX, y, line, { size: 12.5, fill: DETAIL }));
+    y += lineH;
+    parts.push(text(textX, y, line, { size: detailFont, fill: DETAIL }));
   }
   // The model footnote: a swatch dot (a miniature of the agent node it tints in
   // the graph) then the id upright in slate — quiet, but a clearly different
-  // category from the muted italic "control only" note above.
+  // category from the muted italic "control only" note above. Compact drops the
+  // "model:" prefix and shows the short family (full id in a <title>).
   if (model !== undefined) {
-    y += 19;
+    y += compact ? 16 : 19;
     const sw = swatchFor(model);
     const dotR = 4;
     const labelX = textX + 2 * dotR + 7;
+    const label = compact ? shortModel(model) : `model: ${model}`;
+    const labelEl = text(labelX, y, truncateToWidth(label, x + colW - padX - labelX, modelFont), {
+      size: modelFont,
+      fill: EDGE,
+    });
     parts.push(
       `<circle cx="${round(textX + dotR)}" cy="${round(y - 4)}" r="${dotR}" ` +
         `fill="${sw.fill}" stroke="${sw.stroke}" stroke-width="1"/>`,
-      text(labelX, y, truncateToWidth(`model: ${model}`, x + LEFT_COL_W - padX - labelX, 11.5), {
-        size: 11.5,
-        fill: EDGE,
-      }),
+      compact ? `<g><title>${escapeSvgText(`model: ${model}`)}</title>${labelEl}</g>` : labelEl,
     );
   }
-  return { body: `<g class="lane-label">${parts.join("")}</g>`, height: y + padBottom };
+  // Safety net: the full, untruncated explanation rides along as the cell's
+  // <title>, so even the DETAIL_MAX_LINES backstop can't make it unrecoverable.
+  const cellTitle = detail?.trim() ? `<title>${escapeSvgText(detail.trim())}</title>` : "";
+  return { body: `<g class="lane-label">${cellTitle}${parts.join("")}</g>`, height: y + padBottom };
+}
+
+/**
+ * The left cell for a collapsed parallel row: its concurrent arms drawn as
+ * equal-width `compact` sub-cells side by side, split by faint vertical rules —
+ * so each lineage keeps its own chip, title, and model badge while the row as a
+ * whole co-registers to the parallel block beside it. Height is the tallest
+ * sub-cell; the rules span that height.
+ */
+function renderParallelLaneCell(members: LaneMember[], detailByTitle: Map<string, string>): Block {
+  const subW = LEFT_COL_W / members.length;
+  const cells = members.map((m, i) =>
+    renderLaneLabelCell(m.ordinal, m.title, detailByTitle.get(m.title), m.model, false, {
+      cellX: MARGIN + i * subW,
+      cellW: subW,
+      compact: true,
+    }),
+  );
+  const height = cells.reduce((h, c) => Math.max(h, c.height), 0);
+  const rules = members
+    .slice(1)
+    .map((_, i) => {
+      const rx = round(MARGIN + (i + 1) * subW);
+      return `<line x1="${rx}" y1="12" x2="${rx}" y2="${round(height - 6)}" stroke="${ROW_SEP}" stroke-width="1"/>`;
+    })
+    .join("");
+  return { body: rules + cells.map((c) => c.body).join(""), height };
+}
+
+/** A model's short family name for a cramped sub-cell ("claude-opus-4-8" →
+ *  "opus"); an unrecognized id is returned verbatim (the caller truncates). */
+function shortModel(model: string): string {
+  const m = model.toLowerCase();
+  for (const key of ["opus", "sonnet", "haiku"]) if (m.includes(key)) return key;
+  return model;
 }
 
 // ---------------------------------------------------------------------------

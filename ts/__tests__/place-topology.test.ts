@@ -253,7 +253,7 @@ describe("placeTopology — sub-shapes", () => {
     expect(layout.notes.some((n) => n.includes("exceeds width"))).toBe(true);
   });
 
-  it("parallel branches → fork to each arm, every arm rejoins a shared barrier", () => {
+  it("parallel branches in distinct phases → collapse to one side-by-side row", () => {
     const layout = placeTopology(
       topo(
         [
@@ -265,12 +265,36 @@ describe("placeTopology — sub-shapes", () => {
       ),
       meta(["Scope", "Claude", "External", "Merge"]),
     );
-    // Arms land in their own phases (different lanes), not side-by-side.
     const claude = layout.nodes.find((n) => n.label === "review:claude");
     const external = layout.nodes.find((n) => n.label === "review:external");
-    expect(claude?.phase).toBe(1);
-    expect(external?.phase).toBe(2);
+    // The two single-agent arms (consecutive phases) collapse into ONE lane and
+    // place side by side: same lane, same y, different x.
+    expect(claude?.phase).toBe(external?.phase);
+    expect(Math.abs((claude?.y ?? 0) - (external?.y ?? 1))).toBeLessThan(1);
+    expect(claude?.x).not.toBe(external?.x);
+    // Scope · {Claude‖External} · Merge → 3 lanes; the middle lane carries both
+    // arms as side-by-side members keyed to their ORIGINAL chip numbers (2, 3).
+    expect(layout.lanes).toHaveLength(3);
+    const row = layout.lanes[claude?.phase ?? -1];
+    expect(row.members?.map((m) => m.ordinal)).toEqual([2, 3]);
+    expect(layout.lanes[2].ordinal).toBe(4); // Merge keeps its original ordinal
     expect(allHaveOnward(layout, [claude?.id ?? "", external?.id ?? ""])).toBe(true);
+    expect(ofKind(layout, "barrier")).toHaveLength(1);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+
+  it("parallel branches with a multi-step arm → stays stacked, no collapse", () => {
+    const layout = placeTopology(
+      topo(
+        [branches([[agent("a1", "P1"), agent("a2", "P1")], [agent("b", "P2")]], "P1")],
+        [band("P1"), band("P2")],
+      ),
+      meta(["P1", "P2"]),
+    );
+    // Not all arms are single agents → ineligible for collapse: lanes stay
+    // distinct (no members) and the arms stack rather than sharing a row.
+    expect(layout.lanes).toHaveLength(2);
+    expect(layout.lanes.some((l) => l.members)).toBe(false);
     expect(ofKind(layout, "barrier")).toHaveLength(1);
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
