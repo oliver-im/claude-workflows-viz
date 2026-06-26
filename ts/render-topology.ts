@@ -1,5 +1,5 @@
 import type { Meta } from "./model.js";
-import type { GEdge, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
+import type { ControlArc, GEdge, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
 import { type Provenance, renderFooter, renderHeader } from "./render-svg.js";
 import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
@@ -101,14 +101,16 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
     .join("");
   const edges = layout.edges.map((e) => renderEdge(e)).join("");
   const nodes = layout.nodes.map((n) => renderNode(n, gw)).join("");
+  const arcs = layout.controlArcs.map((a) => renderControlArc(a, byId)).join("");
   const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, gw)).join("");
-  // Card behind, then phase separators, then labels, then the graph column.
+  // Card behind, then phase separators, then labels, then the graph column. Arcs
+  // sit above the nodes so a loop-back arrowhead reads on top of its gate.
   const content =
     `<g transform="translate(0 ${round(yOffset)})">` +
     tableCard +
     rows +
     labels +
-    `<g class="topology" transform="translate(${graphX} 0)">${edges}${nodes}${loops}</g>` +
+    `<g class="topology" transform="translate(${graphX} 0)">${edges}${nodes}${arcs}${loops}</g>` +
     `</g>`;
 
   const width = pageW;
@@ -168,6 +170,9 @@ const LOOP_FONT = 11;
 const EDGE_W = 1.3;
 const FAN_W = 1.1;
 const NODE_STROKE_W = 1.25;
+/** How far a continue loop-back arc bulges left past the guard diamond. */
+const ARC_BULGE = 15;
+const ARC_W = 1.4;
 
 // ---------------------------------------------------------------------------
 // Rows — a full-width, model-tinted band per phase, spanning BOTH columns; the
@@ -448,6 +453,17 @@ function graphContentBounds(
     const w = estTextW(truncateToWidth(`↻ ${l.label}`, gw - MARGIN - lx, LOOP_FONT), LOOP_FONT);
     ext(lx, lx + w);
   }
+  // A continue arc bows left of its gate, its outcome label further left still.
+  // Mirror renderControlArc: a self-loop reaches its ↺ circle's left edge (cx − r);
+  // a spanning arc bows out by ARC_BULGE.
+  for (const a of layout.controlArcs) {
+    const from = byId.get(a.fromId);
+    if (!from) continue;
+    const r = from.r + 2;
+    const leftmost =
+      a.fromId === a.toId ? from.x - from.r - r * 0.45 - r : from.x - from.r - ARC_BULGE;
+    ext(leftmost - 4 - estTextW(a.outcome, MEMBER_FONT), from.x);
+  }
   if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return { minX: 0, maxX: gw };
   return { minX, maxX };
 }
@@ -633,4 +649,78 @@ function renderLoop(loop: GLoop, i: number, layout: Layout, byId: Map<string, GN
     weight: 600,
     fill: ACCENT,
   })}</g>`;
+}
+
+/**
+ * A control-flow arc (`ControlArc`), the standard CFG jump the downward flow can't
+ * carry. `continue` is the back-edge: a coral stroke returning to the loop head —
+ * a circular ↺ tucked against the gate when the guard IS the head, else a smooth
+ * curve climbing the left margin up to the head above. `break` is its forward
+ * mirror: the SAME smooth curve, but the target sits BELOW (the loop's successor),
+ * so it reads as a drop out of the loop. Direction tells them apart; both replace
+ * a heavy "continue loop"/"break loop" box with one quiet glyph.
+ */
+function renderControlArc(arc: ControlArc, byId: Map<string, GNode>): string {
+  const from = byId.get(arc.fromId);
+  const to = byId.get(arc.toId);
+  if (!from || !to) return "";
+
+  const d = from.r; // diamond half-diagonal
+  if (arc.flow === "continue" && from.id === to.id) {
+    // Self-loop: a near-full circular ↺ tucked against the gate's left, its gap
+    // facing the diamond and its arrowhead sweeping back into it.
+    const r = d + 2;
+    const cx = from.x - d - r * 0.45;
+    const cy = from.y;
+    const a0 = 0.62 * Math.PI; // start lower-right of the circle
+    const a1 = -0.62 * Math.PI; // end upper-right, leaving the gap toward the gate
+    const sx = cx + r * Math.cos(a0);
+    const sy = cy + r * Math.sin(a0);
+    const tipX = cx + r * Math.cos(a1);
+    const tipY = cy + r * Math.sin(a1);
+    const stroke = strokePath(
+      `M ${round(sx)} ${round(sy)} A ${round(r)} ${round(r)} 0 1 1 ${round(tipX)} ${round(tipY)}`,
+      ACCENT,
+      { width: ARC_W },
+    );
+    // tangent at the end of a clockwise sweep, pointing back into the gate
+    return arcGroup(stroke, tipX, tipY, a1 - Math.PI / 2, cx - r, from.y, arc.outcome);
+  }
+
+  // Spanning: a smooth coral curve from the gate's lower-left up the margin to the
+  // head node's left.
+  const xL = Math.min(from.x - d, to.x - to.r) - ARC_BULGE;
+  const sx = from.x - 0.55 * d;
+  const sy = from.y + 0.45 * d;
+  const tipX = to.x - to.r - 2;
+  const tipY = to.y;
+  const stroke = strokePath(
+    `M ${round(sx)} ${round(sy)} C ${round(xL)} ${round(from.y)} ${round(xL)} ${round(to.y)} ${round(tipX)} ${round(tipY)}`,
+    ACCENT,
+    { width: ARC_W },
+  );
+  return arcGroup(stroke, tipX, tipY, 0, from.x - d - ARC_BULGE, from.y, arc.outcome);
+}
+
+/** The arc stroke element + arrowhead + the quiet outcome label set just left of it. */
+function arcGroup(
+  strokeEl: string,
+  tipX: number,
+  tipY: number,
+  tipAngle: number,
+  labelRightX: number,
+  labelY: number,
+  outcome: string,
+): string {
+  const parts = [
+    strokeEl,
+    arrowHead(tipX, tipY, tipAngle, ACCENT),
+    knockoutText(labelRightX - 4, labelY + 3.5, outcome, {
+      size: MEMBER_FONT,
+      style: "italic",
+      fill: MUTED,
+      anchor: "end",
+    }),
+  ];
+  return `<g class="control-arc">${parts.join("")}</g>`;
 }

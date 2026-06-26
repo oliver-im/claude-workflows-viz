@@ -11,7 +11,7 @@ import type {
   Step,
   Topology,
 } from "./topology.js";
-import type { GEdge, GEdgeKind, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
+import type { ControlArc, GEdge, GEdgeKind, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
 
 /**
  * The focused swimlane placement: an analyzer `Topology` tree (+ `Meta` for
@@ -33,7 +33,16 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   const laneOf = (phase: string | null): number =>
     phase !== null && titleToLane.has(phase) ? (titleToLane.get(phase) as number) : 0;
 
-  const ctx: Ctx = { nodes: [], edges: [], loops: [], notes: [], idSeq: 0, laneOf };
+  const ctx: Ctx = {
+    nodes: [],
+    edges: [],
+    loops: [],
+    controlArcs: [],
+    claimedGuards: new Set(),
+    notes: [],
+    idSeq: 0,
+    laneOf,
+  };
 
   // Flow top-level steps top→down. Empty bands between consecutive shapes (and
   // trailing) collapse to slim strips the graph simply flows past. Because the
@@ -43,6 +52,7 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   // new lane leaves chrome room; continuing one keeps a tight gap.
   let y = LANE_HEADER_H + LANE_PAD;
   let prevExits: string[] = [];
+  let prevBreaks: string[] = [];
   let prevBand = -1;
   let placedAny = false;
   const gapInto = (b: number): number =>
@@ -58,8 +68,10 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
     y += gapInto(band);
     const placed = placeStep(step, ctx, y);
     for (const exit of prevExits) connect(ctx, exit, placed.entry, "seq");
+    wireBreaks(ctx, prevBreaks, placed.entry);
     y = placed.bottom;
     prevExits = placed.exits;
+    prevBreaks = placed.pendingBreaks ?? [];
     prevBand = Math.max(prevBand, placed.maxBand);
     placedAny = true;
   }
@@ -69,8 +81,10 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
     if (isTrailingTerminal) {
       const terminal = placeTerminal(ctx, y, idx);
       for (const exit of prevExits) connect(ctx, exit, terminal.entry, "seq");
+      wireBreaks(ctx, prevBreaks, terminal.entry); // a break with no real successor exits to "end"
       y = terminal.bottom;
       prevExits = terminal.exits;
+      prevBreaks = [];
     } else {
       y = stripLane(lanes[idx], y);
     }
@@ -88,6 +102,7 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
     nodes: ctx.nodes,
     edges: ctx.edges,
     loops: ctx.loops,
+    controlArcs: ctx.controlArcs,
     notes: ctx.notes,
   };
 }
@@ -165,6 +180,10 @@ interface Ctx {
   nodes: GNode[];
   edges: GEdge[];
   loops: GLoop[];
+  controlArcs: ControlArc[];
+  /** Guard diamonds already wired to a control arc — so a loop nested inside
+   *  another doesn't let the outer loop re-claim a guard the inner already owns. */
+  claimedGuards: Set<string>;
   notes: string[];
   idSeq: number;
   laneOf: (phase: string | null) => number;
@@ -187,6 +206,11 @@ interface Placed {
   bottom: number;
   minBand: number;
   maxBand: number;
+  /** `break` guards inside this sub-graph whose forward exit arc still needs a
+   *  target — the loop's successor, which the enclosing chain places next and
+   *  wires (continue resolves in `placeLoop`; break can't, since its target does
+   *  not exist yet). Propagated up until a chain connects this onward. */
+  pendingBreaks?: string[];
 }
 
 function addNode(ctx: Ctx, node: Omit<GNode, "id">): GNode {
@@ -243,6 +267,16 @@ function pushEdge(
   kind: GEdgeKind,
 ): void {
   ctx.edges.push({ from: fromId, to: toId, points, kind });
+}
+
+/** Resolve pending `break` guards onto the loop's successor `toId` — a forward
+ *  exit arc per gate. Called when a chain connects a loop onward to the node the
+ *  break jumps to. */
+function wireBreaks(ctx: Ctx, gateIds: string[], toId: string): void {
+  for (const id of gateIds) {
+    const gate = byId(ctx, id);
+    ctx.controlArcs.push({ fromId: id, toId, flow: "break", outcome: gate.guardOutcome ?? "yes" });
+  }
 }
 
 /**
@@ -331,6 +365,7 @@ function placeChain(steps: Step[], ctx: Ctx, topY: number): Placed | null {
   let y = topY;
   let entry: string | null = null;
   let prevExits: string[] = [];
+  let prevBreaks: string[] = [];
   let prevBand = -1;
   let top = Number.POSITIVE_INFINITY;
   let bottom = Number.NEGATIVE_INFINITY;
@@ -341,7 +376,9 @@ function placeChain(steps: Step[], ctx: Ctx, topY: number): Placed | null {
     const placed = placeStep(step, ctx, y);
     if (entry === null) entry = placed.entry;
     for (const exit of prevExits) connect(ctx, exit, placed.entry, "seq");
+    wireBreaks(ctx, prevBreaks, placed.entry); // this step is the prior loop's break target
     prevExits = placed.exits;
+    prevBreaks = placed.pendingBreaks ?? [];
     y = placed.bottom + INNER_GAP;
     prevBand = placed.maxBand;
     top = Math.min(top, placed.top);
@@ -349,7 +386,15 @@ function placeChain(steps: Step[], ctx: Ctx, topY: number): Placed | null {
     minBand = Math.min(minBand, placed.minBand);
     maxBand = Math.max(maxBand, placed.maxBand);
   }
-  return { entry: entry as string, exits: prevExits, top, bottom, minBand, maxBand };
+  return {
+    entry: entry as string,
+    exits: prevExits,
+    top,
+    bottom,
+    minBand,
+    maxBand,
+    ...(prevBreaks.length > 0 ? { pendingBreaks: prevBreaks } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +838,32 @@ function isControlGuard(step: BranchStep): boolean {
 }
 
 /**
+ * If `step` is a guard whose taken arm is exactly a `continue`/`break` (the other
+ * arm empty), reports that flow, the triggering outcome, and the straight-through
+ * arm. Such a guard draws its abrupt jump as a coral ARC — `continue` loops back
+ * to the loop head (wired in `placeLoop`), `break` exits forward to the loop's
+ * successor (wired by the enclosing chain) — instead of a box, so `placeBranch`
+ * short-circuits to a lone gate whose one real exit flows on.
+ */
+function controlGuardArm(
+  step: BranchStep,
+): { flow: "continue" | "break"; outcome: string; otherSteps: Step[]; otherOutcome: string } | null {
+  const arcFlow = (arm: Step[]): "continue" | "break" | null => {
+    if (arm.length === 0) return null;
+    const flows = arm.map((s) => (s.kind === "control" ? (s as ControlStep).flow : undefined));
+    const f = flows[0];
+    return (f === "continue" || f === "break") && flows.every((x) => x === f) ? f : null;
+  };
+  const thenFlow = arcFlow(step.thenSteps);
+  if (thenFlow && step.elseSteps.length === 0)
+    return { flow: thenFlow, outcome: "yes", otherSteps: step.elseSteps, otherOutcome: "no" };
+  const elseFlow = arcFlow(step.elseSteps);
+  if (elseFlow && step.thenSteps.length === 0)
+    return { flow: elseFlow, outcome: "no", otherSteps: step.thenSteps, otherOutcome: "yes" };
+  return null;
+}
+
+/**
  * An `if`/ternary: a small decision diamond (the verbatim condition rides as
  * its label/tooltip), then both arms placed below it on the spine — the
  * condition-true ("yes") arm first, the "no" arm next, each flowing into its
@@ -810,6 +881,37 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
     phase: band,
     ...(isControlGuard(step) ? { isGuard: true } : {}),
   });
+
+  // A `continue`/`break` guard: the abrupt arm is drawn as a coral arc (wired in
+  // placeLoop / by the enclosing chain), not a box. The diamond becomes a lone
+  // gate whose one real exit — the straight-through arm — flows on down the spine.
+  const cg = controlGuardArm(step);
+  if (cg) {
+    decision.guardFlow = cg.flow;
+    decision.guardOutcome = cg.outcome;
+    if (cg.otherSteps.length > 0) {
+      const other = placeChain(cg.otherSteps, ctx, decision.y + DIAMOND_HALF + INNER_GAP) as Placed;
+      connect(ctx, decision.id, other.entry, "seq", cg.otherOutcome);
+      return {
+        entry: decision.id,
+        exits: other.exits,
+        top: decision.y - DIAMOND_HALF,
+        bottom: other.bottom,
+        minBand: Math.min(band, other.minBand),
+        maxBand: Math.max(band, other.maxBand),
+      };
+    }
+    // Empty straight-through arm: the gate itself is the exit, flowing directly
+    // into whatever the enclosing chain places next — no stub, no box.
+    return {
+      entry: decision.id,
+      exits: [decision.id],
+      top: decision.y - DIAMOND_HALF,
+      bottom: decision.y + DIAMOND_HALF,
+      minBand: band,
+      maxBand: band,
+    };
+  }
 
   let y = decision.y + DIAMOND_HALF + INNER_GAP;
   const exits: string[] = [];
@@ -873,6 +975,24 @@ function placeLoop(step: LoopStep, ctx: Ctx, topY: number): Placed {
   if (body.minBand !== body.maxBand) {
     note(ctx, `loop body spans phases; kept local with a repeat badge (no cross-lane back-edge)`);
   }
+  // Claim this loop's own control guards (skipping any an inner loop already took).
+  // `continue` resolves now — a back-arc to the body entry: a self-loop when the
+  // guard IS the entry (choose-approach), a short arc up to the head agent when it
+  // sits mid-body (hunt-bugs). `break` can't resolve here (its target, the loop's
+  // successor, isn't placed yet), so it rides out in `pendingBreaks` for the
+  // enclosing chain to wire when it connects this loop onward.
+  const pendingBreaks: string[] = [];
+  for (const n of ctx.nodes.slice(n0)) {
+    if (n.kind !== "decision" || n.guardFlow === undefined || ctx.claimedGuards.has(n.id)) continue;
+    ctx.claimedGuards.add(n.id);
+    if (n.guardFlow === "continue") {
+      ctx.controlArcs.push({ fromId: n.id, toId: body.entry, flow: "continue", outcome: n.guardOutcome ?? "yes" });
+    } else {
+      pendingBreaks.push(n.id);
+    }
+  }
+  const breaks = [...pendingBreaks, ...(body.pendingBreaks ?? [])];
+  const withBreaks = (p: Placed): Placed => (breaks.length > 0 ? { ...p, pendingBreaks: breaks } : p);
   // Pick the node the badge pins to. Normally the body's head — but when that
   // head is a loop-control guard (`if (!opponent) continue;`), the diamond is
   // plumbing, not the loop's work, and its sides are spoken for by the condition
@@ -898,12 +1018,12 @@ function placeLoop(step: LoopStep, ctx: Ctx, topY: number): Placed {
   // the reported bottom must still grow to clear the badge rows beneath it.
   if (anchor.kind === "decision") {
     const newBottom = reserveBadgeRowAbove(ctx, n0, e0);
-    return { ...body, bottom: Math.max(body.bottom, newBottom) };
+    return withBreaks({ ...body, bottom: Math.max(body.bottom, newBottom) });
   }
   const newBottom = reserveBadgeRow(ctx, anchor, n0, e0);
   const badgeCount = ctx.loops.filter((l) => l.onNode === anchor.id).length;
   const badgeBottom = visualBottom(anchor) + badgeCount * LOOP_BADGE_ROW;
-  return { ...body, bottom: Math.max(body.bottom, newBottom, badgeBottom) };
+  return withBreaks({ ...body, bottom: Math.max(body.bottom, newBottom, badgeBottom) });
 }
 
 /**

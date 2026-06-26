@@ -56,6 +56,13 @@ export interface GNode {
    *  first work node instead of this diamond, so the badge reads as an
    *  annotation on the work (like an agent-headed loop), not a floating label. */
   isGuard?: boolean;
+  /** Decision/guard nodes only (placement-internal): this guard's taken arm is an
+   *  abrupt `continue` (later `break`) — drawn as a loop-back ARC on the diamond
+   *  instead of a separate control box. `placeLoop` reads this to wire the arc to
+   *  the loop's body entry (see `ControlArc`); `guardOutcome` is the condition
+   *  outcome ("yes"/"no") that triggers it, drawn beside the arc. */
+  guardFlow?: "continue" | "break";
+  guardOutcome?: string;
 }
 
 /**
@@ -88,6 +95,29 @@ export interface GLoop {
   label: string;
   /** Full RAW phrasing for browser tooltips when the label is truncated. */
   tooltip?: string;
+}
+
+/**
+ * A control-flow ARC drawn between two placed nodes — the faithful picture of an
+ * abrupt jump the downward flow can't carry: `continue` loops BACK from a guard
+ * diamond to the loop's body entry (a self-loop when the guard IS the entry).
+ *
+ * NOT a `GEdge`: it is exempt from the downward invariant by design, and routed
+ * as a curved decoration computed from LIVE node positions at render time — so
+ * every placement shift (badge rows, lane co-registration) carries it along for
+ * free, the same way a `GLoop` badge rides its node. The standard control-flow-
+ * graph back-edge, the compact form of the rejected "continue loop" box.
+ */
+export interface ControlArc {
+  /** Source node id — the guard diamond the jump leaves from. */
+  fromId: string;
+  /** Target node id — the loop body entry it returns to (== `fromId` when the
+   *  guard is itself the loop head). */
+  toId: string;
+  /** The abrupt flow this arc pictures. */
+  flow: "continue" | "break";
+  /** Condition outcome that triggers it ("yes"/"no"), drawn beside the source. */
+  outcome: string;
 }
 
 /**
@@ -137,6 +167,9 @@ export interface Layout {
   nodes: GNode[];
   edges: GEdge[];
   loops: GLoop[];
+  /** Control-flow arcs (continue/break) drawn as curved decorations, NOT edges —
+   *  so they never appear in `edges` and never violate the downward invariant. */
+  controlArcs: ControlArc[];
   /**
    * Honest placement-time degradations the renderer needn't draw but the CLI
    * surfaces (e.g. a wide fan-out collapsed to ×N, a multi-phase loop body

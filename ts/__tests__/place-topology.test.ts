@@ -409,6 +409,33 @@ describe("placeTopology — sub-shapes", () => {
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
+  it("a break guard wires a forward exit arc to the loop's successor, not a box", () => {
+    // while (…) { critic(); if (done) break; fill() }  then  assemble() — break
+    // exits the loop FORWARD to its successor (the assemble agent placed after the
+    // loop), drawn as a coral arc, never a "break loop" box. Its target is resolved
+    // by the enclosing chain, not placeLoop, since it doesn't exist yet at loop time.
+    const guard = branch("done", [control("break loop", "Critique", "break")], [], "Critique");
+    const layout = placeTopology(
+      topo(
+        [
+          loop("while", "rounds < 3", [agent("critic", "Critique"), guard, agent("fill", "Critique")], "Critique"),
+          agent("assemble", "Assemble"),
+        ],
+        [band("Critique"), band("Assemble")],
+      ),
+      meta(["Critique", "Assemble"]),
+    );
+    const gate = layout.nodes.find((n) => n.kind === "decision");
+    const assemble = layout.nodes.find((n) => n.label === "assemble");
+    const brk = layout.controlArcs.find((a) => a.flow === "break");
+    expect(brk).toBeDefined();
+    expect(brk?.fromId).toBe(gate?.id);
+    expect(brk?.toId).toBe(assemble?.id); // forward to the successor, skipping the rest
+    expect(assemble!.y).toBeGreaterThan(gate!.y); // and it points DOWN, out of the loop
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
+    expect(everyEdgeFlowsDown(layout)).toBe(true); // the arc is a decoration, not an edge
+  });
+
   it("a substantive (non-guard) decision head keeps its badge ABOVE the diamond", () => {
     // `while (…) { if (cond) A else B }` — a real two-armed branch is the loop's
     // whole body, so there's no single work node to annotate; the badge stays on

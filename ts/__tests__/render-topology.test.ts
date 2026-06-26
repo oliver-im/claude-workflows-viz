@@ -190,6 +190,9 @@ describe("renderTopology", () => {
     const badgeY = Number(/<g class="loop-badge">.*?<text [^>]*\by="([\d.]+)"/.exec(svg)?.[1]);
     expect(Number.isFinite(badgeY)).toBe(true);
     expect(badgeY).toBeGreaterThan(match!.y); // below the work node's center
+    // The continue is a loop-back arc on the gate now — not a "continue loop" box.
+    expect(svg).toContain('class="control-arc"');
+    expect(svg).not.toContain('class="control-node"');
   });
 
   it("pins a substantive decision-headed loop's badge ABOVE the diamond, clear of yes/no", () => {

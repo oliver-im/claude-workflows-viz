@@ -86,6 +86,13 @@ describe("placeTopology — corpus composition", () => {
     const badged = nodeById(layout, layout.loops[0].onNode);
     expect(badged?.phase).toBe(judgeLane);
     expect(backRoutes(layout)).toEqual([]); // no band-crossing back-route
+
+    // `if (!opponent) continue` IS the loop body's head, so its continue draws as
+    // a self-loop arc on the gate — fromId === toId — never a box, never an edge.
+    const arc = layout.controlArcs.find((a) => a.flow === "continue");
+    expect(arc).toBeDefined();
+    expect(arc?.fromId).toBe(arc?.toId);
+    expect(layout.nodes.some((n) => n.kind === "control")).toBe(false);
   });
 
   it("triage: router fan contained in its lane; classify→route→fix is a vertical spine", () => {
@@ -108,7 +115,10 @@ describe("placeTopology — corpus composition", () => {
   it("hunt-bugs: loop badge, dry-path control, readable verify fan-out, and visible end phase", () => {
     const layout = place("hunt-bugs.js");
     expect(layout.loops).toHaveLength(1);
-    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "continue loop")).toBe(true);
+    // The dry-path `continue` draws as a loop-back arc on its guard diamond — the
+    // standard back-edge — not a "continue loop" box.
+    expect(layout.controlArcs.some((a) => a.flow === "continue")).toBe(true);
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "continue loop")).toBe(false);
     expect(layout.nodes.some((n) => n.kind === "agent" && n.label === "verify each fresh")).toBe(true);
     const stop = layout.lanes.find((l) => l.title === "Stop when the well runs dry");
     expect(stop?.empty).toBe(false);
@@ -116,6 +126,18 @@ describe("placeTopology — corpus composition", () => {
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "end" && n.phase === stopLane)).toBe(true);
     expect(layout.notes.some((n) => n.includes("spans phases"))).toBe(true);
     expect(backRoutes(layout)).toEqual([]);
+  });
+
+  it("compile-api-reference: the break draws as a forward exit arc to the assemble step, not a box", () => {
+    const layout = place("compile-api-reference.js");
+    const brk = layout.controlArcs.find((a) => a.flow === "break");
+    expect(brk).toBeDefined();
+    const from = nodeById(layout, brk!.fromId);
+    const to = nodeById(layout, brk!.toId);
+    expect(from?.kind).toBe("decision"); // leaves the gaps-empty gate
+    expect(to!.y).toBeGreaterThan(from!.y); // and exits forward/down, out of the loop
+    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
+    expect(backRoutes(layout)).toEqual([]); // the arc is a decoration, never an up-edge
   });
 
   it("review-pr: all four lanes carry graph (the verify fan lands in 'Adversarially verify', not a strip)", () => {
