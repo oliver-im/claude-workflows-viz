@@ -232,7 +232,7 @@ describe("per-example structure", () => {
     expect(inner.conditionLabel).toBe("i < bracket.length");
     expect(inner.body.map((s) => s.kind)).toEqual(["branch", "agent"]);
     const bye = inner.body[0] as BranchStep;
-    expect(bye.conditionLabel).toBe("!b");
+    expect(bye.conditionLabel).toBe("!opponent");
     expect(bye.thenSteps.map((s) => s.kind)).toEqual(["control"]);
     expect((bye.thenSteps[0] as ControlStep).label).toBe("continue loop");
     const match = inner.body[1] as AgentStep;

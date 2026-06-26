@@ -65,12 +65,12 @@ while (bracket.length > 1) {
   const next = [];
   for (let i = 0; i < bracket.length; i += 2) {
     const a = bracket[i];
-    const b = bracket[i + 1];
-    if (!b) {
+    const opponent = bracket[i + 1];
+    if (!opponent) {
       next.push(a);
       continue;
     }
-    const match = await agent(`Pick the stronger approach and say why:\nA: ${a}\nB: ${b}`, {
+    const match = await agent(`Pick the stronger approach and say why:\nA: ${a}\nB: ${opponent}`, {
       label: `match:${i / 2}`,
       phase: "Judge pairwise",
       schema: { type: "object", properties: { winner: { type: "string" } } },
