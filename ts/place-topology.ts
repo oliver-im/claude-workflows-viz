@@ -124,6 +124,12 @@ export const LANE_GAP_CROSS = LANE_HEADER_H + LANE_PAD + 4;
 export const STRIP_H = 30;
 /** Vertical gap between a fork/barrier/sink and the row it brackets. */
 export const FAN_GAP = 16;
+/** Tighter gap from a member ROW's labels down to the join bar they merge into.
+ *  The label sits between the circle and the bar; a full `FAN_GAP` here leaves a
+ *  long connector stub below the (knocked-out) label that reads as a detached
+ *  line. This smaller gap nestles the label just above the bar so the connector
+ *  is short and the label reads as its caption. */
+export const ROW_BAR_GAP = 8;
 /** Vertical gap between sequential steps inside a chain (arm / loop body). */
 export const INNER_GAP = 20;
 /** Height of one "↻ repeat …" badge row reserved below a loop head so the
@@ -403,7 +409,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
   });
 
   const rowBottom = rowCy + NODE_R + LABEL_GAP + MEMBER_LABEL_H;
-  const barrierY = rowBottom + FAN_GAP;
+  const barrierY = rowBottom + ROW_BAR_GAP;
   const span = xs[xs.length - 1] - xs[0] + 2 * NODE_R;
   const barrier = addNode(ctx, {
     kind: "barrier",
@@ -538,7 +544,7 @@ function placeBranchesRow(
   const barrier = addNode(ctx, {
     kind: "barrier",
     x: SPINE_X,
-    y: bottom + FAN_GAP + BARRIER_H / 2,
+    y: bottom + ROW_BAR_GAP + BARRIER_H / 2,
     r: BARRIER_H / 2,
     w: span,
     h: BARRIER_H,

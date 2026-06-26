@@ -9,6 +9,7 @@ import {
   LEFT_COL_W,
   MARGIN,
   MODEL_FALLBACK,
+  type TextOpts,
   W,
   arrowHead,
   escapeSvgText,
@@ -149,6 +150,7 @@ const CONTROL_STROKE = "#fb923c";
 const HUB_FILL = "#94a3b8";
 const ROW_BG = "#ffffff"; // the phases sit on one plain white card — no model tint
 const ROW_SEP = "#e2e8f0"; // card border + hairline between phases (matches the header card)
+const KNOCKOUT_FILL = ROW_BG; // label knockout plate — the white card the graph sits on
 const TABLE_RX = 12; // table card corner radius — same as the header card above it
 const CHIP_FILL = "#334155";
 
@@ -350,6 +352,41 @@ function estTextW(s: string, size: number): number {
   return s.length * size * 0.58;
 }
 
+// Knockout padding around the glyphs — a hair of breathing room so the plate
+// clears the text's own ink without growing big enough to bite a neighbour.
+const KNOCKOUT_PAD_X = 3;
+const KNOCKOUT_PAD_Y = 1.5;
+
+/**
+ * In-graph text drawn over an opaque plate in the card background colour, so an
+ * edge running behind the text is OCCLUDED where the glyphs sit and the label
+ * always reads cleanly. This is the layout-independent guarantee against
+ * edge-over-text: it does not depend on any gap, label width, or member count
+ * working out — wherever an edge and a label share a coordinate channel (the
+ * fan-out's vertical member→barrier drops are the guaranteed case), the plate
+ * breaks the line behind the text instead of letting it cut through the ink.
+ *
+ * The plate is painted in the SAME group as the text, immediately before it, so
+ * it inherits that text's place in the paint order — and since all graph labels
+ * live in the node/loop layers (drawn AFTER the edge layer in `renderTopology`),
+ * the plate always lands on top of the edges it needs to hide. Sized to the
+ * (already-truncated) `content` via the same 0.58em metric the fitters use;
+ * `anchor` mirrors the text's so the plate centres when the text is centred.
+ */
+function knockoutText(x: number, y: number, content: string, o: TextOpts): string {
+  if (content === "") return "";
+  const w = estTextW(content, o.size) + 2 * KNOCKOUT_PAD_X;
+  const h = o.size + 2 * KNOCKOUT_PAD_Y;
+  const anchor = o.anchor ?? "start";
+  const left = anchor === "middle" ? x - w / 2 : anchor === "end" ? x - w + KNOCKOUT_PAD_X : x - KNOCKOUT_PAD_X;
+  // Baseline at `y`: the plate spans from above the cap height to below the
+  // descender, so ascenders and descenders both clear.
+  const top = y - o.size * 0.8 - KNOCKOUT_PAD_Y;
+  const plate =
+    `<rect x="${round(left)}" y="${round(top)}" width="${round(w)}" height="${round(h)}" fill="${KNOCKOUT_FILL}"/>`;
+  return plate + text(x, y, content, o);
+}
+
 /**
  * The graph's horizontal content extent in its own (untranslated) frame: every
  * shape body PLUS every label/badge that sticks out past it — below-set and
@@ -483,7 +520,7 @@ function renderDecision(n: GNode): string {
     `<title>${escapeSvgText(n.label)}</title>`,
     `<polygon points="${points}" fill="#ffffff" stroke="${ACCENT}" stroke-width="1.4"/>`,
     // Condition kept quiet: a muted label to the right, full text in <title>.
-    text(n.x + d + 6, n.y + 4, cond, { size: MEMBER_FONT, style: "italic", fill: MUTED }),
+    knockoutText(n.x + d + 6, n.y + 4, cond, { size: MEMBER_FONT, style: "italic", fill: MUTED }),
   ];
   return `<g class="decision">${parts.join("")}</g>`;
 }
@@ -533,7 +570,7 @@ function nodeLabel(n: GNode, width: number): string[] {
   if (n.labelExplicit === false) return [];
   if (n.labelBelow === true) {
     return [
-      text(n.x, n.y + n.r + 12, truncateToWidth(n.label, 150, MEMBER_FONT), {
+      knockoutText(n.x, n.y + n.r + 12, truncateToWidth(n.label, 150, MEMBER_FONT), {
         size: MEMBER_FONT,
         fill: NODE_LABEL,
         anchor: "middle",
@@ -542,7 +579,7 @@ function nodeLabel(n: GNode, width: number): string[] {
   }
   const maxW = width - MARGIN - (n.x + n.r + 8);
   return [
-    text(n.x + n.r + 8, n.y + 4, truncateToWidth(n.label, maxW, LABEL_FONT), {
+    knockoutText(n.x + n.r + 8, n.y + 4, truncateToWidth(n.label, maxW, LABEL_FONT), {
       size: LABEL_FONT,
       fill: NODE_LABEL,
     }),
@@ -561,7 +598,12 @@ function renderEdge(e: GEdge): string {
   const parts = [strokePath(d, EDGE, { width: thin ? FAN_W : EDGE_W })];
   const tip = pts[pts.length - 1];
   const prev = pts[pts.length - 2];
-  parts.push(arrowHead(tip.x, tip.y, Math.atan2(tip.y - prev.y, tip.x - prev.x), EDGE));
+  // A merge edge fans INTO the coral join bar — the bar is the sink, so an
+  // arrowhead diving into it is redundant clutter (and, sitting below the
+  // member label, reads as a free-floating arrow). The line alone meets the bar.
+  if (e.kind !== "merge") {
+    parts.push(arrowHead(tip.x, tip.y, Math.atan2(tip.y - prev.y, tip.x - prev.x), EDGE));
+  }
   if (e.label !== undefined) {
     const mx = (prev.x + tip.x) / 2;
     const my = (prev.y + tip.y) / 2;
@@ -579,7 +621,7 @@ function renderLoop(loop: GLoop, i: number, layout: Layout, byId: Map<string, GN
   const x = node.x + node.r + 8;
   const y = node.y + node.r + 6 + rank * (LOOP_FONT + 3);
   const maxW = width - MARGIN - x;
-  return `<g class="loop-badge"><title>${escapeSvgText(loop.tooltip ?? loop.label)}</title>${text(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
+  return `<g class="loop-badge"><title>${escapeSvgText(loop.tooltip ?? loop.label)}</title>${knockoutText(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
     size: LOOP_FONT,
     weight: 600,
     fill: ACCENT,
