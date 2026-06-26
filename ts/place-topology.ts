@@ -777,6 +777,22 @@ function placeStageCell(
 // ---------------------------------------------------------------------------
 
 /**
+ * A loop-control GUARD: `if (cond) continue;` / `break;` / `return;` — one arm is
+ * purely abrupt-flow control, the other empty. The diamond is real, but it's
+ * plumbing for the surrounding loop, not its purpose; a loop headed by one pins
+ * its repeat badge to the body's first work node rather than the bare diamond.
+ */
+function isControlGuard(step: BranchStep): boolean {
+  const abrupt = new Set(["continue", "break", "return", "throw"]);
+  const onlyControl = (arm: Step[]): boolean =>
+    arm.length > 0 && arm.every((s) => s.kind === "control" && abrupt.has((s as ControlStep).flow ?? ""));
+  return (
+    (onlyControl(step.thenSteps) && step.elseSteps.length === 0) ||
+    (onlyControl(step.elseSteps) && step.thenSteps.length === 0)
+  );
+}
+
+/**
  * An `if`/ternary: a small decision diamond (the verbatim condition rides as
  * its label/tooltip), then both arms placed below it on the spine — the
  * condition-true ("yes") arm first, the "no" arm next, each flowing into its
@@ -792,6 +808,7 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
     r: DIAMOND_HALF,
     label: step.conditionLabel,
     phase: band,
+    ...(isControlGuard(step) ? { isGuard: true } : {}),
   });
 
   let y = decision.y + DIAMOND_HALF + INNER_GAP;
@@ -853,18 +870,40 @@ function placeLoop(step: LoopStep, ctx: Ctx, topY: number): Placed {
     ctx.loops.push({ onNode: stub.entry, label: loopLabel(step), tooltip: loopTooltip(step) });
     return stub;
   }
-  ctx.loops.push({ onNode: body.entry, label: loopLabel(step), tooltip: loopTooltip(step) });
   if (body.minBand !== body.maxBand) {
     note(ctx, `loop body spans phases; kept local with a repeat badge (no cross-lane back-edge)`);
   }
-  // The badge pins to the body's head and paints to its lower-right. Reserve a
-  // row of space by sliding everything the loop placed BELOW the head down one
-  // badge row, so the body content (a decision's arms, the next step) clears
-  // the badge. Nested loops share the head and reserve cumulatively — two
-  // stacked badges get two rows — which is exactly the choose-approach fix.
+  // Pick the node the badge pins to. Normally the body's head — but when that
+  // head is a loop-control guard (`if (!opponent) continue;`), the diamond is
+  // plumbing, not the loop's work, and its sides are spoken for by the condition
+  // and yes/no arms. So re-anchor to the body's first real WORK node (the first
+  // agent placed), where the badge reads as an annotation on the work — the same
+  // shape an agent-headed loop gets (compile-api-reference). Nested loops over
+  // the same guard resolve to the same work node, so their badges stack together
+  // there. A guard-only body (no work node) keeps the diamond as a last resort.
   const head = byId(ctx, body.entry);
-  const newBottom = reserveBadgeRow(ctx, head, n0, e0);
-  return { ...body, bottom: Math.max(body.bottom, newBottom) };
+  const anchor =
+    head.kind === "decision" && head.isGuard === true
+      ? (ctx.nodes.slice(n0).find((n) => n.kind === "agent") ?? head)
+      : head;
+  ctx.loops.push({ onNode: anchor.id, label: loopLabel(step), tooltip: loopTooltip(step) });
+  // Reserve a row for the badge so it never paints over neighbouring content,
+  // sliding the loop's own nodes one row to clear it. Nested loops share the
+  // anchor and reserve cumulatively — two stacked badges get two rows.
+  //
+  // A bare decision anchor (a substantive branch as the loop head) spends its
+  // lower-right on yes/no branch labels, so a below-badge would land on top of
+  // them — those pin the badge(s) ABOVE instead. Every other anchor keeps the
+  // badge below; and when the anchor is the lowest node (nothing below to slide),
+  // the reported bottom must still grow to clear the badge rows beneath it.
+  if (anchor.kind === "decision") {
+    const newBottom = reserveBadgeRowAbove(ctx, n0, e0);
+    return { ...body, bottom: Math.max(body.bottom, newBottom) };
+  }
+  const newBottom = reserveBadgeRow(ctx, anchor, n0, e0);
+  const badgeCount = ctx.loops.filter((l) => l.onNode === anchor.id).length;
+  const badgeBottom = visualBottom(anchor) + badgeCount * LOOP_BADGE_ROW;
+  return { ...body, bottom: Math.max(body.bottom, newBottom, badgeBottom) };
 }
 
 /**
@@ -884,6 +923,27 @@ function reserveBadgeRow(ctx: Ctx, head: GNode, n0: number, e0: number): number 
     for (const p of ctx.edges[i].points) {
       if (p.y > cut) (p as { y: number }).y += LOOP_BADGE_ROW;
     }
+  }
+  return bottom;
+}
+
+/**
+ * Open a badge row ABOVE the head by sliding the loop's whole placed subtree —
+ * head included — down one row. The internal geometry just translates; the
+ * parent's entry edge, made later against the now-lower head, simply lengthens
+ * (still downward — the invariant holds). The freed row above the head holds the
+ * "↻ repeat …" badge, clear of a decision head's branch labels. Nested loops
+ * reserve cumulatively. Returns the new lowest extent.
+ */
+function reserveBadgeRowAbove(ctx: Ctx, n0: number, e0: number): number {
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (let i = n0; i < ctx.nodes.length; i++) {
+    const n = ctx.nodes[i];
+    n.y += LOOP_BADGE_ROW;
+    bottom = Math.max(bottom, visualBottom(n));
+  }
+  for (let i = e0; i < ctx.edges.length; i++) {
+    for (const p of ctx.edges[i].points) (p as { y: number }).y += LOOP_BADGE_ROW;
   }
   return bottom;
 }

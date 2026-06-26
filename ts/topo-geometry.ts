@@ -50,6 +50,12 @@ export interface GNode {
   tooltip?: string;
   /** Abrupt JS flow represented by a control node. */
   flow?: "continue" | "break" | "return" | "throw" | "terminal";
+  /** Decision nodes only: this branch is a loop-control GUARD (`if (…) continue;`
+   *  / `break;` with no real work in the taken arm) — plumbing, not the loop's
+   *  purpose. A loop headed by such a guard pins its repeat badge to the body's
+   *  first work node instead of this diamond, so the badge reads as an
+   *  annotation on the work (like an agent-headed loop), not a floating label. */
+  isGuard?: boolean;
 }
 
 /**

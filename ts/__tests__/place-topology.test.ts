@@ -11,6 +11,7 @@ import type {
   AgentStep,
   BandRef,
   BranchStep,
+  ControlStep,
   LoopStep,
   Multiplicity,
   ParallelStep,
@@ -89,6 +90,12 @@ const loop = (
   body: Step[],
   phase: string | null,
 ): LoopStep => ({ kind: "loop", loopKind, conditionLabel, body, phase, span });
+
+const control = (
+  label: string,
+  phase: string | null,
+  flow: ControlStep["flow"],
+): ControlStep => ({ kind: "control", label, flow, phase, span });
 
 /** The downward invariant: no edge ever points up (loops are badges, not edges). */
 const everyEdgeFlowsDown = (layout: ReturnType<typeof placeTopology>): boolean =>
@@ -367,6 +374,55 @@ describe("placeTopology — sub-shapes", () => {
       "repeat for i < bracket.length",
       "repeat while bracket.length > 1",
     ]);
+  });
+
+  it("a guard-headed loop re-anchors its badge to the first work node, not the diamond", () => {
+    // `for (…) { if (!opponent) continue; match(…) }` — the body head is a
+    // loop-control guard. The badge must NOT sit on that bare diamond; it
+    // re-anchors to the work node (the match agent), reading as an annotation on
+    // the work — the same shape an agent-headed loop gets.
+    const guard = branch("!opponent", [control("continue loop", "Judge", "continue")], [], "Judge");
+    const layout = placeTopology(
+      topo([loop("for", "i < bracket.length", [guard, agent("match", "Judge")], "Judge")], [band("Judge")]),
+      meta(["Judge"]),
+    );
+    expect(layout.loops).toHaveLength(1);
+    const decision = layout.nodes.find((n) => n.kind === "decision");
+    const match = layout.nodes.find((n) => n.label === "match");
+    expect(layout.loops[0].onNode).toBe(match?.id);
+    expect(layout.loops[0].onNode).not.toBe(decision?.id);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+
+  it("nested guard-headed loops stack BOTH badges on the same work node", () => {
+    // while > for sharing one `if (!opponent) continue;` guard — both repeat
+    // badges resolve to the single match agent, stacked there.
+    const guard = branch("!opponent", [control("continue loop", "Judge", "continue")], [], "Judge");
+    const inner = loop("for", "i < bracket.length", [guard, agent("match", "Judge")], "Judge");
+    const layout = placeTopology(
+      topo([loop("while", "bracket.length > 1", [inner], "Judge")], [band("Judge")]),
+      meta(["Judge"]),
+    );
+    const match = layout.nodes.find((n) => n.label === "match");
+    expect(layout.loops).toHaveLength(2);
+    expect(layout.loops.every((l) => l.onNode === match?.id)).toBe(true);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
+  });
+
+  it("a substantive (non-guard) decision head keeps its badge ABOVE the diamond", () => {
+    // `while (…) { if (cond) A else B }` — a real two-armed branch is the loop's
+    // whole body, so there's no single work node to annotate; the badge stays on
+    // the diamond, pinned above its yes/no labels (head slides down, still flows
+    // down).
+    const realBranch = branch("cond", [agent("A", "Judge")], [agent("B", "Judge")], "Judge");
+    const layout = placeTopology(
+      topo([agent("seed", "Judge"), loop("while", "n > 0", [realBranch], "Judge")], [band("Judge")]),
+      meta(["Judge"]),
+    );
+    expect(layout.loops).toHaveLength(1);
+    const decision = layout.nodes.find((n) => n.kind === "decision");
+    expect(layout.loops[0].onNode).toBe(decision?.id);
+    expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
   it("a loop whose body spans phases stays local (badge + note, no back-edge)", () => {

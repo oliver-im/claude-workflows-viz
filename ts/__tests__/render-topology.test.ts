@@ -6,6 +6,7 @@ import type { Meta } from "../model.js";
 import type {
   AgentStep,
   BandRef,
+  BranchStep,
   ControlStep,
   LoopStep,
   Multiplicity,
@@ -55,6 +56,12 @@ const control = (
   phase,
   span,
 });
+const branch = (
+  conditionLabel: string,
+  thenSteps: Step[],
+  elseSteps: Step[],
+  phase: string | null,
+): BranchStep => ({ kind: "branch", conditionLabel, thenSteps, elseSteps, phase, span });
 const band = (title: string): BandRef => ({ title, inMeta: true });
 const topo = (steps: Step[], bands: BandRef[]): Topology => ({
   steps,
@@ -156,6 +163,52 @@ describe("renderTopology", () => {
     expect(svg).toContain('class="control-node"');
     expect(svg).toContain("continue loop");
     expect(svg).toContain("<title>repeat while again</title>");
+  });
+
+  it("attaches a guard-headed loop's badge to the work node, below it (like an agent loop)", () => {
+    // `for (…) { if (!opponent) continue; match(…) }` — the body head is a
+    // control guard, so the badge re-anchors to the match agent and renders below
+    // it, exactly like compile-api-reference's agent-headed loop — NOT floating by
+    // the bare diamond (the choose-approach complaint).
+    const t = topo(
+      [
+        loop(
+          "bracket.length > 1",
+          [branch("!opponent", [control("continue loop", "Judge", "continue")], [], "Judge"), agent("match", "Judge")],
+          "Judge",
+        ),
+      ],
+      [band("Judge")],
+    );
+    const m = meta([{ title: "Judge" }]);
+    const layout = placeTopology(t, m);
+    const decision = layout.nodes.find((n) => n.kind === "decision");
+    const match = layout.nodes.find((n) => n.label === "match");
+    expect(layout.loops[0]?.onNode).toBe(match?.id); // re-anchored to the work node
+    expect(layout.loops[0]?.onNode).not.toBe(decision?.id);
+    const svg = renderTopology(layout, m);
+    const badgeY = Number(/<g class="loop-badge">.*?<text [^>]*\by="([\d.]+)"/.exec(svg)?.[1]);
+    expect(Number.isFinite(badgeY)).toBe(true);
+    expect(badgeY).toBeGreaterThan(match!.y); // below the work node's center
+  });
+
+  it("pins a substantive decision-headed loop's badge ABOVE the diamond, clear of yes/no", () => {
+    // `while (…) { if (cond) A else B }` — a real two-armed branch is the whole
+    // body, so there's no work node to annotate; the badge stays on the diamond,
+    // pinned above its yes/no labels rather than overlapping them.
+    const t = topo(
+      [loop("n > 0", [branch("cond", [agent("A", "Judge")], [agent("B", "Judge")], "Judge")], "Judge")],
+      [band("Judge")],
+    );
+    const m = meta([{ title: "Judge" }]);
+    const layout = placeTopology(t, m);
+    const decision = layout.nodes.find((n) => n.kind === "decision");
+    expect(decision).toBeDefined();
+    expect(layout.loops[0]?.onNode).toBe(decision?.id); // badge sits on the head
+    const svg = renderTopology(layout, m);
+    const badgeY = Number(/<g class="loop-badge">.*?<text [^>]*\by="([\d.]+)"/.exec(svg)?.[1]);
+    expect(Number.isFinite(badgeY)).toBe(true);
+    expect(badgeY).toBeLessThan(decision!.y); // above the diamond's center, not below
   });
 
   it("shows every fan member (named expansion), each drawn as an agent circle", () => {

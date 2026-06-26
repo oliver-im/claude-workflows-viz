@@ -615,11 +615,18 @@ function renderEdge(e: GEdge): string {
 function renderLoop(loop: GLoop, i: number, layout: Layout, byId: Map<string, GNode>, width: number): string {
   const node = byId.get(loop.onNode);
   if (!node) return "";
-  // Stack multiple badges on one node (nested loops), inner-first, below the
-  // node's right-side label so neither the label nor the downward edge collides.
+  // Stack multiple badges on one node (nested loops), inner-first. A decision
+  // head stacks UPWARD — its lower-right is taken by the yes/no branch labels and
+  // its own condition, so the badges ride above the diamond (matching the row
+  // placement reserved above it). Every other head stacks DOWN, below its
+  // right-side label, where neither the label nor the downward edge collides.
   const rank = layout.loops.slice(0, i).filter((l) => l.onNode === loop.onNode).length;
   const x = node.x + node.r + 8;
-  const y = node.y + node.r + 6 + rank * (LOOP_FONT + 3);
+  const step = LOOP_FONT + 3;
+  const y =
+    node.kind === "decision"
+      ? node.y - node.r - 6 - rank * step
+      : node.y + node.r + 6 + rank * step;
   const maxW = width - MARGIN - x;
   return `<g class="loop-badge"><title>${escapeSvgText(loop.tooltip ?? loop.label)}</title>${knockoutText(x, y, truncateToWidth(`↻ ${loop.label}`, maxW, LOOP_FONT), {
     size: LOOP_FONT,
