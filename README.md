@@ -139,3 +139,7 @@ node dist/cli.js examples/level-1/review-pr.js -o review.svg
 ## Status
 
 **0.1.0** (beta). Renders the body's statically-inferred agent topology by default as a swimlane table — one continuous vertical graph in a right column, with each phase a co-registered row whose label cell sits to its left (`--view phases` keeps the original meta-only cards, byte-identical). Node text now shows only for author-supplied labels; an unlabeled agent is a bare node named by its phase row (the prompt stays in `--format json` and the hover `<title>`). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured grammar), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.
+
+## License
+
+[MIT](LICENSE) © Oliver Im

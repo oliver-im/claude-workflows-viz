@@ -5,3 +5,4 @@ node_modules
 dist/
 worktrees/
 .obsidian/
+.playwright-mcp/
