@@ -45,6 +45,7 @@
   "homepage": "https://github.com/oliver-im/claude-workflows-viz#readme",
   "bugs": "https://github.com/oliver-im/claude-workflows-viz/issues",
   "dependencies": {
+    "@napi-rs/image": "^1.14.0",
     "@resvg/resvg-js": "^2.6.2",
     "acorn": "^8.14.0",
     "commander": "^14.0.3",

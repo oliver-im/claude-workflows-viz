@@ -16,7 +16,7 @@ import { wrapSvgHtml } from "./html.js";
 import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
 import { placeTopology } from "./place-topology.js";
-import { svgToPng } from "./render-png.js";
+import { DEFAULT_PNG_SCALE, svgToPng } from "./render-png.js";
 import { type Provenance, renderSvg } from "./render-svg.js";
 import { renderTopology } from "./render-topology.js";
 
@@ -43,6 +43,7 @@ interface CliOpts {
   format?: string;
   open?: boolean;
   view?: string;
+  scale?: string;
 }
 
 /** Print a one-line error to stderr and exit non-zero. */
@@ -76,6 +77,20 @@ function resolveView(explicit: string | undefined): View {
     fail(`unknown --view '${explicit}' (expected: ${VIEWS.join(", ")})`);
   }
   return explicit as View;
+}
+
+/**
+ * Resolve `--scale`: the PNG rasterization zoom (default 2). PNG-only — vector
+ * SVG/HTML carry their own intrinsic size. Bounded to a sane range so a typo
+ * like `--scale 1000` can't try to allocate a gigapixel raster.
+ */
+function resolveScale(explicit: string | undefined): number {
+  if (explicit === undefined) return DEFAULT_PNG_SCALE;
+  const n = Number(explicit);
+  if (!Number.isFinite(n) || n <= 0 || n > 10) {
+    fail(`invalid --scale '${explicit}' (expected a number in 0 < n ≤ 10)`);
+  }
+  return n;
 }
 
 /** Default output path when `--out` is absent but a file is required. */
@@ -159,7 +174,11 @@ function run(workflow: string, opts: CliOpts): void {
         svg = renderTopologyView(meta, program, src);
       }
       data =
-        format === "png" ? svgToPng(svg) : format === "html" ? wrapSvgHtml(svg, meta.name) : svg;
+        format === "png"
+          ? svgToPng(svg, resolveScale(opts.scale))
+          : format === "html"
+            ? wrapSvgHtml(svg, meta.name)
+            : svg;
     }
   } catch (e) {
     if (e instanceof MetaExtractionError) fail(e.message);
@@ -206,6 +225,10 @@ program
   .option(
     "--view <view>",
     "View: topology (default; banded agent graph) | phases (v1 phase cards)",
+  )
+  .option(
+    "--scale <n>",
+    `PNG rasterization scale, 0 < n ≤ 10 (default: ${DEFAULT_PNG_SCALE}). Higher = sharper and larger. PNG only.`,
   )
   .option("--open", "Open the rendered output in the default app after writing")
   .action(run);

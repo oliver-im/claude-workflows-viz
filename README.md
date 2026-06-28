@@ -23,7 +23,7 @@ npx claude-workflows-viz <workflow.js>
 ## Usage
 
 ```
-claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view topology|phases] [--open]
+claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view topology|phases] [--scale <n>] [--open]
 ```
 
 | Option | Description |
@@ -31,6 +31,7 @@ claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--vi
 | `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
 | `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. |
 | `--view <view>` | `topology` (default) draws the body as a swimlane table — phase labels beside the agent graph; `phases` renders the original meta-only phase cards. |
+| `--scale <n>` | PNG rasterization scale, `0 < n ≤ 10` (default `2`). Higher is sharper and larger; lower is smaller. PNG only — SVG/HTML are vector. |
 | `--open` | Open the rendered output in your default app after writing. |
 | `-v, --version` | Print the version. |
 
@@ -109,7 +110,7 @@ Two pieces close that gap without compromising determinism:
 2. Evaluate **only** that object as a static literal — every executable construct (calls, identifiers, getters, spreads, template expressions) is rejected, never run. This is what makes "never execute the workflow" hold.
 3. Validate the result with [zod](https://zod.dev), lay out the cards, and emit SVG.
 4. For the topology view, the body is **statically analyzed off the same AST — never executed** into a nested tree, then placed as one continuous vertical agent graph and rendered as a **swimlane table**: `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches become a single graph, and each phase becomes a co-registered row — its label cell on the left, its slice of the graph on the right (phase-as-row, not phase-as-container — so loops stay local "↻ repeat" badges and a cross-phase edge is just a short ordinary edge). The analysis never invents what it can't prove: counts come only from literals (an unresolvable fan-out renders as `×N`), condition labels are verbatim source slices, unrecognized orchestration degrades to an honest opaque step, and a body with nothing recovered falls back byte-for-byte to the plain meta-only phases page.
-5. For `--format png`, rasterize the SVG with [`@resvg/resvg-js`](https://www.npmjs.com/package/@resvg/resvg-js) — a native renderer, no browser.
+5. For `--format png`, rasterize the SVG with [`@resvg/resvg-js`](https://www.npmjs.com/package/@resvg/resvg-js) — a native renderer, no browser — at `--scale`× the SVG's intrinsic size (default 2× for crisp hi-dpi text), then optimize the result with [`@napi-rs/image`](https://www.npmjs.com/package/@napi-rs/image): palette-quantize (a workflow diagram has well under 256 colors, so this is *visually* lossless) and losslessly re-pack (oxipng). That cuts a render ~3× — a ~200 KB PNG lands near ~70 KB — with fixed, deterministic settings, so re-rendering the same SVG is byte-stable. Both stages are native: no headless browser, no network.
 
 ## Grammar levels
 

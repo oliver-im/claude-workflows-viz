@@ -14,9 +14,10 @@ await build({
   platform: "node",
   target: "node20",
   format: "esm",
-  // @resvg/resvg-js ships native .node binaries; keep it external so esbuild
-  // doesn't try to bundle the platform addon into the JS file.
-  external: ["@resvg/resvg-js"],
+  // @resvg/resvg-js and @napi-rs/image ship native .node binaries; keep them
+  // external so esbuild doesn't try to bundle a platform addon into the JS file.
+  // Both stay in `dependencies`, so npm installs them at the user's site.
+  external: ["@resvg/resvg-js", "@napi-rs/image"],
   banner: {
     js: [
       "#!/usr/bin/env node",
