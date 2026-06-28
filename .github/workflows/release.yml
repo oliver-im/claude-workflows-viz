@@ -1,0 +1,69 @@
+name: release
+
+# Tag-driven npm publish via OIDC Trusted Publishing (no stored token).
+#
+# Cut a release by bumping `version` in package.json on main (a normal commit),
+# then tag that commit and push the tag:
+#
+#   npm version patch        # or minor / major / an explicit 0.1.1 — edits package.json + commits + tags
+#   git push origin main     # land the bump commit on main (admin bypass or PR)
+#   git push origin v0.1.1   # push the tag → this workflow runs
+#
+# Unlike jidoka's release, nothing here pushes to protected `main`, so no deploy
+# key is needed: the version bump is your own commit, and the tag/Release use the
+# built-in token. The job guards that package.json matches the tag, runs the full
+# gate, publishes with provenance, and opens a GitHub Release.
+#
+# One-time setup (see README "Releasing"): publish v0.1.0 manually once to create
+# the package, then configure npm Trusted Publishing for it → GitHub Actions →
+# repo `oliver-im/claude-workflows-viz`, workflow `release.yml`.
+on:
+  push:
+    tags: ["v*"]
+
+# One release at a time; never cancel a publish mid-flight.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # OIDC: npm Trusted Publishing + provenance attestation
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags so --generate-notes has a prior tag to diff
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; node 20 ships npm 10.
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Guard package.json version matches the tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::tag v$tag does not match package.json version $pkg"
+            exit 1
+          fi
+          echo "Releasing v$pkg"
+
+      - run: npm test # pretest builds dist/cli.js with the new version baked in, then vitest
+
+      - run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes

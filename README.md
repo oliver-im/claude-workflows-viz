@@ -137,6 +137,23 @@ npm test
 node dist/cli.js examples/level-1/review-pr.js -o review.svg
 ```
 
+## Releasing
+
+Published to npm on tag push by [`.github/workflows/release.yml`](.github/workflows/release.yml), via npm [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC — no stored token) with [provenance](https://docs.npmjs.com/generating-provenance-statements). Cut a release:
+
+```sh
+npm version patch        # or minor / major / an explicit 0.1.1 — bumps package.json, commits, tags
+git push origin main     # land the bump commit
+git push origin v0.1.1   # push the tag → CI guards the version, runs the gate, publishes, opens a Release
+```
+
+**One-time bootstrap** (Trusted Publishing can't perform the very first publish of a new name):
+
+1. `npm publish --access public` locally to create `claude-workflows-viz` on npm. (No `--provenance` here — it requires a CI runner with OIDC; the workflow adds it to every release after this one.)
+2. On npmjs.com → the package → *Settings → Trusted Publisher* → GitHub Actions, repo `oliver-im/claude-workflows-viz`, workflow `release.yml`.
+
+After that, the tag-push flow above is fully hands-off.
+
 ## Status
 
 **0.1.0** (beta). Renders the body's statically-inferred agent topology by default as a swimlane table — one continuous vertical graph in a right column, with each phase a co-registered row whose label cell sits to its left (`--view phases` keeps the original meta-only cards, byte-identical). Node text now shows only for author-supplied labels; an unlabeled agent is a bare node named by its phase row (the prompt stays in `--format json` and the hover `<title>`). The layout is a small hand-rolled, phase-driven placement — no dagre/elk dependency; adopting one stays on the roadmap (only if graphs outgrow the phase-structured grammar), as does a trace mode that renders an *actual* run from its `agent-*.jsonl` journal.
