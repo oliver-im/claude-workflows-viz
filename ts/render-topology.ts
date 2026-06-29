@@ -72,7 +72,7 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
   // edge. This packs the graph against the labels and trims the right void that
   // a fixed W-wide frame (spine pinned at 0.4·W) used to leave. A floor keeps the
   // header readable when the graph is a thin single spine.
-  const { minX, maxX } = graphContentBounds(layout, byId, gw);
+  const { minX, maxX } = graphContentBounds(layout, byId, gw, { showDerivedLabels: false });
   const graphX = Math.round(MARGIN + LEFT_COL_W + COL_GAP - minX);
   const pageW = Math.max(Math.ceil(graphX + maxX + MARGIN), MIN_TOPO_PAGE_W);
   const innerCardW = pageW - 2 * MARGIN;
@@ -100,7 +100,7 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
     .map((l, i) => `<g transform="translate(0 ${round(l.yTop)})">${cells[i].body}</g>`)
     .join("");
   const edges = layout.edges.map((e) => renderEdge(e)).join("");
-  const nodes = layout.nodes.map((n) => renderNode(n, gw)).join("");
+  const nodes = layout.nodes.map((n) => renderNode(n, gw, { showDerivedLabels: false })).join("");
   const arcs = layout.controlArcs.map((a) => renderControlArc(a, byId)).join("");
   const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, gw)).join("");
   // Card behind, then phase separators, then labels, then the graph column. Arcs
@@ -135,6 +135,50 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
   );
 }
 
+/**
+ * Graph-only topology view: draw the placed body topology without the workflow
+ * header or phase table. Unlike the full workflow view, derived agent labels are
+ * shown here because there is no phase row beside the node to name it.
+ */
+export function renderTopologyGraph(layout: Layout, prov?: Provenance): string {
+  const gw = layout.width;
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]));
+  const { minX, maxX } = graphContentBounds(layout, byId, gw, { showDerivedLabels: true });
+  const graphX = Math.round(MARGIN - minX);
+  const pageW = Math.max(Math.ceil(maxX - minX + 2 * MARGIN), MIN_GRAPH_PAGE_W);
+  const graphY = MARGIN;
+  const graphH = layout.height;
+
+  const edges = layout.edges.map((e) => renderEdge(e)).join("");
+  const nodes = layout.nodes.map((n) => renderNode(n, gw, { showDerivedLabels: true })).join("");
+  const arcs = layout.controlArcs.map((a) => renderControlArc(a, byId)).join("");
+  const loops = layout.loops.map((l, i) => renderLoop(l, i, layout, byId, gw)).join("");
+
+  const content =
+    `<g class="topology" transform="translate(${graphX} ${round(graphY)})">` +
+    `${edges}${nodes}${arcs}${loops}</g>`;
+
+  const width = pageW;
+  let height = round(graphY + graphH + MARGIN);
+
+  let footer = "";
+  if (prov) {
+    const f = renderFooter(prov, pageW, height);
+    footer = f.body;
+    height = round(height + f.height);
+  }
+
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+    `viewBox="0 0 ${width} ${height}" ` +
+    `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
+    `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
+    content +
+    (footer ? `\n${footer}` : "") +
+    `\n</svg>\n`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Palette + typography — control flow is coral, data is slate, stripes faint.
 // ---------------------------------------------------------------------------
@@ -159,6 +203,7 @@ const CHIP_FILL = "#334155";
 /** Page-width floor so a thin single-spine graph still gives the header card a
  *  comfortable measure (matches the phases-view card width). */
 const MIN_TOPO_PAGE_W = W;
+const MIN_GRAPH_PAGE_W = 360;
 
 const DETAIL_MAX_LINES = 99; // effectively uncapped — the phase detail wraps in full
 const CHIP_R = 11;
@@ -405,6 +450,7 @@ function graphContentBounds(
   layout: Layout,
   byId: Map<string, GNode>,
   gw: number,
+  opts: { showDerivedLabels: boolean },
 ): { minX: number; maxX: number } {
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -426,7 +472,7 @@ function graphContentBounds(
     // agent / hub — the circle, plus the ×N peek circle + badge and the label.
     ext(n.x - n.r, n.x + n.r + (n.mult !== undefined ? 2 : 0));
     if (n.mult !== undefined) ext(n.x, n.x + n.r + 1 + estTextW(n.mult, BADGE_FONT));
-    if (n.label && n.labelExplicit !== false) {
+    if (n.label && (opts.showDerivedLabels || n.labelExplicit !== false)) {
       if (n.labelBelow === true) {
         const w = estTextW(truncateToWidth(n.label, 150, MEMBER_FONT), MEMBER_FONT);
         ext(n.x - w / 2, n.x + w / 2);
@@ -472,10 +518,10 @@ function graphContentBounds(
 // Nodes
 // ---------------------------------------------------------------------------
 
-function renderNode(n: GNode, width: number): string {
+function renderNode(n: GNode, width: number, opts: { showDerivedLabels: boolean }): string {
   switch (n.kind) {
     case "agent":
-      return renderAgent(n, width);
+      return renderAgent(n, width, opts);
     case "barrier":
       return renderBarrier(n);
     case "decision":
@@ -489,7 +535,7 @@ function renderNode(n: GNode, width: number): string {
   }
 }
 
-function renderAgent(n: GNode, width: number): string {
+function renderAgent(n: GNode, width: number, opts: { showDerivedLabels: boolean }): string {
   const swatch = n.model !== undefined ? swatchFor(n.model) : MODEL_FALLBACK;
   const parts: string[] = [];
   if (n.tooltip !== undefined) parts.push(`<title>${escapeSvgText(n.tooltip)}</title>`);
@@ -504,7 +550,7 @@ function renderAgent(n: GNode, width: number): string {
     `<circle cx="${round(n.x)}" cy="${round(n.y)}" r="${n.r}" ` +
       `fill="${swatch.fill}" stroke="${swatch.stroke}" stroke-width="${NODE_STROKE_W}"/>`,
   );
-  parts.push(...nodeLabel(n, width));
+  parts.push(...nodeLabel(n, width, opts));
   if (n.mult !== undefined) {
     parts.push(
       `<text x="${round(n.x + n.r + 1)}" y="${round(n.y - n.r + 2)}" font-size="${BADGE_FONT}" ` +
@@ -577,13 +623,13 @@ function renderControl(n: GNode): string {
 /** A node's label: BELOW and centered for a row/grid member or off-spine arm
  *  (placement flags these), to the RIGHT otherwise — where the vertical flow
  *  exits the node's bottom and leaves the side clear. */
-function nodeLabel(n: GNode, width: number): string[] {
+function nodeLabel(n: GNode, width: number, opts: { showDerivedLabels: boolean }): string[] {
   if (!n.label) return [];
   // Derived (prompt-sliced) labels are redundant with the phase row that groups
   // the node — drop the text and let the row name it. Authored labels stay. The
   // prompt still rides along as the node's <title> (renderAgent), so nothing is
   // lost; the JSON read contract keeps the full label either way.
-  if (n.labelExplicit === false) return [];
+  if (!opts.showDerivedLabels && n.labelExplicit === false) return [];
   if (n.labelBelow === true) {
     return [
       knockoutText(n.x, n.y + n.r + 12, truncateToWidth(n.label, 150, MEMBER_FONT), {

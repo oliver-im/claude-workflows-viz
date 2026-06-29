@@ -32,9 +32,9 @@ table in §C maps one to the other.
   structure; **we never execute it.**
 - **`meta` block** — the declarative head: a single pure-data object literal.
   The only thing the `phases` view draws, and the source of the swimlane's lane
-  titles + model colors in the topology view.
+  titles + model colors in the workflow view.
 - **body** — everything after `meta`: the imperative orchestration. The topology
-  view is a static reading of this half.
+  and workflow views are static readings of this half.
 - **phase marker** — a bare `phase("Title")` statement. Sets the *ambient
   phase* for every step after it (until the next marker). This is how the body
   declares which lane its steps belong to.
@@ -94,7 +94,8 @@ table in §C maps one to the other.
   (caniuse-style) + any awaited-but-unrecognized callees. Read-only; feeds
   `Topology.requiredLevel` and the CLI's one-line grammar warning.
 - **`place-topology`** — `Topology` → `Layout` (positioned geometry). Total.
-- **`render-topology`** — `Layout` → SVG string (the swimlane view).
+- **`render-topology`** — `Layout` → SVG string (the workflow swimlane view or
+  the graph-only topology view).
 - **`render-svg`** — `Meta` → SVG string (the v1 `phases` view; byte-frozen).
 - **`svg-primitives`** — shared shapes, text measuring, truncation, page width.
 - **`render-png`** — SVG → PNG via `@resvg/resvg-js` (no browser).

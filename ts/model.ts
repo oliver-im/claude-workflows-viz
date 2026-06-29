@@ -14,8 +14,8 @@ export type Phase = z.infer<typeof phaseSchema>;
 
 /**
  * The static, declarative `meta` block of a dynamic-workflow file. The v1
- * phase-card page renders only this; the topology view additionally analyzes
- * the imperative body statically — read off the AST, never executed.
+ * phase-card page renders only this; the workflow/topology views additionally
+ * analyze the imperative body statically — read off the AST, never executed.
  * Unknown keys are ignored; a missing `phases` normalizes to `[]`.
  */
 export const metaSchema = z.object({

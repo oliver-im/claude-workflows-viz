@@ -133,13 +133,31 @@ describe("cli smoke", () => {
 });
 
 describe("cli smoke — views", () => {
-  it("defaults to the topology view: graph-first swimlane in the output, no warnings", () => {
+  it("defaults to the workflow view: phase table plus topology in the output, no warnings", () => {
     const res = runCli([summarizeExample]);
     expect(res.status).toBe(0);
     expect(res.stderr).toBe("");
     expect(res.stdout).toContain('class="agent-node"');
     expect(res.stdout).toContain('class="swimlane"'); // phase as overlay stripe, not a card
     expect(res.stdout).not.toContain("xband"); // no card-wall routing survives
+  });
+
+  it("--view workflow is the explicit spelling of the default view", () => {
+    const implicit = runCli([summarizeExample]);
+    const explicit = runCli([summarizeExample, "--view", "workflow"]);
+    expect(explicit.status).toBe(0);
+    expect(explicit.stdout).toBe(implicit.stdout);
+  });
+
+  it("--view topology renders the graph only", () => {
+    const res = runCli([summarizeExample, "--view", "topology"]);
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe("");
+    expect(res.stdout).toContain('class="topology"');
+    expect(res.stdout).toContain('class="agent-node"');
+    expect(res.stdout).not.toContain('class="header-card"');
+    expect(res.stdout).not.toContain('class="lane-label"');
+    expect(res.stdout).not.toContain('class="swimlane"');
   });
 
   it("stamps the provenance footer into the rendered diagram", () => {
@@ -180,21 +198,37 @@ describe("cli smoke — views", () => {
     expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture), prov));
   });
 
+  it("--view topology falls back to the v1-equivalent page for an exotic body, exit 0", () => {
+    const res = runCli([exoticFixture, "--view", "topology"]);
+    expect(res.status).toBe(0);
+    expect(res.stderr).toBe("");
+    expect(res.stdout).not.toContain("agent-node");
+    expect(res.stdout).toContain('class="phase-card"');
+    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture), prov));
+  });
+
   it("warns about an unrecognized awaited primitive yet still renders (exit 0), proving the warning is independent of the hasOrchestration fallback", () => {
     const unknownFixture = join(here, "fixtures", "uses-unknown-primitive.js");
     const res = runCli([unknownFixture]);
     expect(res.status).toBe(0);
     // The softer feature-detection signal fires on `await race(...)`...
     expect(res.stderr).toMatch(/not recognized as orchestration/);
-    // ...even though no orchestration was recovered, so the topology view fell
+    // ...even though no orchestration was recovered, so the workflow view fell
     // back to the byte-identical v1 phases page (the warning ran before that).
     expect(res.stdout).not.toContain("agent-node");
     expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture), prov));
   });
 
-  it("rasterizes the topology view to a real PNG", () => {
-    const out = join(workDir, "topology.png");
+  it("rasterizes the workflow view to a real PNG", () => {
+    const out = join(workDir, "workflow.png");
     const res = runCli([summarizeExample, "--format", "png", "-o", out]);
+    expect(res.status).toBe(0);
+    expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
+  });
+
+  it("rasterizes the graph-only topology view to a real PNG", () => {
+    const out = join(workDir, "topology.png");
+    const res = runCli([summarizeExample, "--view", "topology", "--format", "png", "-o", out]);
     expect(res.status).toBe(0);
     expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
   });

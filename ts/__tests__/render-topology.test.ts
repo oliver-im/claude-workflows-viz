@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { placeTopology } from "../place-topology.js";
 import type { Provenance } from "../render-svg.js";
-import { renderTopology } from "../render-topology.js";
+import { renderTopology, renderTopologyGraph } from "../render-topology.js";
 import type { Meta } from "../model.js";
 import type {
   AgentStep,
@@ -74,6 +74,7 @@ const topo = (steps: Step[], bands: BandRef[]): Topology => ({
 const meta = (phases: Meta["phases"]): Meta => ({ name: "wf", description: "d", phases });
 
 const render = (t: Topology, m: Meta) => renderTopology(placeTopology(t, m), m);
+const renderGraph = (t: Topology, m: Meta) => renderTopologyGraph(placeTopology(t, m));
 
 // A tournament-shaped page: named fan-out → a same-lane loop → an empty
 // control strip → a final agent. Exercises stripes, members, barrier, the loop
@@ -228,6 +229,40 @@ describe("renderTopology", () => {
     expect(svg).toContain(">match<");
     // The unauthored finisher (labelExplicit:false) renders as a bare node.
     expect(svg).not.toContain("Document the winner");
+  });
+
+  it("shows derived node labels in the graph-only topology view", () => {
+    const svg = renderGraph(
+      topo([agent("Document the winner", "Write up", { model: "haiku", labelExplicit: false })], [
+        band("Write up"),
+      ]),
+      meta([{ title: "Write up", model: "haiku" }]),
+    );
+    expect(svg).toContain('class="topology"');
+    expect(svg).not.toContain('class="lane-label"');
+    expect(svg).not.toContain('class="header-card"');
+    expect(svg).toContain("Document the winner");
+  });
+
+  it("renders the graph-only topology view deterministically", () => {
+    const t = topo([agent("Document the winner", "Write up", { model: "haiku", labelExplicit: false })], [
+      band("Write up"),
+    ]);
+    const m = meta([{ title: "Write up", model: "haiku" }]);
+    expect(renderGraph(t, m)).toBe(renderGraph(t, m));
+  });
+
+  it("stamps provenance in the graph-only topology view only when requested", () => {
+    const prov: Provenance = { toolVersion: "9.9.9" };
+    const t = topo([agent("go", "Solo")], [band("Solo")]);
+    const m = meta([{ title: "Solo", model: "sonnet" }]);
+    const bare = renderTopologyGraph(placeTopology(t, m));
+    const stamped = renderTopologyGraph(placeTopology(t, m), prov);
+    expect(bare).not.toContain('class="provenance"');
+    expect(stamped).toContain('class="provenance"');
+    expect(stamped).toContain("v9.9.9");
+    const h = (s: string) => Number(/height="([\d.]+)"/.exec(s)?.[1]);
+    expect(h(stamped)).toBeGreaterThan(h(bare));
   });
 
   it("escapes <, >, &, and \" in every label, leaking no raw payload", () => {

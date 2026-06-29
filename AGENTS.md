@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `claude-workflows-viz` is a deterministic CLI that renders a Claude Code **dynamic workflow** `.js` file as an SVG/PNG diagram. The defining invariant: it **never executes the workflow**. The declarative `meta` block is read with a static AST literal-evaluator (not `vm`/`eval` — `vm` silently runs getters/methods, which is a correctness *and* safety hole), and the imperative body is statically analyzed off the same AST into a topology tree. No `eval`, no `import()`, no headless browser.
 
-Two views:
-- **topology** (default) — the body as a swimlane table: one continuous top-to-bottom agent graph in a right column, each `phase()` a co-registered row whose label cell sits to its left (phase-as-row, not phase-as-container). Fan-outs/barriers, pipeline stages, decision diamonds, and loops (`↻ repeat` badges) all become one graph.
+Three views:
+- **workflow** (default) — the body as a swimlane table: one continuous top-to-bottom agent graph in a right column, each `phase()` a co-registered row whose label cell sits to its left (phase-as-row, not phase-as-container). Fan-outs/barriers, pipeline stages, decision diamonds, and loops (`↻ repeat` badges) all become one graph.
+- **topology** (`--view topology`) — the inferred body graph only, without the workflow header or phase table.
 - **phases** (`--view phases`) — the original meta-only phase cards, preserved byte-for-byte. Also the fallback when the body recovers nothing.
 
 ## Repository State
