@@ -43,12 +43,12 @@ Two halves, two jobs:
 
 | Half | Read by | Drives |
 | --- | --- | --- |
-| `meta` block | `extract-meta.ts` | the whole `phases` view; the topology view's **lane titles + model colors + header card** |
-| body | `analyze-body.ts` | the topology view's **graph** (nodes, edges, fans, loops) |
+| `meta` block | `extract-meta.ts` | the whole `phases` view; the workflow view's **lane titles + model colors + header card** |
+| body | `analyze-body.ts` | the `workflow`/`topology` views' **graph** (nodes, edges, fans, loops) |
 
-The `phases` view (`--view phases`) uses **only** `meta`. The topology view
-(default) uses **both**: `meta` for the swimlane chrome, the body for the graph
-painted on top of it.
+The `phases` view (`--view phases`) uses **only** `meta`. The `topology` view
+uses **only** the inferred body graph. The default `workflow` view uses **both**:
+`meta` for the swimlane chrome, the body for the graph painted on top of it.
 
 ---
 

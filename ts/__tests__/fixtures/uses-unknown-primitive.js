@@ -7,7 +7,7 @@ export const meta = {
 phase("Race the candidates");
 // `race` is not one of the recognized orchestration calls (agent / workflow /
 // parallel / pipeline) — a stand-in for a primitive newer than the recognizer's
-// grammar level. No orchestration is recovered (the topology view falls back to
+// grammar level. No orchestration is recovered (the analyzed views fall back to
 // the phase cards), but feature-detection still flags the awaited unknown callee
 // rather than silently ignoring it. Never executed — read off the AST as data.
 const winner = await race([candidateA(), candidateB()]);

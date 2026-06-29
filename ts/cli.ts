@@ -18,7 +18,7 @@ import { openBrowser } from "./output.js";
 import { placeTopology } from "./place-topology.js";
 import { DEFAULT_PNG_SCALE, svgToPng } from "./render-png.js";
 import { type Provenance, renderSvg } from "./render-svg.js";
-import { renderTopology } from "./render-topology.js";
+import { renderTopology, renderTopologyGraph } from "./render-topology.js";
 
 declare const __CWV_VERSION__: string;
 
@@ -35,7 +35,7 @@ const PROVENANCE: Provenance = {
 const FORMATS = ["svg", "png", "html", "json"] as const;
 export type Format = (typeof FORMATS)[number];
 
-const VIEWS = ["topology", "phases"] as const;
+const VIEWS = ["workflow", "topology", "phases"] as const;
 export type View = (typeof VIEWS)[number];
 
 interface CliOpts {
@@ -70,9 +70,9 @@ function resolveFormat(explicit: string | undefined, out: string | undefined): F
   return "svg";
 }
 
-/** Resolve `--view`: topology (the default) or the v1 phase-card page. */
+/** Resolve `--view`: full workflow page (default), topology graph, or phase cards. */
 function resolveView(explicit: string | undefined): View {
-  if (explicit === undefined) return "topology";
+  if (explicit === undefined) return "workflow";
   if (!(VIEWS as readonly string[]).includes(explicit)) {
     fail(`unknown --view '${explicit}' (expected: ${VIEWS.join(", ")})`);
   }
@@ -103,20 +103,23 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
 }
 
 /**
- * The topology view: statically analyze the body (never executing it) into the
- * tree IR, place it as one graph-first swimlane layout, and render that. A body
- * with no recoverable orchestration is by-design degradation, not failure — it
- * renders the v1 phases page wholesale (byte-identical to `renderSvg`), with no
- * warning. The analyzer and placement are total by contract, so the try/catch
- * is a defensive belt: if anything ever does throw, the CLI degrades to that
- * same v1 page with a one-line stderr warning and exit 0 — visible, never
- * fatal, never silent.
+ * The analyzed views: statically analyze the body (never executing it) into the
+ * tree IR, place it once, and render either the full workflow swimlane page or
+ * the graph-only topology. A body with no recoverable orchestration is by-design
+ * degradation, not failure — it renders the v1 phases page wholesale
+ * (byte-identical to `renderSvg`), with no warning. The analyzer and placement
+ * are total by contract, so the try/catch is a defensive belt: if anything ever
+ * does throw, the CLI degrades to that same v1 page with a one-line stderr
+ * warning and exit 0 — visible, never fatal, never silent.
  */
-function renderTopologyView(meta: Meta, program: acorn.Node, src: string): string {
+function renderAnalyzedView(meta: Meta, program: acorn.Node, src: string, view: "workflow" | "topology"): string {
   try {
     const topology = analyzeBody(program, src, meta.phases.map((p) => p.title));
     if (!topology.hasOrchestration) return renderSvg(meta, PROVENANCE);
-    return renderTopology(placeTopology(topology, meta), meta, PROVENANCE);
+    const layout = placeTopology(topology, meta);
+    return view === "workflow"
+      ? renderTopology(layout, meta, PROVENANCE)
+      : renderTopologyGraph(layout, PROVENANCE);
   } catch (e) {
     const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
     process.stderr.write(
@@ -168,10 +171,10 @@ function run(workflow: string, opts: CliOpts): void {
       if (view === "phases") {
         svg = renderSvg(meta, PROVENANCE); // meta-only view: the body and its grammar go untouched
       } else {
-        // Warn BEFORE renderTopologyView so a file whose newer construct recovers
+        // Warn BEFORE renderAnalyzedView so a file whose newer construct recovers
         // no orchestration (hitting its hasOrchestration early return) still surfaces it.
         warnGrammar(program);
-        svg = renderTopologyView(meta, program, src);
+        svg = renderAnalyzedView(meta, program, src, view);
       }
       data =
         format === "png"
@@ -211,7 +214,7 @@ const program = new Command();
 program
   .name("claude-workflows-viz")
   .description(
-    "Render a Claude Code dynamic-workflow file as an SVG/PNG diagram — the agent topology statically inferred from the body (never executed), or the meta phase cards via --view phases",
+    "Render a Claude Code dynamic-workflow file as an SVG/PNG diagram — the full workflow view, graph-only topology, or meta phase cards",
   )
   .version(__CWV_VERSION__, "-v, --version", "Show version number");
 
@@ -224,7 +227,7 @@ program
   )
   .option(
     "--view <view>",
-    "View: topology (default; banded agent graph) | phases (v1 phase cards)",
+    "View: workflow (default; phases plus topology) | topology (graph only) | phases (meta phase cards)",
   )
   .option(
     "--scale <n>",
