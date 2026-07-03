@@ -20,7 +20,7 @@ The render pipeline (`ts/cli.ts` is the commander entry):
 2. **`extract-meta.ts`** — static literal-eval of the `meta` object (rejects every executable construct), then validate with zod.
 3. **`analyze-body.ts`** — walk the AST into a topology tree (`topology.ts`): `agent()`/`workflow()` calls, `parallel()` barriers, `pipeline()` stages, loops, branches. Counts come only from literals (unresolvable fan-out → `×N`); condition labels are verbatim source slices; unrecognized orchestration degrades to an honest opaque step.
 4. **`place-topology.ts` / `topo-geometry.ts`** — hand-rolled, phase-driven placement into geometry (no dagre/elk dependency).
-5. **`render-topology.ts` / `render-svg.ts` / `svg-primitives.ts`** — emit SVG; **`render-png.ts`** rasterizes via `@resvg/resvg-js` (native, no browser); **`html.ts`** for `--format html`; **`emit-json.ts`** dumps the full static analysis for `--format json`.
+5. **`render-topology.ts` / `render-svg.ts` / `svg-primitives.ts`** — emit SVG; **`render-png.ts`** rasterizes via `@resvg/resvg-js` then optimizes with `@napi-rs/image` (palette-quantize + lossless oxipng repack — visually lossless, deterministic/byte-stable) — all native, no browser; **`html.ts`** for `--format html`; **`emit-json.ts`** dumps the full static analysis for `--format json`.
 
 `model.ts` maps a phase/agent `model` to its color swatch (opus/sonnet/haiku, matched inside full ids like `claude-opus-4-8`).
 

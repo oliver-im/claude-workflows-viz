@@ -98,7 +98,9 @@ table in §C maps one to the other.
   the graph-only topology view).
 - **`render-svg`** — `Meta` → SVG string (the v1 `phases` view; byte-frozen).
 - **`svg-primitives`** — shared shapes, text measuring, truncation, page width.
-- **`render-png`** — SVG → PNG via `@resvg/resvg-js` (no browser).
+- **`render-png`** — SVG → PNG via `@resvg/resvg-js`, then optimized with
+  `@napi-rs/image` (palette-quantize + lossless oxipng repack) — visually
+  lossless, deterministic/byte-stable, still no browser or network.
 - **`emit-json`** — `Meta` + `Topology` → the `--format json` analysis dump (schema
   `claude-workflows-viz/analysis@1`): a faithful, deterministic facts-only emit
   (no paraphrase) that tooling — notably the readable-diagrams authoring pass
