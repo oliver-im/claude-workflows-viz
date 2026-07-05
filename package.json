@@ -11,8 +11,7 @@
   "files": [
     "dist",
     "README.md",
-    "examples",
-    "skills"
+    "examples"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

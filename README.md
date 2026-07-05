@@ -100,9 +100,7 @@ Two pieces close that gap without compromising determinism:
   claude-workflows-viz your-workflow.js --format json | jq .topology.steps
   ```
 
-- **The `workflow-readability` skill** (in [`skills/workflow-readability/`](skills/workflow-readability/SKILL.md)) is a Claude skill that reads that JSON, finds the code-shaped labels and thin phase details, and rewrites the workflow's *own authored strings* (`agent(..., { label })`, `meta.phases[].detail`) into prose — an authoring pass you review and commit. The binary then renders the now-clearer source, still deterministically. Prose generation lives in the skill; the binary stays a faithful renderer.
-
-  A worked before/after lives in [`skills/workflow-readability/example/`](skills/workflow-readability/example/): the same tournament workflow with `draft:${p}` → `Draft the ${p} approach`, `match:${i / 2}` → `Judge this pairing`, and `!b` → `!opponent` ([before](skills/workflow-readability/example/choose-approach.before.png) · [after](skills/workflow-readability/example/choose-approach.after.png)) — only strings changed, the bracket logic is identical.
+- **Making a diagram readable is an authoring pass**, not a binary feature. Because the renderer draws labels and phase details *verbatim*, a cryptic workflow yields a cryptic diagram — the fix is to rewrite the workflow's *own authored strings* (`agent(..., { label })`, `meta.phases[].detail`) into prose, leaving behavior untouched, and review it as an ordinary source diff. [`docs/readable-diagrams.md`](docs/readable-diagrams.md) explains exactly how each caption is derived (so you edit the right string), with the two hard rules and a worked before/after. It's a plain editing task you (or your own agent) can do; the binary stays a faithful, deterministic renderer.
 
 ## How it works
 
