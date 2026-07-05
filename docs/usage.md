@@ -62,7 +62,7 @@ claude-workflows-viz your-workflow.js -o diagram.png
 # Render a PNG and open it immediately
 claude-workflows-viz your-workflow.js --format png --open
 
-# Dump the static analysis for tooling / the readability skill
+# Dump the static analysis for tooling / the readable-diagrams authoring pass
 claude-workflows-viz your-workflow.js --format json | jq .topology.steps
 ```
 
