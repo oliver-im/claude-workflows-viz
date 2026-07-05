@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { extractMeta } from "../extract-meta.js";
-import { type Provenance, renderSvg } from "../render-svg.js";
+import { renderSvg } from "../render-svg.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -14,13 +14,6 @@ const fixture = join(here, "fixtures", "full.js");
 const exoticFixture = join(here, "fixtures", "exotic-body.js");
 const summarizeExample = join(root, "examples", "level-1", "summarize-codebase.js");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-
-// The provenance the CLI stamps into every render — reconstructed here so the
-// byte-equality assertions below compare against the SAME footer the CLI emits,
-// rather than hardcoding the strings. (`__CWV_VERSION__` is `pkg.version`.)
-const prov: Provenance = {
-  toolVersion: pkg.version,
-};
 
 // Scratch dir for written artifacts; `pretest` builds dist/cli.js first.
 const workDir = mkdtempSync(join(tmpdir(), "cwv-smoke-"));
@@ -160,15 +153,13 @@ describe("cli smoke — views", () => {
     expect(res.stdout).not.toContain('class="swimlane"');
   });
 
-  it("stamps the provenance footer into the rendered diagram", () => {
+  it("never paints the tool version onto the rendered diagram", () => {
     const res = runCli([summarizeExample]);
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain('class="provenance"');
-    // The tool version — so an image that has travelled away from its `.js`
-    // source still says what produced it. Grammar level is tracked by the example
-    // corpus under examples/level-N/, not stamped into the diagram.
-    expect(res.stdout).toContain(`v${pkg.version}`);
-    expect(res.stdout).not.toContain("grammar level");
+    // The version is knowable via `--version`, but a render is a pure function of
+    // its `.js` input — no tool-version footer, no "vX.Y.Z" stamped into the image.
+    expect(res.stdout).not.toContain('class="provenance"');
+    expect(res.stdout).not.toContain(`v${pkg.version}`);
   });
 
   it("--view phases renders the byte-stable v1 page", () => {
@@ -178,7 +169,7 @@ describe("cli smoke — views", () => {
     // Byte-for-byte the v1 renderer's output (itself pinned by its snapshot
     // suite) — the permanent regression surface for the old view, now including
     // the provenance footer the CLI stamps.
-    expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample), prov));
+    expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample)));
   });
 
   it("exits non-zero with a clear message for a bad --view", () => {
@@ -195,7 +186,7 @@ describe("cli smoke — views", () => {
     expect(res.stderr).toBe("");
     expect(res.stdout).not.toContain("agent-node");
     expect(res.stdout).toContain('class="phase-card"');
-    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture), prov));
+    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
   });
 
   it("--view topology falls back to the v1-equivalent page for an exotic body, exit 0", () => {
@@ -204,7 +195,7 @@ describe("cli smoke — views", () => {
     expect(res.stderr).toBe("");
     expect(res.stdout).not.toContain("agent-node");
     expect(res.stdout).toContain('class="phase-card"');
-    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture), prov));
+    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
   });
 
   it("warns about an unrecognized awaited primitive yet still renders (exit 0), proving the warning is independent of the hasOrchestration fallback", () => {
@@ -216,7 +207,7 @@ describe("cli smoke — views", () => {
     // ...even though no orchestration was recovered, so the workflow view fell
     // back to the byte-identical v1 phases page (the warning ran before that).
     expect(res.stdout).not.toContain("agent-node");
-    expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture), prov));
+    expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture)));
   });
 
   it("rasterizes the workflow view to a real PNG", () => {
