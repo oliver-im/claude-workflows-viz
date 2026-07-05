@@ -37,7 +37,10 @@ table in §C maps one to the other.
   and workflow views are static readings of this half.
 - **phase marker** — a bare `phase("Title")` statement. Sets the *ambient
   phase* for every step after it (until the next marker). This is how the body
-  declares which lane its steps belong to.
+  declares which lane its steps belong to. A **phase** is the author's narrative
+  band and spans the whole graph; it is orthogonal to a **stage** (a step inside
+  one `pipeline`) — a single pipeline's two stages can even sit in two different
+  phases via each stage's `phase:` option.
 
 ### `meta` fields
 - **`name`** *(required)* — workflow title; the big header.
@@ -57,6 +60,11 @@ table in §C maps one to the other.
   *fan-out* of one body repeated per item).
 - **`pipeline(items, …stages)`** — run each item through every stage, no barrier
   between stages.
+  - **stage** — one positional step of a `pipeline` (`stage1`, `stage2`, …). A
+    structural fact of that one call, *not* a narrative grouping — contrast
+    **phase**, which is an author-declared band the graph is painted *behind*.
+    A stage is drawn as a horizontal row of nodes; the two axes are orthogonal,
+    though in a simple pipeline each stage can happen to line up 1:1 with a phase.
 - **`log(…)`, `args`, budget reads, etc.** — recognized as *not* orchestration;
   they draw nothing.
 
@@ -142,6 +150,11 @@ table in §C maps one to the other.
   centered below it (row/grid member) instead of to its right (spine node).
 
 ### Render & layout vocabulary
+- **shape (sub-shape)** — the general form an orchestration construct takes on the
+  graph: **fan-out**, **branches**, **barrier**, **pipeline stages**, **decision
+  diamond**, **loop**. `place-topology` owns a per-shape template vocabulary; an
+  unrecognized construct degrades to a **task** blob. The umbrella above shapes is
+  **orchestration**; a **node** is the atom *inside* a shape.
 - **spine** — the vertical centerline (`SPINE_X`) the main flow runs down.
 - **swimlane / stripe** — the faint rectangle painted behind a phase's nodes.
 - **chip** — the numbered circle (`1`, `2`, …) at a lane's top-left.
@@ -185,3 +198,48 @@ table in §C maps one to the other.
 | `phase("Title")` | *(sets band)* | **swimlane stripe** + numbered chip + title |
 | `meta.name/description/whenToUse` | *(not a step)* | the **header card** |
 | `meta.phases[].title/model` | *(not a step)* | a lane's **title** + **model tint/badge** |
+
+---
+
+## D. Diagram anatomy (the annotated hero)
+
+`scripts/annotate-anatomy.mjs` overlays keyed coral pins on the committed
+`examples/level-1/review-pr` render to label the parts of a diagram. Every pin
+resolves to a term defined above — the legend *is* this glossary, not free prose.
+The hero shows all pins under one **Anatomy** legend; the terms still fall in two
+families (mirroring §A vs the graph it produces), listed separately here:
+
+**Meta anatomy — the header + phase table (pins A–G, all from §A `meta` fields)**
+
+| Pin | Term |
+| --- | --- |
+| A | `name` |
+| B | `description` |
+| C | `whenToUse` |
+| D | `phases[].title` |
+| E | `phases[].detail` |
+| F | `phases[].model` |
+| G | `phases` (the array) |
+
+**Topology anatomy — the body graph (pins H–K)**
+
+| Pin | Term | Points at | Defined in |
+| --- | --- | --- | --- |
+| H | node | one `agent()` circle | §A `agent`, §B `GNode` |
+| I | shape | the fork hub — here a **fan-out** | §A "two shapes", §B **shape** |
+| J | label | the node's caption — here `review:correctness` | §A `agent()` options → `label` |
+| K | multiplicity | the `×N` badge — count unknown until runtime | §B `Multiplicity` `unknown` |
+
+The four pins are the graph's whole vocabulary at one altitude: **node** (the
+atom), **shape** (how nodes compose — fan-out here, else branches / barrier /
+loop / …), **label** (the node's caption), **multiplicity** (the `×N` badge here
+— count unknown until runtime). **stage** (§A) is
+deliberately *not* pinned — in `review-pr` each pipeline stage lines up 1:1 with a
+**phase**, so the phase bands already name it; a stage pin earns its place only
+where stages and phases diverge.
+
+Deliberately *absent* here — `review-pr` has none, and pointing a pin at empty
+canvas would break the degrade-honestly contract: **decision diamond**
+(`BranchStep`), **↻ loop badge** (`GLoop`), **barrier bar** (a `parallel`
+thunk-array join), **task box** (`workflow`/`OpaqueStep`). Annotate those on an
+example that actually exercises them.

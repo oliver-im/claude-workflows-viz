@@ -1,4 +1,12 @@
-# claude-workflows-viz
+The following is 100% written by a human.
+
+> claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with human readable steps and an agent topology.  
+
+![[review-pr.annotated.png]]
+
+
+
+---
 
 Render a Claude Code **dynamic workflow** `.js` file's static structure into a clean diagram — SVG primary, PNG rasterized from it.
 
