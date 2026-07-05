@@ -101,8 +101,8 @@ table in §C maps one to the other.
 - **`render-png`** — SVG → PNG via `@resvg/resvg-js` (no browser).
 - **`emit-json`** — `Meta` + `Topology` → the `--format json` analysis dump (schema
   `claude-workflows-viz/analysis@1`): a faithful, deterministic facts-only emit
-  (no paraphrase) that tooling — notably the `workflow-readability` skill — reads
-  to improve the source's authored strings.
+  (no paraphrase) that tooling — notably the readable-diagrams authoring pass
+  (`docs/readable-diagrams.md`) — reads to improve the source's authored strings.
 
 ### Tree IR — `topology.ts` (what the body *says*)
 - **`Topology`** — `{ steps, bands, notes, hasOrchestration, requiredLevel,

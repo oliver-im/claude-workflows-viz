@@ -35,7 +35,7 @@ Bundled workflows live under a per-level directory (`examples/level-1/` today); 
 ## When Implementing
 
 - **Never execute the workflow** — this is the headline guarantee. Keep `meta` on the static literal-evaluator and the body on AST analysis. No `vm`, `eval`, `import()`, or browser.
-- **Render what the body says, verbatim** — the renderer is deliberately literal; it never paraphrases or guesses what code "means." Prose generation belongs to the `workflow-readability` skill (`skills/workflow-readability/`), an authoring pass that rewrites the workflow's *own* strings; the binary stays a faithful renderer.
+- **Render what the body says, verbatim** — the renderer is deliberately literal; it never paraphrases or guesses what code "means." Prose generation is an authoring pass (see `docs/readable-diagrams.md`) that rewrites the workflow's *own* strings; the binary stays a faithful renderer.
 - **Degrade honestly** — unresolvable counts render `×N`, unknown orchestration becomes an opaque step, an empty recovery falls back to the meta-only phases page. Never invent structure you can't prove from literals.
 - **Rebuild `dist/`** after touching `ts/`, and keep the corpus renders regenerated (`npm run regen-examples`) when output changes.
 - **Runtime:** Node ≥ 20 (acorn + zod + commander + `@resvg/resvg-js`, bundled via esbuild).

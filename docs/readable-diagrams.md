@@ -1,29 +1,21 @@
----
-name: workflow-readability
-description: Make a Claude Code dynamic-workflow diagram human-readable. Use this whenever someone wants to improve, clean up, "humanize", or de-jargon a workflow .js file or its claude-workflows-viz diagram — for example cryptic node labels like draft:${p}, match:${i / 2}, gen:literal, read:${m}, a !b or confidence < 0.5 branch, raw loop conditions, or phases with thin or missing descriptions. Also use it when asked to make a workflow's SVG/PNG render clearer, add readable labels, explain a workflow visually to non-authors, or turn terse orchestration code into a diagram someone other than the author can follow. Renders before/after with the bundled binary.
----
-
-# Workflow readability
-
-Turn a terse dynamic-workflow `.js` file into one whose **diagram reads clearly** —
-by improving the workflow's *own authored strings*, then re-rendering with
-`claude-workflows-viz`.
-
-## The one idea that makes this safe
+# Making a workflow diagram readable
 
 `claude-workflows-viz` is a **literal** renderer: it draws what the body *says*,
 verbatim, and never guesses what your code "means". A label written
 `` `draft:${p}` `` renders as `draft:simplest`; a branch on `!b` shows `!b`. That
-honesty is a feature — the diagram is always a faithful picture of the code — but
-it means **a cryptic workflow yields a cryptic diagram.**
+honesty is the whole point — the diagram is always a faithful picture of the code
+— but it means **a cryptic workflow yields a cryptic diagram.**
 
 So you don't make the *binary* smarter. You make the *source* clearer, and the
-binary renders the clearer source. Your job is an **authoring pass**: rewrite
-labels and phase descriptions into prose, leaving behavior untouched, and let the
-author review the diff. You are the prose generator; the binary stays
-deterministic.
+binary renders the clearer source. Making a diagram readable is an **authoring
+pass** over the workflow's *own strings*: rewrite labels and phase descriptions
+into prose, leave behavior untouched, and review it as an ordinary source diff.
+It is a plain editing task — you (or your own agent) can do it with nothing but a
+text editor and this page; there is no bundled tool, and deliberately no way to
+inject a separate "display" layer (an overlay could drift from the code, which is
+exactly what static rendering exists to prevent).
 
-Two hard rules follow from this:
+## Two hard rules
 
 - **Never change orchestration logic.** Edit string literals and (only when
   clearly safe) variable names. Do not touch control flow, counts, conditions'
@@ -31,58 +23,12 @@ Two hard rules follow from this:
 - **Never make a label say more than the code does.** A readable label must stay
   *true*. Don't promise "Validate against the schema" if the agent just drafts
   text. Lean on the prompt and surrounding code to learn what each step actually
-  does.
+  does — a wrong-but-confident label is worse than a terse-but-true one.
 
-## The loop
-
-### 1. See the "before" and get the facts
-
-Render the current diagram and dump the static analysis. Invoke the tool as
-`claude-workflows-viz` if it's installed (global or `npx`); from a clone of this
-repo use `node dist/cli.js`.
-
-```sh
-claude-workflows-viz path/to/workflow.js -o /tmp/before.svg      # or --open
-claude-workflows-viz path/to/workflow.js --format json > /tmp/wf.json
-```
-
-The JSON (schema `claude-workflows-viz/analysis@1`) is the full picture: the
-validated `meta`, and the body's topology tree — every label, count, condition,
-prompt preview, and source span.
-
-### 2. Get a worklist
-
-Pipe the JSON through the bundled report script. It flags the code-shaped labels,
-the verbatim conditions, the phases missing a `detail`, and any analyzer notes —
-and tells you *how* each one is fixed within the grammar.
-
-```sh
-claude-workflows-viz path/to/workflow.js --format json \
-  | node <skill-dir>/scripts/readability_report.mjs
-```
-
-Read the worklist top to bottom. It is advisory (a heuristic — it's allowed to
-over-flag), so use judgment: a label that already reads as a phrase needs nothing.
-
-### 3. Decide the prose, then edit the source
-
-For each flagged item, work out the *honest* readable phrasing from the prompt
-preview and surrounding code, then edit the workflow file. Which string you edit
-depends on the construct — see "How labels are derived" below. Keep edits minimal
-and reviewable.
-
-### 4. Re-render and confirm
-
-```sh
-claude-workflows-viz path/to/workflow.js --format json \
-  | node <skill-dir>/scripts/readability_report.mjs   # worklist should shrink
-claude-workflows-viz path/to/workflow.js -o /tmp/after.svg
-```
-
-Re-running the analysis is also a **correctness check**: the topology kinds,
-counts, phases, and "Analyzer notes" should be unchanged (zero new opaque steps
-or notes). If the structure shifted, an edit changed behavior — revert it. Show
-the author the before/after renders and the source diff, and iterate on feedback.
+A good correctness check: re-dump `--format json` before and after. The topology
+kinds, counts, phases, and analyzer notes should be **unchanged** (zero new
+opaque steps or notes). If the structure shifted, an edit changed behavior —
+revert it.
 
 ## How labels are derived (so you edit the right string)
 
@@ -104,15 +50,7 @@ calls, identifiers, or `${…}`), so phase `detail`s are plain strings.
 
 ## Worked example
 
-A complete, runnable before/after pair ships in [`example/`](example/) — render
-both and compare:
-
-```sh
-claude-workflows-viz example/choose-approach.before.js -o /tmp/before.svg
-claude-workflows-viz example/choose-approach.after.js  -o /tmp/after.svg
-```
-
-Before (`example/choose-approach.before.js`, abridged):
+A tournament workflow whose node labels read like code. **Before:**
 
 ```js
 phase("Draft the contenders");
@@ -129,7 +67,7 @@ while (bracket.length > 1) {
 }
 ```
 
-After — only strings change; the bracket logic is identical:
+**After** — only strings change; the bracket logic is identical:
 
 ```js
 phase("Draft the contenders");
@@ -158,12 +96,3 @@ What changed and why:
 
 Re-render and the tournament reads as a tournament — without the renderer ever
 guessing.
-
-## Scope reminders
-
-- Improve **strings and safe renames**, never logic. If a "fix" requires changing
-  what runs, stop and ask the author.
-- Keep the workflow **runnable**: don't break the `meta` data-literal contract or
-  the `agent()/parallel()/pipeline()` call shapes.
-- When unsure what a step does, read its prompt and the surrounding code rather
-  than guessing — a wrong-but-confident label is worse than a terse-but-true one.
