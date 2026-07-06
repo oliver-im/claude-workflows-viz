@@ -1,6 +1,6 @@
 import type { Meta } from "./model.js";
 import type { ControlArc, GEdge, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
-import { type Provenance, renderFooter, renderHeader } from "./render-svg.js";
+import { renderHeader } from "./render-svg.js";
 import { closeLaneGaps, reserveLaneHeights } from "./place-topology.js";
 import {
   type Block,
@@ -49,7 +49,7 @@ import {
  * paint and typography live in the named constants below. Determinism: output
  * is a pure function of the layout; arrays are drawn in canonical order.
  */
-export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): string {
+export function renderTopology(layout: Layout, meta: Meta): string {
   const gw = layout.width; // the graph's own frame width (== W)
 
   // Build each lane's left label cell, then inflate its band to fit so the
@@ -114,14 +114,7 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
     `</g>`;
 
   const width = pageW;
-  let height = round(yOffset + layout.height + MARGIN);
-
-  let footer = "";
-  if (prov) {
-    const f = renderFooter(prov, pageW, height);
-    footer = f.body;
-    height = round(height + f.height);
-  }
+  const height = round(yOffset + layout.height + MARGIN);
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
@@ -130,7 +123,6 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
     `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
     `<g transform="translate(0 ${round(MARGIN)})">${header.body}</g>\n` +
     content +
-    (footer ? `\n${footer}` : "") +
     `\n</svg>\n`
   );
 }
@@ -140,7 +132,7 @@ export function renderTopology(layout: Layout, meta: Meta, prov?: Provenance): s
  * header or phase table. Unlike the full workflow view, derived agent labels are
  * shown here because there is no phase row beside the node to name it.
  */
-export function renderTopologyGraph(layout: Layout, prov?: Provenance): string {
+export function renderTopologyGraph(layout: Layout): string {
   const gw = layout.width;
   const byId = new Map(layout.nodes.map((n) => [n.id, n]));
   const { minX, maxX } = graphContentBounds(layout, byId, gw, { showDerivedLabels: true });
@@ -159,14 +151,7 @@ export function renderTopologyGraph(layout: Layout, prov?: Provenance): string {
     `${edges}${nodes}${arcs}${loops}</g>`;
 
   const width = pageW;
-  let height = round(graphY + graphH + MARGIN);
-
-  let footer = "";
-  if (prov) {
-    const f = renderFooter(prov, pageW, height);
-    footer = f.body;
-    height = round(height + f.height);
-  }
+  const height = round(graphY + graphH + MARGIN);
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
@@ -174,7 +159,6 @@ export function renderTopologyGraph(layout: Layout, prov?: Provenance): string {
     `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">\n` +
     `<rect width="${width}" height="${height}" fill="${PAGE_BG}"/>\n` +
     content +
-    (footer ? `\n${footer}` : "") +
     `\n</svg>\n`
   );
 }

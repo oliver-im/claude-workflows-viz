@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { placeTopology } from "../place-topology.js";
-import type { Provenance } from "../render-svg.js";
 import { renderTopology, renderTopologyGraph } from "../render-topology.js";
 import type { Meta } from "../model.js";
 import type {
@@ -252,17 +251,11 @@ describe("renderTopology", () => {
     expect(renderGraph(t, m)).toBe(renderGraph(t, m));
   });
 
-  it("stamps provenance in the graph-only topology view only when requested", () => {
-    const prov: Provenance = { toolVersion: "9.9.9" };
+  it("never stamps a tool-version footer in either topology view", () => {
     const t = topo([agent("go", "Solo")], [band("Solo")]);
     const m = meta([{ title: "Solo", model: "sonnet" }]);
-    const bare = renderTopologyGraph(placeTopology(t, m));
-    const stamped = renderTopologyGraph(placeTopology(t, m), prov);
-    expect(bare).not.toContain('class="provenance"');
-    expect(stamped).toContain('class="provenance"');
-    expect(stamped).toContain("v9.9.9");
-    const h = (s: string) => Number(/height="([\d.]+)"/.exec(s)?.[1]);
-    expect(h(stamped)).toBeGreaterThan(h(bare));
+    expect(renderTopologyGraph(placeTopology(t, m))).not.toContain('class="provenance"');
+    expect(renderTopology(placeTopology(t, m), m)).not.toContain('class="provenance"');
   });
 
   it("escapes <, >, &, and \" in every label, leaking no raw payload", () => {
@@ -298,18 +291,5 @@ describe("renderTopology", () => {
 
   it("matches the tournament snapshot", () => {
     expect(tournament()).toMatchSnapshot();
-  });
-
-  it("stamps a provenance footer only when given provenance, growing the page", () => {
-    const prov: Provenance = { toolVersion: "9.9.9" };
-    const t = topo([agent("go", "Solo")], [band("Solo")]);
-    const m = meta([{ title: "Solo", model: "sonnet" }]);
-    const bare = renderTopology(placeTopology(t, m), m);
-    const stamped = renderTopology(placeTopology(t, m), m, prov);
-    expect(bare).not.toContain('class="provenance"');
-    expect(stamped).toContain('class="provenance"');
-    expect(stamped).toContain("v9.9.9");
-    const h = (s: string) => Number(/height="(\d+)"/.exec(s)?.[1]);
-    expect(h(stamped)).toBeGreaterThan(h(bare));
   });
 });
