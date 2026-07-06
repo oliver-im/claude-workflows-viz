@@ -50,7 +50,12 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   // band strictly between the last-covered band and the next shape's band is
   // genuinely empty — no later shape can reach back up to fill it. Entering a
   // new lane leaves chrome room; continuing one keeps a tight gap.
-  let y = LANE_HEADER_H + LANE_PAD;
+  // Start the first node one LANE_HEADER_H down (its lane's yTop is derived as
+  // nodeTop − LANE_HEADER_H, so this lands the first lane's card top flush at the
+  // content origin — no dead space above it). No extra LANE_PAD here: that only
+  // pushed the whole graph down, leaving an empty band between the header card and
+  // the table below it.
+  let y = LANE_HEADER_H;
   let prevExits: string[] = [];
   let prevBreaks: string[] = [];
   let prevBand = -1;
@@ -1416,10 +1421,18 @@ function fixupUnsetLanes(lanes: GLane[]): void {
   }
 }
 
+/**
+ * The placed graph's total height — i.e. its true content bottom. Content lanes
+ * already carry a LANE_PAD below their last node (stripe sizing), so the page ends
+ * exactly at `laneBot`; adding another trailing LANE_PAD here would land *outside*
+ * the table card and stack with the renderer's page MARGIN, making the bottom frame
+ * thicker than the other three sides. So the pad applies only to the `nodeBot`
+ * term, for the rare node that dangles below every lane.
+ */
 function pageHeight(lanes: GLane[], nodes: GNode[]): number {
   const laneBot = lanes.reduce((m, l) => Math.max(m, l.yBot), 0);
   const nodeBot = nodes.reduce((m, n) => Math.max(m, n.y + halfHeight(n)), 0);
-  return Math.max(laneBot, nodeBot) + LANE_PAD;
+  return Math.max(laneBot, nodeBot + LANE_PAD);
 }
 
 /**

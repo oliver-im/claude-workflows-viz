@@ -132,7 +132,7 @@ The same reading rides along in `--format json` as `topology.requiredLevel` (the
 
 Grammar level is a property of the **example corpus**, not of every render. The bundled workflows live under a per-level directory — `examples/level-1/` today — and each also declares its level in-file (a `Grammar level: 1` header line); `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file stamp, and what the file actually uses all agree, so a sample can't silently drift past the recognizer's level. When the next level is minted (see the changelog), its specimens land in `examples/level-2/`, and the corpus becomes a versioned record of how the grammar — and its renders — change over time.
 
-The rendered diagram itself carries a quieter provenance **in the image**: a bottom-right footer — just `v<version>` — stamped into the SVG (and so into the PNG rasterized from it), so a diagram that has travelled away from its source `.js` still says what produced it. It deliberately omits the grammar level: that belongs to the corpus, and a footer needn't restamp on every level bump.
+The rendered diagram carries **no tool-version stamp**. A render is a pure function of its `.js` input — nothing about the tool itself (version, timestamp) is drawn onto the image — so the same workflow yields byte-identical output across releases, and a version bump never churns the committed corpus. The tool version stays internal: read it with `claude-workflows-viz --version` (it's the `package.json` version, baked into the bundle at build time).
 
 ## From source
 

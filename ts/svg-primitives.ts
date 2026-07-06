@@ -16,8 +16,13 @@
 // ---------------------------------------------------------------------------
 
 export const W = 760;
-export const MARGIN = 24;
-export const GAP = 16;
+/** Outer page frame — the `#f8fafc` padding between the image edge and the
+ *  content cards, on all four sides of every view. Kept tight so the diagram
+ *  isn't swimming in a border. */
+export const MARGIN = 10;
+/** Vertical gap between stacked cards — the header card and the phase/topology
+ *  section below it (and between phase cards in the meta-only phases view). */
+export const GAP = 8;
 
 // ---------------------------------------------------------------------------
 // Topology-page geometry — the swimlane *table* (phase label cells beside the

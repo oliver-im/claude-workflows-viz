@@ -17,20 +17,12 @@ import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
 import { placeTopology } from "./place-topology.js";
 import { DEFAULT_PNG_SCALE, svgToPng } from "./render-png.js";
-import { type Provenance, renderSvg } from "./render-svg.js";
+import { renderSvg } from "./render-svg.js";
 import { renderTopology, renderTopologyGraph } from "./render-topology.js";
 
+// The build-time tool version, surfaced only via `--version` (below) — never
+// drawn onto a diagram, so renders stay a pure function of their input.
 declare const __CWV_VERSION__: string;
-
-/**
- * The provenance stamped into every rendered diagram: the tool version. A
- * build-time constant, so the footer is deterministic and identical across views.
- * Grammar level is not stamped here — it is tracked by the example corpus under
- * `examples/level-N/`, not pinned into each diagram.
- */
-const PROVENANCE: Provenance = {
-  toolVersion: __CWV_VERSION__,
-};
 
 const FORMATS = ["svg", "png", "html", "json"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -115,17 +107,17 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
 function renderAnalyzedView(meta: Meta, program: acorn.Node, src: string, view: "workflow" | "topology"): string {
   try {
     const topology = analyzeBody(program, src, meta.phases.map((p) => p.title));
-    if (!topology.hasOrchestration) return renderSvg(meta, PROVENANCE);
+    if (!topology.hasOrchestration) return renderSvg(meta);
     const layout = placeTopology(topology, meta);
     return view === "workflow"
-      ? renderTopology(layout, meta, PROVENANCE)
-      : renderTopologyGraph(layout, PROVENANCE);
+      ? renderTopology(layout, meta)
+      : renderTopologyGraph(layout);
   } catch (e) {
     const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
     process.stderr.write(
       `claude-workflows-viz: warning: body analysis failed (${reason}); rendering meta phases only\n`,
     );
-    return renderSvg(meta, PROVENANCE);
+    return renderSvg(meta);
   }
 }
 
@@ -169,7 +161,7 @@ function run(workflow: string, opts: CliOpts): void {
     } else {
       let svg: string;
       if (view === "phases") {
-        svg = renderSvg(meta, PROVENANCE); // meta-only view: the body and its grammar go untouched
+        svg = renderSvg(meta); // meta-only view: the body and its grammar go untouched
       } else {
         // Warn BEFORE renderAnalyzedView so a file whose newer construct recovers
         // no orchestration (hitting its hasOrchestration early return) still surfaces it.
