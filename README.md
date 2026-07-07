@@ -1,20 +1,8 @@
 The following is 100% written by a human.
 
-> claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with human readable steps and an agent topology.  
+> claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with execution steps and agent topology.
 
 ![[review-pr.annotated.png]]
-
-
-
----
-
-Render a Claude Code **dynamic workflow** `.js` file's static structure into a clean diagram — SVG primary, PNG rasterized from it.
-
-![A workflow rendered by claude-workflows-viz](examples/level-1/review-pr.png)
-
-Dynamic workflows are JavaScript files that begin with `export const meta = { name, description, phases }` and then orchestrate subagents in the body. `claude-workflows-viz` reads the declarative `meta` block **and statically analyzes the imperative body — without ever executing the workflow** — then draws it as a **swimlane table** — one rounded white card (matching the header above it), split into a hairline-separated row per phase, with the phase label (chip, title, detail, and a quiet muted `model:` line) in a left cell and that phase's slice of the agent graph in the right cell. The graph itself is **one continuous flow top-to-bottom** — fan-outs into a barrier, pipeline stages, decision diamonds, and loops summarized as local "↻ repeat" badges — and a cross-phase edge is just a short ordinary edge, because phases are rows beside the graph, not containers it has to break out of. Everything is read straight off the parsed AST as static data: no `eval`, no `vm`, no `import()`, and no headless browser.
-
-> The `workflow` view is the default. `--view topology` renders the inferred graph only; `--view phases` renders the original meta-only phase cards (preserved byte-for-byte).
 
 ## Install
 
@@ -28,71 +16,23 @@ Or run it without installing:
 npx claude-workflows-viz <workflow.js>
 ```
 
-## Usage
+## Usage & Examples
 
-```
-claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--scale <n>] [--open]
-```
+Check **[docs/usage.md](docs/usage.md)** and **[example gallery](examples/README.md)** for details. 
 
-| Option | Description |
-| --- | --- |
-| `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
-| `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. |
-| `--view <view>` | `workflow` (default) draws phase context beside the agent graph; `topology` renders the inferred graph only; `phases` renders the meta-only cards. |
-| `--scale <n>` | PNG rasterization scale, `0 < n ≤ 10` (default `2`). Higher is sharper and larger; lower is smaller. PNG only — SVG/HTML are vector. |
-| `--open` | Open the rendered output in your default app after writing. |
-| `-v, --version` | Print the version. |
 
-### Examples
 
-Point it at your own workflow file:
+---
 
-```sh
-# SVG to stdout (composable)
-claude-workflows-viz your-workflow.js > diagram.svg
+Render a Claude Code **dynamic workflow** `.js` file's static structure into a clean diagram — SVG primary, PNG rasterized from it.
 
-# SVG to a file
-claude-workflows-viz your-workflow.js -o diagram.svg
+![A workflow rendered by claude-workflows-viz](examples/level-1/review-pr.png)
 
-# PNG — format inferred from the .png extension
-claude-workflows-viz your-workflow.js -o diagram.png
+Dynamic workflows are JavaScript files that begin with `export const meta = { name, description, phases }` and then orchestrate subagents in the body. `claude-workflows-viz` reads the declarative `meta` block **and statically analyzes the imperative body — without ever executing the workflow** — then draws it as a **swimlane table** — one rounded white card (matching the header above it), split into a hairline-separated row per phase, with the phase label (chip, title, detail, and a quiet muted `model:` line) in a left cell and that phase's slice of the agent graph in the right cell. The graph itself is **one continuous flow top-to-bottom** — fan-outs into a barrier, pipeline stages, decision diamonds, and loops summarized as local "↻ repeat" badges — and a cross-phase edge is just a short ordinary edge, because phases are rows beside the graph, not containers it has to break out of. Everything is read straight off the parsed AST as static data: no `eval`, no `vm`, no `import()`, and no headless browser.
 
-# Render a PNG and open it immediately
-claude-workflows-viz your-workflow.js --format png --open
-```
-
-A sample workflow ships with the package. From a clone of this repo:
-
-```sh
-claude-workflows-viz examples/level-1/review-pr.js --open
-```
-
-After a global install, reference it where npm placed it:
-
-```sh
-claude-workflows-viz "$(npm root -g)/claude-workflows-viz/examples/level-1/review-pr.js" --open
-```
+> The `workflow` view is the default. `--view topology` renders the inferred graph only; `--view phases` renders the original meta-only phase cards (preserved byte-for-byte).
 
 Each phase badge is colored by its `model`: opus, sonnet, and haiku each get a swatch — matched even inside a full id like `claude-opus-4-8` — and any other model falls back to a neutral badge. Agent circles inside the graph are colored the same way.
-
-## Example gallery
-
-The twelve bundled workflows cover all six patterns from Anthropic's [*A harness for every task*](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code) post — and six more; each links to its committed renders.
-
-| Workflow | Pattern | Render |
-| --- | --- | --- |
-| [`review-pr.js`](examples/level-1/review-pr.js) | review pipeline — staged lanes, no inter-stage barrier (the hero above) | [SVG](examples/level-1/review-pr.svg) · [PNG](examples/level-1/review-pr.png) |
-| [`triage-issue.js`](examples/level-1/triage-issue.js) | classify-and-act — a decision routes to one of several specialists | [SVG](examples/level-1/triage-issue.svg) · [PNG](examples/level-1/triage-issue.png) |
-| [`summarize-codebase.js`](examples/level-1/summarize-codebase.js) | fanout-and-synthesize — ×N readers, barrier, one synthesizer | [SVG](examples/level-1/summarize-codebase.svg) · [PNG](examples/level-1/summarize-codebase.png) |
-| [`verify-fix.js`](examples/level-1/verify-fix.js) | adversarial verification — named skeptic lanes converge on a barrier | [SVG](examples/level-1/verify-fix.svg) · [PNG](examples/level-1/verify-fix.png) |
-| [`name-the-feature.js`](examples/level-1/name-the-feature.js) | generate-and-filter — diverse generators, one filter | [SVG](examples/level-1/name-the-feature.svg) · [PNG](examples/level-1/name-the-feature.png) |
-| [`choose-approach.js`](examples/level-1/choose-approach.js) | tournament — drafts, then a pairwise-judging loop until one stands | [SVG](examples/level-1/choose-approach.svg) · [PNG](examples/level-1/choose-approach.png) |
-| [`hunt-bugs.js`](examples/level-1/hunt-bugs.js) | loop-until-done — keep spawning finders until rounds come up dry | [SVG](examples/level-1/hunt-bugs.svg) · [PNG](examples/level-1/hunt-bugs.png) |
-| [`find-call-sites.js`](examples/level-1/find-call-sites.js) | multi-modal sweep — blind searchers fan out, then merge & dedupe | [SVG](examples/level-1/find-call-sites.svg) · [PNG](examples/level-1/find-call-sites.png) |
-| [`draft-the-announcement.js`](examples/level-1/draft-the-announcement.js) | judge panel — independent drafts, then a rubric panel scores in parallel | [SVG](examples/level-1/draft-the-announcement.svg) · [PNG](examples/level-1/draft-the-announcement.png) |
-| [`compile-api-reference.js`](examples/level-1/compile-api-reference.js) | completeness critic — a critic names the gaps; each round fills them | [SVG](examples/level-1/compile-api-reference.svg) · [PNG](examples/level-1/compile-api-reference.png) |
-| [`localize-release-notes.js`](examples/level-1/localize-release-notes.js) | map-reduce pipeline — a per-locale `pipeline()` with worktree isolation, reduced by a `workflow()` | [SVG](examples/level-1/localize-release-notes.svg) · [PNG](examples/level-1/localize-release-notes.png) |
-| [`dual-lineage-review.js`](examples/level-1/dual-lineage-review.js) | dual-lineage — two independent reviewer lineages, merged verdicts | [SVG](examples/level-1/dual-lineage-review.svg) · [PNG](examples/level-1/dual-lineage-review.png) |
 
 ## Making a diagram readable
 
