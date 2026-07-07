@@ -19,8 +19,8 @@ import { Resvg } from "@resvg/resvg-js";
  *
  * Coordinates are LITERAL (tuned by eye against the base SVG), not computed: keep
  * it dumb, re-tune when the base render moves. The topology boxes live in the
- * PAGE frame; the base draws its graph in a `translate(350 0)` group nested in a
- * `translate(0 204)` group, so a graph-local (x,y) lands at page (x+350, y+204).
+ * PAGE frame; the base draws its graph in a `translate(336 0)` group nested in a
+ * `translate(0 182)` group, so a graph-local (x,y) lands at page (x+336, y+182).
  * This is a docs-asset generator, not part of the renderer — it reads the
  * committed base SVG and writes a *separate* annotated SVG + PNG, leaving the
  * clean hero untouched.
@@ -35,12 +35,15 @@ const ACCENT = "#e8694a";
 const INK = "#0f172a";
 const MUTED = "#475569";
 const LEGEND_W = 258; // Anatomy card width
-const LEGEND_PULL = 8; // px the card reaches back over the base's empty right padding (content ends ~x841, canvas is wider)
+const LEGEND_GUTTER = 8; // gap from the base canvas's right edge to the legend card. The base already carries a MARGIN-wide right pad (tightened to 10px), so the card clears the actual content by MARGIN + this.
 const LEGEND_MARGIN = 16; // whitespace to the right of the card
 
 /** A gray section header printed ABOVE a pin group in the legend (headers scope
  * forward to the rows below them), keyed by `group`. */
-const GROUP_HEADER = { meta: "Defined via workflow" };
+const GROUP_HEADER = {
+  meta: "Declared by the workflow",
+  topo: "Repo terms, inferred from workflow",
+};
 
 /**
  * Literal callout boxes over the base render, in reading order (pin letters are
@@ -53,23 +56,23 @@ const annotations = [
   // measured text bbox + ~7px pad (rendered-pixel extents, not eyeballed): so B/C stop
   // at the real line end (~600), E clears G's right edge, phases (G) is wide enough that
   // the E marker sits inside it.
-  { group: "meta", x: 40, y: 49, w: 238, h: 30, label: "name", pinAt: "l" },
-  { group: "meta", x: 40, y: 85, w: 567, h: 40, label: "description", pinAt: "l" },
-  { group: "meta", x: 40, y: 133, w: 573, h: 38, label: "whenToUse", pinAt: "l" },
-  { group: "meta", x: 74, y: 236, w: 98, h: 18, label: "title", pinAt: "r" },
-  { group: "meta", x: 73, y: 257, w: 293, h: 51, label: "detail", pinAt: "r" },
-  { group: "meta", x: 76, y: 312, w: 88, h: 14, label: "model", pinAt: "r" },
-  { group: "meta", x: 38, y: 228, w: 358, h: 500, label: "phases", pinAt: "l" },
+  { group: "meta", x: 26, y: 35, w: 238, h: 30, label: "name", pinAt: "l" },
+  { group: "meta", x: 26, y: 71, w: 567, h: 40, label: "description", pinAt: "l" },
+  { group: "meta", x: 26, y: 119, w: 573, h: 38, label: "whenToUse", pinAt: "l" },
+  { group: "meta", x: 60, y: 202, w: 98, h: 18, label: "title", pinAt: "r" },
+  { group: "meta", x: 59, y: 223, w: 293, h: 51, label: "detail", pinAt: "r" },
+  { group: "meta", x: 62, y: 278, w: 88, h: 14, label: "model", pinAt: "r" },
+  { group: "meta", x: 24, y: 194, w: 358, h: 500, label: "phases", pinAt: "l" },
 
-  // Body anatomy (H–K) — the graph (page frame = graph-local + (350,204)). In reading
+  // Body anatomy (H–K) — the graph (page frame = graph-local + (336,182)). In reading
   // order down the graph: node / shape / label / multiplicity — its whole vocabulary at
   // one altitude. Each label names the general concept; the gray sub is the instance
   // shown here (shape→fan-out, multiplicity→the ×N/unknown case). `stage` is NOT pinned:
   // in review-pr each pipeline stage lines up 1:1 with a phase (glossary §D).
-  { group: "topo", x: 636, y: 249, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
-  { group: "topo", x: 606, y: 372, w: 96, h: 28, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
-  { group: "topo", x: 470, y: 432, w: 110, h: 17, label: "label", pinAt: "l" },
-  { group: "topo", x: 661, y: 509, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
+  { group: "topo", x: 622, y: 215, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
+  { group: "topo", x: 592, y: 338, w: 96, h: 28, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
+  { group: "topo", x: 456, y: 398, w: 110, h: 17, label: "label", pinAt: "l" },
+  { group: "topo", x: 647, y: 475, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
 ];
 
 const PIN_NUDGE = 20; // how far a side-anchored pin sits outside its box, in whitespace
@@ -153,7 +156,7 @@ function wrapSub(s, max = 34) {
  * array index is the pin letter, so legend and on-diagram boxes always match.
  */
 function legendLayer(items, baseW) {
-  const x = baseW - LEGEND_PULL;
+  const x = baseW + LEGEND_GUTTER;
   const w = LEGEND_W;
   const pad = 18;
   const yTop = 24;
@@ -198,7 +201,7 @@ const vb = svg.match(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/);
 if (!vb) throw new Error(`base SVG missing a numeric viewBox: ${base}`);
 const baseW = Number(vb[1]);
 const baseH = Number(vb[2]);
-const newW = baseW - LEGEND_PULL + LEGEND_W + LEGEND_MARGIN;
+const newW = baseW + LEGEND_GUTTER + LEGEND_W + LEGEND_MARGIN;
 
 const layer = `<g class="anatomy">${boxLayer(annotations)}${legendLayer(annotations, baseW)}</g>`;
 const annotated = svg
