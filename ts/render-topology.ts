@@ -432,7 +432,7 @@ function graphContentBounds(
     }
     if (n.kind === "decision") {
       ext(n.x - n.r, n.x + n.r);
-      ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT));
+      ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT) + LABEL_HALO_W / 2);
       continue;
     }
     // agent / hub — the circle, plus the ×N peek circle + badge and the label.
@@ -463,7 +463,7 @@ function graphContentBounds(
     if (!node) continue;
     const lx = node.x + node.r + 8;
     const w = estTextW(truncateToWidth(`↻ ${l.label}`, gw - MARGIN - lx, LOOP_FONT), LOOP_FONT);
-    ext(lx, lx + w);
+    ext(lx - LABEL_HALO_W / 2, lx + w + LABEL_HALO_W / 2);
   }
   // A continue arc bows left of its gate, its outcome label further left still.
   // Mirror renderControlArc: a self-loop reaches its ↺ circle's left edge (cx − r);
@@ -474,7 +474,7 @@ function graphContentBounds(
     const r = from.r + 2;
     const leftmost =
       a.fromId === a.toId ? from.x - from.r - r * 0.45 - r : from.x - from.r - ARC_BULGE;
-    ext(leftmost - 4 - estTextW(a.outcome, MEMBER_FONT), from.x);
+    ext(leftmost - 4 - estTextW(a.outcome, MEMBER_FONT) - LABEL_HALO_W / 2, from.x);
   }
   if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return { minX: 0, maxX: gw };
   return { minX, maxX };
