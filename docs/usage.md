@@ -23,7 +23,7 @@ Runtime: Node ≥ 20.
 
 ## CLI
 
-```
+```sh
 claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--scale <n>] [--open]
 ```
 

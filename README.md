@@ -35,7 +35,7 @@ There were two hard requirements of the project:
 1. Just compose the program with an AST parser and not rely on the LLM with a "skill"
 2. Don't execute the workflow file
 
-The result is we use [Acorn](https://github.com/acornjs/acorn) to parse the file, and use the keywords such as `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches to build a vertical graph. There are some elements that are runtime decided, such as the labels, and the conditional logic, and in those cases the focus was on readability without harming the correctness of the topology.
+The result is we use [Acorn](https://github.com/acornjs/acorn) to parse the file, and use the keywords such as `agent()`/`workflow()` calls, `parallel()` fan-outs and barriers, `pipeline()` stages, loops, and branches to build a vertical graph. There are some elements that are runtime-decided, such as the labels, and the conditional logic, and in such cases it is written as is to preserve correctness.
 
 Side note: I didn't put much thought into the style and relied on the default agent design skills, and if the project is used by other people it may be useful to add a way to inject different styles into the rendering.
 
