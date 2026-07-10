@@ -74,7 +74,7 @@ export function renderTopology(layout: Layout, meta: Meta): string {
   // header readable when the graph is a thin single spine.
   const { minX, maxX } = graphContentBounds(layout, byId, gw, { showDerivedLabels: false });
   const graphX = Math.round(MARGIN + LEFT_COL_W + COL_GAP - minX);
-  const pageW = Math.max(Math.ceil(graphX + maxX + MARGIN), MIN_TOPO_PAGE_W);
+  const pageW = Math.max(Math.ceil(graphX + maxX + COL_GAP + MARGIN), MIN_TOPO_PAGE_W);
   const innerCardW = pageW - 2 * MARGIN;
 
   const header = renderHeader(meta, MARGIN, innerCardW);
@@ -180,7 +180,6 @@ const CONTROL_STROKE = "#fb923c";
 const HUB_FILL = "#94a3b8";
 const ROW_BG = "#ffffff"; // the phases sit on one plain white card — no model tint
 const ROW_SEP = "#e2e8f0"; // card border + hairline between phases (matches the header card)
-const KNOCKOUT_FILL = ROW_BG; // label knockout plate — the white card the graph sits on
 const TABLE_RX = 12; // table card corner radius — same as the header card above it
 const CHIP_FILL = "#334155";
 
@@ -386,39 +385,22 @@ function estTextW(s: string, size: number): number {
   return s.length * size * 0.58;
 }
 
-// Knockout padding around the glyphs — a hair of breathing room so the plate
-// clears the text's own ink without growing big enough to bite a neighbour.
-const KNOCKOUT_PAD_X = 3;
-const KNOCKOUT_PAD_Y = 1.5;
+const LABEL_HALO_W = 3.5;
 
 /**
- * In-graph text drawn over an opaque plate in the card background colour, so an
- * edge running behind the text is OCCLUDED where the glyphs sit and the label
- * always reads cleanly. This is the layout-independent guarantee against
- * edge-over-text: it does not depend on any gap, label width, or member count
- * working out — wherever an edge and a label share a coordinate channel (the
- * fan-out's vertical member→barrier drops are the guaranteed case), the plate
- * breaks the line behind the text instead of letting it cut through the ink.
- *
- * The plate is painted in the SAME group as the text, immediately before it, so
- * it inherits that text's place in the paint order — and since all graph labels
- * live in the node/loop layers (drawn AFTER the edge layer in `renderTopology`),
- * the plate always lands on top of the edges it needs to hide. Sized to the
- * (already-truncated) `content` via the same 0.58em metric the fitters use;
- * `anchor` mirrors the text's so the plate centres when the text is centred.
+ * In-graph text gets a white outline painted behind its fill. The halo masks an
+ * edge only where it touches a glyph, keeping labels readable without cutting a
+ * label-sized rectangular hole through fan-out and merge paths.
  */
 function knockoutText(x: number, y: number, content: string, o: TextOpts): string {
   if (content === "") return "";
-  const w = estTextW(content, o.size) + 2 * KNOCKOUT_PAD_X;
-  const h = o.size + 2 * KNOCKOUT_PAD_Y;
-  const anchor = o.anchor ?? "start";
-  const left = anchor === "middle" ? x - w / 2 : anchor === "end" ? x - w + KNOCKOUT_PAD_X : x - KNOCKOUT_PAD_X;
-  // Baseline at `y`: the plate spans from above the cap height to below the
-  // descender, so ascenders and descenders both clear.
-  const top = y - o.size * 0.8 - KNOCKOUT_PAD_Y;
-  const plate =
-    `<rect x="${round(left)}" y="${round(top)}" width="${round(w)}" height="${round(h)}" fill="${KNOCKOUT_FILL}"/>`;
-  return plate + text(x, y, content, o);
+  return text(x, y, content, {
+    ...o,
+    stroke: ROW_BG,
+    strokeWidth: LABEL_HALO_W,
+    strokeLinejoin: "round",
+    paintOrder: "stroke fill",
+  });
 }
 
 /**
@@ -450,7 +432,7 @@ function graphContentBounds(
     }
     if (n.kind === "decision") {
       ext(n.x - n.r, n.x + n.r);
-      ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT));
+      ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT) + LABEL_HALO_W / 2);
       continue;
     }
     // agent / hub — the circle, plus the ×N peek circle + badge and the label.
@@ -459,11 +441,11 @@ function graphContentBounds(
     if (n.label && (opts.showDerivedLabels || n.labelExplicit !== false)) {
       if (n.labelBelow === true) {
         const w = estTextW(truncateToWidth(n.label, 150, MEMBER_FONT), MEMBER_FONT);
-        ext(n.x - w / 2, n.x + w / 2);
+        ext(n.x - w / 2 - LABEL_HALO_W / 2, n.x + w / 2 + LABEL_HALO_W / 2);
       } else {
         const lx = n.x + n.r + 8;
         const w = estTextW(truncateToWidth(n.label, gw - MARGIN - lx, LABEL_FONT), LABEL_FONT);
-        ext(lx, lx + w);
+        ext(lx - LABEL_HALO_W / 2, lx + w + LABEL_HALO_W / 2);
       }
     }
   }
@@ -481,7 +463,7 @@ function graphContentBounds(
     if (!node) continue;
     const lx = node.x + node.r + 8;
     const w = estTextW(truncateToWidth(`↻ ${l.label}`, gw - MARGIN - lx, LOOP_FONT), LOOP_FONT);
-    ext(lx, lx + w);
+    ext(lx - LABEL_HALO_W / 2, lx + w + LABEL_HALO_W / 2);
   }
   // A continue arc bows left of its gate, its outcome label further left still.
   // Mirror renderControlArc: a self-loop reaches its ↺ circle's left edge (cx − r);
@@ -492,7 +474,7 @@ function graphContentBounds(
     const r = from.r + 2;
     const leftmost =
       a.fromId === a.toId ? from.x - from.r - r * 0.45 - r : from.x - from.r - ARC_BULGE;
-    ext(leftmost - 4 - estTextW(a.outcome, MEMBER_FONT), from.x);
+    ext(leftmost - 4 - estTextW(a.outcome, MEMBER_FONT) - LABEL_HALO_W / 2, from.x);
   }
   if (!Number.isFinite(minX) || !Number.isFinite(maxX)) return { minX: 0, maxX: gw };
   return { minX, maxX };
