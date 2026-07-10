@@ -7,9 +7,11 @@ import { Resvg } from "@resvg/resvg-js";
 /**
  * Draw a hand-placed "anatomy" annotation layer over the committed review-pr
  * render: a thin coral highlight box on each region + a small lettered pin, with
- * the prose kept in a single "Anatomy" legend card in an added right-hand gutter
- * (the keyed-callout + legend convention — keeps the diagram itself clean, scales
- * past a few labels).
+ * the prose kept in a single two-column "Anatomy" legend card in a band added
+ * below the render (the keyed-callout + legend convention — keeps the diagram
+ * itself clean, scales past a few labels). The band grows the image's *height*,
+ * not its width, so the base render stays full-width (legible when embedded) and
+ * the legend gets the whole canvas width to breathe.
  *
  * Pins A–K fall in two families (documented in docs/glossary.md §D), listed in one
  * card with a thin divider between them:
@@ -19,8 +21,9 @@ import { Resvg } from "@resvg/resvg-js";
  *
  * Coordinates are LITERAL (tuned by eye against the base SVG), not computed: keep
  * it dumb, re-tune when the base render moves. The topology boxes live in the
- * PAGE frame; the base draws its graph in a `translate(336 0)` group nested in a
- * `translate(0 182)` group, so a graph-local (x,y) lands at page (x+336, y+182).
+ * PAGE frame; the base currently draws its graph in a `translate(344 0)` group
+ * nested in a `translate(0 192)` group, so graph-local coordinates carry both
+ * offsets. Re-tune these literals whenever the base render moves.
  * This is a docs-asset generator, not part of the renderer — it reads the
  * committed base SVG and writes a *separate* annotated SVG + PNG, leaving the
  * clean hero untouched.
@@ -31,12 +34,12 @@ const base = join(root, "examples/level-1/review-pr.svg");
 const outSvg = join(root, "examples/level-1/review-pr.annotated.svg");
 const outPng = join(root, "examples/level-1/review-pr.annotated.png");
 
-const ACCENT = "#e8694a";
+const ACCENT = "#c94f32";
 const INK = "#0f172a";
 const MUTED = "#475569";
-const LEGEND_W = 258; // Anatomy card width
-const LEGEND_GUTTER = 8; // gap from the base canvas's right edge to the legend card. The base already carries a MARGIN-wide right pad (tightened to 10px), so the card clears the actual content by MARGIN + this.
-const LEGEND_MARGIN = 16; // whitespace to the right of the card
+const BAND_GAP = 16; // leaves room for the dashed boundary below the base render
+const BAND_SIDE = 16; // left/right inset of the band card within the canvas width
+const BAND_BOTTOM = 16; // whitespace below the band card
 
 /** A gray section header printed ABOVE a pin group in the legend (headers scope
  * forward to the rows below them), keyed by `group`. */
@@ -56,26 +59,26 @@ const annotations = [
   // measured text bbox + ~7px pad (rendered-pixel extents, not eyeballed): so B/C stop
   // at the real line end (~600), E clears G's right edge, phases (G) is wide enough that
   // the E marker sits inside it.
-  { group: "meta", x: 26, y: 35, w: 238, h: 30, label: "name", pinAt: "l" },
-  { group: "meta", x: 26, y: 71, w: 567, h: 40, label: "description", pinAt: "l" },
-  { group: "meta", x: 26, y: 119, w: 573, h: 38, label: "whenToUse", pinAt: "l" },
-  { group: "meta", x: 60, y: 202, w: 98, h: 18, label: "title", pinAt: "r" },
-  { group: "meta", x: 59, y: 223, w: 293, h: 51, label: "detail", pinAt: "r" },
-  { group: "meta", x: 62, y: 278, w: 88, h: 14, label: "model", pinAt: "r" },
-  { group: "meta", x: 24, y: 194, w: 358, h: 500, label: "phases", pinAt: "l" },
+  { group: "meta", x: 32, y: 41, w: 238, h: 30, label: "name", pinAt: "l" },
+  { group: "meta", x: 32, y: 77, w: 567, h: 40, label: "description", pinAt: "l" },
+  { group: "meta", x: 32, y: 125, w: 573, h: 38, label: "whenToUse", pinAt: "l" },
+  { group: "meta", x: 66, y: 212, w: 98, h: 18, label: "title", pinAt: "r" },
+  { group: "meta", x: 65, y: 233, w: 293, h: 51, label: "detail", pinAt: "r" },
+  { group: "meta", x: 68, y: 288, w: 88, h: 14, label: "model", pinAt: "r" },
+  { group: "meta", x: 30, y: 204, w: 394, h: 500, label: "phases", pinAt: "l" },
 
-  // Body anatomy (H–K) — the graph (page frame = graph-local + (336,182)). In reading
+  // Body anatomy (H–K) — the graph (page frame = graph-local + (344,192)). In reading
   // order down the graph: node / shape / label / multiplicity — its whole vocabulary at
   // one altitude. Each label names the general concept; the gray sub is the instance
   // shown here (shape→fan-out, multiplicity→the ×N/unknown case). `stage` is NOT pinned:
   // in review-pr each pipeline stage lines up 1:1 with a phase (glossary §D).
-  { group: "topo", x: 622, y: 215, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
-  { group: "topo", x: 592, y: 338, w: 96, h: 28, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
-  { group: "topo", x: 456, y: 398, w: 110, h: 17, label: "label", pinAt: "l" },
-  { group: "topo", x: 647, y: 475, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
+  { group: "topo", x: 630, y: 225, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
+  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
+  { group: "topo", x: 464, y: 408, w: 110, h: 17, label: "label", pinAt: "l" },
+  { group: "topo", x: 655, y: 485, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
 ];
 
-const PIN_NUDGE = 20; // how far a side-anchored pin sits outside its box, in whitespace
+const PIN_NUDGE = 12; // clears the box without pushing left-side pins outside the canvas
 
 /**
  * Where the pin sits relative to its box. Corners `tl`/`tr`/`bl`/`br` land on the
@@ -132,6 +135,13 @@ function boxLayer(items) {
   return parts.join("");
 }
 
+/** Quietly marks where the generated workflow PNG ends and the explanatory
+ * anatomy band begins. No label: the change in card content supplies the meaning. */
+function outputBoundary(baseW, baseH) {
+  return `<line x1="${BAND_SIDE}" y1="${baseH}" x2="${baseW - BAND_SIDE}" y2="${baseH}" ` +
+    `stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 5" stroke-linecap="round"/>`;
+}
+
 /** Greedy word-wrap for a legend sub-line: split into lines of at most `max`
  * characters (approximate — the legend font is not measured). */
 function wrapSub(s, max = 34) {
@@ -150,50 +160,69 @@ function wrapSub(s, max = 34) {
 }
 
 /**
- * The gutter's single "Anatomy" card: title + one keyed row per annotation
- * (pin + label + optional wrapped gray sub), A–K in one list, with a thin divider
- * where the meta group gives way to the body group. Auto-sizes to its rows; the
- * array index is the pin letter, so legend and on-diagram boxes always match.
+ * The bottom "Anatomy" band: a full-width card below the base render, laid out as
+ * two columns — the meta family (A–G) on the left, the body family (H–K) on the
+ * right — each under its own gray header. Wider columns + larger type than a side
+ * gutter allows, and it grows the image's height (not its width), so the embedded
+ * render stays wide and legible. The array index is the pin letter, so band rows
+ * and on-diagram boxes always match. Returns the card SVG plus its height (so the
+ * caller can size the canvas to fit).
  */
-function legendLayer(items, baseW) {
-  const x = baseW + LEGEND_GUTTER;
-  const w = LEGEND_W;
-  const pad = 18;
-  const yTop = 24;
-  const body = [];
-  let y = yTop + 56; // baseline of the first header/row
-  let prevGroup = null;
+function legendBand(items, baseW, baseH) {
+  const x = BAND_SIDE;
+  const w = baseW - BAND_SIDE * 2;
+  const y = baseH + BAND_GAP;
+  const pad = 24;
+  const innerW = w - 2 * pad;
+  const rightColX = x + pad + innerW / 2;
+
+  // Group items in array order (each group is a contiguous run), keeping the pin
+  // letter = array index. One column is laid out per group, left to right.
+  const groups = [];
   items.forEach((a, i) => {
-    if (a.group !== prevGroup) {
-      if (prevGroup !== null) {
-        y += 8;
-        body.push(`<line x1="${x + pad}" y1="${y}" x2="${x + w - pad}" y2="${y}" stroke="#e2e8f0" stroke-width="1"/>`);
-        y += 24;
-      }
-      if (GROUP_HEADER[a.group]) {
-        body.push(`<text x="${x + pad}" y="${y}" font-size="12" fill="${MUTED}" font-weight="600">${GROUP_HEADER[a.group]}</text>`);
-        y += 26;
-      }
+    let g = groups[groups.length - 1];
+    if (!g || g.group !== a.group) {
+      g = { group: a.group, rows: [] };
+      groups.push(g);
     }
-    prevGroup = a.group;
-    body.push(pin(x + 24, y, key(i), 9));
-    body.push(`<text x="${x + 40}" y="${y + 4}" font-size="13" fill="${INK}" font-weight="600">${a.label}</text>`);
-    if (a.sub) {
-      wrapSub(a.sub).forEach((line, li) => {
-        y += li === 0 ? 17 : 15;
-        body.push(`<text x="${x + 40}" y="${y + 4}" font-size="11.5" fill="${MUTED}">${line}</text>`);
-      });
-    }
-    y += 30;
+    g.rows.push({ a, i });
   });
-  const cardH = y - 8 - yTop;
-  return (
-    `<g class="legend-card">` +
-    `<rect x="${x}" y="${yTop}" width="${w}" height="${cardH}" rx="10" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>` +
-    `<text x="${x + pad}" y="${yTop + 28}" font-size="15" fill="${INK}" font-weight="700">Anatomy</text>` +
-    body.join("") +
-    `</g>`
-  );
+
+  const colTop = y + 62; // first header baseline, below the "Anatomy" title
+  const body = [];
+  let maxY = colTop;
+  groups.forEach((g, gi) => {
+    const cx = gi === 0 ? x + pad : rightColX;
+    let cy = colTop;
+    if (GROUP_HEADER[g.group]) {
+      body.push(`<text x="${cx}" y="${cy}" font-size="14" fill="${MUTED}" font-weight="600">${GROUP_HEADER[g.group]}</text>`);
+      cy += 28;
+    }
+    g.rows.forEach(({ a, i }) => {
+      body.push(pin(cx + 11, cy, key(i), 10));
+      body.push(`<text x="${cx + 32}" y="${cy + 5}" font-size="14.5" fill="${INK}" font-weight="600">${a.label}</text>`);
+      if (a.sub) {
+        const subX = cx + 16;
+        wrapSub(a.sub, 60).forEach((line, li) => {
+          cy += li === 0 ? 18 : 16;
+          body.push(`<text x="${subX}" y="${cy + 5}" font-size="12" fill="${MUTED}">${line}</text>`);
+        });
+      }
+      cy += 28;
+    });
+    maxY = Math.max(maxY, cy);
+  });
+
+  const cardH = maxY - y + 4;
+  return {
+    svg:
+      `<g class="legend-card">` +
+      `<rect x="${x}" y="${y}" width="${w}" height="${cardH}" rx="12" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>` +
+      `<text x="${x + pad}" y="${y + 36}" font-size="18" fill="${INK}" font-weight="700">Anatomy</text>` +
+      body.join("") +
+      `</g>`,
+    height: cardH,
+  };
 }
 
 const svg = readFileSync(base, "utf8");
@@ -201,12 +230,16 @@ const vb = svg.match(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/);
 if (!vb) throw new Error(`base SVG missing a numeric viewBox: ${base}`);
 const baseW = Number(vb[1]);
 const baseH = Number(vb[2]);
-const newW = baseW + LEGEND_GUTTER + LEGEND_W + LEGEND_MARGIN;
+const band = legendBand(annotations, baseW, baseH);
+const newH = baseH + BAND_GAP + band.height + BAND_BOTTOM;
 
-const layer = `<g class="anatomy">${boxLayer(annotations)}${legendLayer(annotations, baseW)}</g>`;
+const layer = `<g class="anatomy">${boxLayer(annotations)}${outputBoundary(baseW, baseH)}${band.svg}</g>`;
 const annotated = svg
-  .replaceAll(`width="${baseW}"`, `width="${newW}"`)
-  .replace(`viewBox="0 0 ${baseW} ${baseH}"`, `viewBox="0 0 ${newW} ${baseH}"`)
+  // Grow the canvas downward (width stays baseW); the on-diagram boxes are anchored
+  // to base content and don't move. Extend the page-background rect to match.
+  .replace(`width="${baseW}" height="${baseH}" viewBox`, `width="${baseW}" height="${newH}" viewBox`)
+  .replace(`viewBox="0 0 ${baseW} ${baseH}"`, `viewBox="0 0 ${baseW} ${newH}"`)
+  .replace(`<rect width="${baseW}" height="${baseH}" fill=`, `<rect width="${baseW}" height="${newH}" fill=`)
   .replace("</svg>", `${layer}</svg>`);
 writeFileSync(outSvg, annotated);
 

@@ -2,7 +2,8 @@ The following is 100% written by a human.
 
 > claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with execution steps and agent topology.
 
-![[review-pr.annotated.png]]
+
+
 
 ## Install
 
@@ -18,7 +19,12 @@ npx claude-workflows-viz <workflow.js>
 
 ## Usage & Examples
 
-Check **[docs/usage.md](docs/usage.md)** and **[example gallery](examples/README.md)** for details. 
+Check **[docs/usage.md](docs/usage.md)** and **[example gallery](examples/README.md)**. 
+
+## Introduction
+
+Dynamic workflows was introduced by Anthropic in May as a way to launch multiple agents in a structured, yet dynamic way. It is structured because unlike [Agent Teams](https://code.claude.com/docs/en/agent-teams), the harness is defined by the TypeScript syntax in a .js file. It is also dynamic, because the file only defines the topology and the execution steps, and delegates implementation details, such as number of subagents, to the main agent. Dynamic workflows are clearly in the direction of the "thin harness" movement, but it also introduced a way to guarantee the structure of the harness. Overall it is quite clever, and I encourage you to read the official [docs](https://code.claude.com/docs/en/workflows) and blog [post](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code) if you haven't already done so.
+
 
 
 
