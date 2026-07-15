@@ -24,7 +24,7 @@ Runtime: Node ≥ 20.
 ## CLI
 
 ```sh
-claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--scale <n>] [--open]
+claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--scale <n>] [--open] [--share] [--include-source]
 ```
 
 | Option | Description |
@@ -34,6 +34,8 @@ claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--vi
 | `--view <view>` | `workflow` (default) draws phase context beside the agent graph; `topology` renders the inferred graph only; `phases` renders the meta-only cards. |
 | `--scale <n>` | PNG rasterization scale, `0 < n ≤ 10` (default `2`). Higher is sharper and larger; lower is smaller. PNG only — SVG/HTML are vector. |
 | `--open` | Open the rendered output in your default app after writing. |
+| `--share` | Upload the rendered SVG (or PNG when `--format png` is selected) as a secret GitHub gist; requires the GitHub CLI and `gh auth login`. Use with `--view`; omit `--out` and `--open`. |
+| `--include-source` | With `--share`, also upload the original workflow as `workflow.js`. The flag is opt-in because source may contain sensitive prompts or instructions. |
 | `-v, --version` | Print the version. |
 
 ### Output routing
@@ -64,7 +66,19 @@ claude-workflows-viz your-workflow.js --format png --open
 
 # Dump the static analysis for tooling / the readable-diagrams authoring pass
 claude-workflows-viz your-workflow.js --format json | jq .topology.steps
+
+# Share the rendered workflow as an SVG gist
+claude-workflows-viz your-workflow.js --share
+
+# Share a PNG instead, and include the original workflow source
+claude-workflows-viz your-workflow.js --share --format png --include-source
 ```
+
+Sharing creates a secret (unlisted, not access-controlled) gist containing the
+rendered image for the selected view. SVG is the default; use `--format png`
+when a consumer does not preview SVG well. The original workflow source is
+uploaded only with `--include-source`; review it for sensitive content before
+sharing.
 
 A sample workflow ships with the package. From a clone of this repo:
 

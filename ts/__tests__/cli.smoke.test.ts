@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,7 @@ describe("cli smoke", () => {
     const res = runCli(["--help"]);
     expect(res.stdout).toContain("--format");
     expect(res.stdout).toContain("--out");
+    expect(res.stdout).toContain("--share");
     expect(res.stdout).toContain("--view");
     expect(res.stdout).toContain("workflow");
   });
@@ -91,6 +92,59 @@ describe("cli smoke", () => {
     expect(kinds).toContain("parallel");
   });
 
+  it("shares the selected SVG view and includes source only when requested", () => {
+    const fakeGhDir = mkdtempSync(join(tmpdir(), "cwv-fake-gh-"));
+    const fakeGhScript = join(fakeGhDir, "fake-gh.cjs");
+    const capture = join(fakeGhDir, "capture.json");
+    const script = [
+      'const { readFileSync, writeFileSync } = require("node:fs");',
+      'const { basename } = require("node:path");',
+      "const args = process.argv.slice(2);",
+      'if (args[0] === "auth") process.exit(0);',
+      "const files = args.slice(3);",
+      "writeFileSync(process.env.CWV_SHARE_CAPTURE, JSON.stringify({ names: files.map((file) => basename(file)), image: readFileSync(files[0], 'utf8'), source: files[1] ? readFileSync(files[1], 'utf8') : null }));",
+      'console.log("https://ghe.example/gists/cli-test");',
+    ].join("\n");
+    writeFileSync(fakeGhScript, `#!/usr/bin/env node\n${script}\n`);
+    if (process.platform !== "win32") chmodSync(fakeGhScript, 0o755);
+    const commandPath =
+      process.platform === "win32" ? join(fakeGhDir, "gh.cmd") : join(fakeGhDir, "gh");
+    if (process.platform === "win32") {
+      writeFileSync(commandPath, `@echo off\r\n"${process.execPath}" "${fakeGhScript}" %*\r\n`);
+    } else {
+      // A small shell wrapper keeps the command name exactly `gh` while the
+      // script remains a normal temporary test fixture.
+      writeFileSync(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${fakeGhScript}" "$@"\n`);
+      chmodSync(commandPath, 0o755);
+    }
+
+    const previousPath = process.env.PATH;
+    const previousCapture = process.env.CWV_SHARE_CAPTURE;
+    process.env.PATH = `${fakeGhDir}${process.platform === "win32" ? ";" : ":"}${previousPath ?? ""}`;
+    process.env.CWV_SHARE_CAPTURE = capture;
+    try {
+      const res = runCli([summarizeExample, "--share", "--view", "topology"]);
+      expect(res.status, res.stderr).toBe(0);
+      expect(res.stderr).toContain("Shared workflow: https://ghe.example/gists/cli-test");
+      const sharedWithoutSource = JSON.parse(readFileSync(capture, "utf8"));
+      expect(sharedWithoutSource.names).toEqual(["workflow.svg"]);
+      expect(sharedWithoutSource.image).toContain('class="topology"');
+      expect(sharedWithoutSource.source).toBeNull();
+
+      const sourceRes = runCli([summarizeExample, "--share", "--include-source"]);
+      expect(sourceRes.status, sourceRes.stderr).toBe(0);
+      const sharedWithSource = JSON.parse(readFileSync(capture, "utf8"));
+      expect(sharedWithSource.names).toEqual(["workflow.svg", "workflow.js"]);
+      expect(sharedWithSource.source).toBe(readFileSync(summarizeExample, "utf8"));
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousCapture === undefined) delete process.env.CWV_SHARE_CAPTURE;
+      else process.env.CWV_SHARE_CAPTURE = previousCapture;
+      rmSync(fakeGhDir, { recursive: true, force: true });
+    }
+  });
+
   it("carries the per-file grammar level in the JSON topology block", () => {
     const res = runCli([summarizeExample, "--format", "json"]);
     expect(res.status).toBe(0);
@@ -119,6 +173,19 @@ describe("cli smoke", () => {
     const res = runCli([fixture, "--format", "gif"]);
     expect(res.status).not.toBe(0);
     expect(res.stderr).toMatch(/unknown --format/i);
+  });
+
+  it("rejects combining --share with --out before invoking GitHub CLI", () => {
+    const out = join(workDir, "share.svg");
+    const res = runCli([fixture, "--share", "-o", out]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/cannot be combined with --out/i);
+  });
+
+  it("rejects a non-image format for --share", () => {
+    const res = runCli([fixture, "--share", "--format", "json"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/uploads an image/i);
   });
 
   // `--open` spawns the OS opener (a real window), so it is verified manually,

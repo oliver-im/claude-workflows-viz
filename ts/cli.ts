@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import type * as acorn from "acorn";
 import { Command } from "commander";
-import { analyzeBody } from "./analyze-body.js";
 import { emitAnalysisJson } from "./emit-json.js";
 import {
   MetaExtractionError,
@@ -15,10 +14,11 @@ import { detectGrammarUse, grammarWarning } from "./feature-detect.js";
 import { wrapSvgHtml } from "./html.js";
 import type { Meta } from "./model.js";
 import { openBrowser } from "./output.js";
-import { placeTopology } from "./place-topology.js";
 import { DEFAULT_PNG_SCALE, svgToPng } from "./render-png.js";
 import { renderSvg } from "./render-svg.js";
-import { renderTopology, renderTopologyGraph } from "./render-topology.js";
+import { renderAnalyzedView } from "./render-view.js";
+import { ShareError, createShareGist } from "./share.js";
+import { buildShareArtifacts } from "./share-artifacts.js";
 
 // The build-time tool version, surfaced only via `--version` (below) — never
 // drawn onto a diagram, so renders stay a pure function of their input.
@@ -33,7 +33,9 @@ export type View = (typeof VIEWS)[number];
 interface CliOpts {
   out?: string;
   format?: string;
+  includeSource?: boolean;
   open?: boolean;
+  share?: boolean;
   view?: string;
   scale?: string;
 }
@@ -95,33 +97,6 @@ function defaultOutPath(workflow: string, format: Format, ephemeral: boolean): s
 }
 
 /**
- * The analyzed views: statically analyze the body (never executing it) into the
- * tree IR, place it once, and render either the full workflow swimlane page or
- * the graph-only topology. A body with no recoverable orchestration is by-design
- * degradation, not failure — it renders the v1 phases page wholesale
- * (byte-identical to `renderSvg`), with no warning. The analyzer and placement
- * are total by contract, so the try/catch is a defensive belt: if anything ever
- * does throw, the CLI degrades to that same v1 page with a one-line stderr
- * warning and exit 0 — visible, never fatal, never silent.
- */
-function renderAnalyzedView(meta: Meta, program: acorn.Node, src: string, view: "workflow" | "topology"): string {
-  try {
-    const topology = analyzeBody(program, src, meta.phases.map((p) => p.title));
-    if (!topology.hasOrchestration) return renderSvg(meta);
-    const layout = placeTopology(topology, meta);
-    return view === "workflow"
-      ? renderTopology(layout, meta)
-      : renderTopologyGraph(layout);
-  } catch (e) {
-    const reason = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
-    process.stderr.write(
-      `claude-workflows-viz: warning: body analysis failed (${reason}); rendering meta phases only\n`,
-    );
-    return renderSvg(meta);
-  }
-}
-
-/**
  * Emit a one-line stderr warning when the file needs a higher grammar level than
  * the recognizer supports — or awaits an unrecognized orchestration-shaped call.
  * The warning is advisory: it never changes the output or the (0) exit code.
@@ -141,9 +116,25 @@ function warnGrammar(program: acorn.Node): void {
   if (message) process.stderr.write(`claude-workflows-viz: warning: ${message}\n`);
 }
 
-function run(workflow: string, opts: CliOpts): void {
+async function run(workflow: string, opts: CliOpts): Promise<void> {
   const format = resolveFormat(opts.format, opts.out);
   const view = resolveView(opts.view);
+
+  if (opts.share && opts.out) {
+    fail("--share cannot be combined with --out");
+  }
+  if (opts.includeSource && !opts.share) {
+    fail("--include-source requires --share");
+  }
+  if (opts.share && format !== "svg" && format !== "png") {
+    fail("--share uploads an image; omit --format or use --format svg or png");
+  }
+  if (opts.share && opts.open) {
+    fail("--share cannot be combined with --open");
+  }
+  if (opts.share && format === "svg" && opts.scale !== undefined) {
+    fail("--scale only applies to PNG output");
+  }
 
   // One read, one parse — meta extraction, body analysis, and the json emit
   // all share the AST.
@@ -153,6 +144,25 @@ function run(workflow: string, opts: CliOpts): void {
     const src = readWorkflowSource(workflow);
     const program = parseWorkflowSource(src);
     meta = extractMetaFromProgram(program);
+    if (opts.share) {
+      // The artifact builder keeps image/source selection in one testable seam,
+      // while this call still owns the CLI's view selection.
+      warnGrammar(program);
+      const gistUrl = await createShareGist(
+        buildShareArtifacts({
+          meta,
+          program,
+          src,
+          format: format as "svg" | "png",
+          scale: resolveScale(opts.scale),
+          includeSource: !!opts.includeSource,
+          view,
+        }),
+      );
+      process.stderr.write(`Shared workflow: ${gistUrl}\n`);
+      return;
+    }
+
     if (format === "json") {
       // The structured analysis is a dump of facts, not a rendered view, so
       // `--view` is ignored here by design.
@@ -177,6 +187,7 @@ function run(workflow: string, opts: CliOpts): void {
     }
   } catch (e) {
     if (e instanceof MetaExtractionError) fail(e.message);
+    if (e instanceof ShareError) fail(e.message);
     throw e;
   }
 
@@ -215,7 +226,7 @@ program
   .option("-o, --out <file>", "Write the diagram to this path (else stdout for svg/html)")
   .option(
     "--format <format>",
-    "Output format: svg | png | html | json (default: svg, or inferred from --out). json dumps the static analysis (meta + body topology) for tooling/skills.",
+    "Output format: svg | png | html | json (default: svg, or inferred from --out). json dumps the static analysis (meta + body topology) for tooling/skills; --share accepts svg or png.",
   )
   .option(
     "--view <view>",
@@ -226,6 +237,8 @@ program
     `PNG rasterization scale, 0 < n ≤ 10 (default: ${DEFAULT_PNG_SCALE}). Higher = sharper and larger. PNG only.`,
   )
   .option("--open", "Open the rendered output in the default app after writing")
+  .option("--share", "Upload the rendered image to a secret GitHub gist (requires gh)")
+  .option("--include-source", "Include the original workflow.js in a --share gist")
   .action(run);
 
 await program.parseAsync();
