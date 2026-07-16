@@ -62,7 +62,11 @@ export async function createShareGist(
   const gh = options.runGh ?? runGh;
   const auth = await gh(["auth", "status"]);
   if (auth.error) {
-    throw new ShareError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+    const errorCode = (auth.error as NodeJS.ErrnoException).code;
+    if (errorCode === "ENOENT") {
+      throw new ShareError("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
+    }
+    throw new ShareError(`Failed to run GitHub CLI: ${auth.error.message}`);
   }
   if (auth.code !== 0) {
     throw new ShareError("GitHub CLI is not logged in. Run 'gh auth login' first.");

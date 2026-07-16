@@ -47,12 +47,23 @@ describe("createShareGist", () => {
   });
 
   it("reports when GitHub CLI is not installed", async () => {
+    const error = Object.assign(new Error("spawn gh ENOENT"), { code: "ENOENT" });
     await expect(
       createShareGist(
         { image: { filename: "workflow.svg", data: "<svg />" } },
-        { runGh: async () => ({ stdout: "", stderr: "", code: null, error: new Error("ENOENT") }) },
+        { runGh: async () => ({ stdout: "", stderr: "", code: null, error }) },
       ),
     ).rejects.toThrowError(/GitHub CLI \(gh\) is not installed/);
+  });
+
+  it("preserves non-ENOENT GitHub CLI spawn failures", async () => {
+    const error = Object.assign(new Error("permission denied"), { code: "EACCES" });
+    await expect(
+      createShareGist(
+        { image: { filename: "workflow.svg", data: "<svg />" } },
+        { runGh: async () => ({ stdout: "", stderr: "", code: null, error }) },
+      ),
+    ).rejects.toThrowError("Failed to run GitHub CLI: permission denied");
   });
 
   it("cleans up temporary artifacts when gist creation fails", async () => {
