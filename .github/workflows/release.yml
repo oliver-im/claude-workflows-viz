@@ -1,6 +1,6 @@
 name: release
 
-# Dispatch-driven npm release via OIDC Trusted Publishing (no stored token).
+# Dispatch-driven npm release via OIDC Trusted Publishing (no npm token).
 # The runner bumps the version, tests that exact tree, creates the tag on the
 # bumped commit, pushes both to main, and publishes the package.
 #
@@ -11,6 +11,8 @@ name: release
 # One-time setup: publish v0.1.0 manually once to create the package, then
 # configure npm Trusted Publishing for it -> GitHub Actions -> repository
 # `oliver-im/claude-workflows-viz`, workflow `release.yml`.
+# The protected-main push uses the repository's `DEPLOY_KEY` Actions secret;
+# its public key is registered as a bypass actor on the `Protect main` ruleset.
 on:
   workflow_dispatch:
     inputs:
@@ -37,6 +39,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0 # need full history + tags for the existence check and notes
+          persist-credentials: false # load the deploy key only for the protected push
 
       - uses: actions/setup-node@v5
         with:
@@ -73,15 +76,26 @@ jobs:
             exit 1
           }
           tag="v$next"
-          git rev-parse "$tag" >/dev/null 2>&1 && {
-            echo "::error::Tag $tag already exists"
-            exit 1
-          }
+          base=$(git rev-parse HEAD)
+          resume=false
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            tag_commit=$(git rev-list -n 1 "$tag")
+            tag_pkg=$(git show "$tag_commit:package.json" | jq -r .version)
+            if [ "$tag_pkg" != "$next" ] || ! git merge-base --is-ancestor "$base" "$tag_commit"; then
+              echo "::error::Tag $tag exists but is not a resumable release from main"
+              exit 1
+            fi
+            git checkout --detach "$tag_commit"
+            resume=true
+            echo "Resuming existing $tag at $tag_commit"
+          fi
           echo "Releasing $current -> $next"
           echo "next=$next" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "resume=$resume" >> "$GITHUB_OUTPUT"
 
       - name: Bump package manifests
+        if: steps.ver.outputs.resume != 'true'
         env:
           NEXT: ${{ steps.ver.outputs.next }}
         run: npm version "$NEXT" --no-git-tag-version
@@ -91,13 +105,33 @@ jobs:
       - name: Commit, tag, and push
         env:
           TAG: ${{ steps.ver.outputs.tag }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "release: $TAG"
           git tag -a "$TAG" -m "$TAG"
-          git push origin HEAD:main --follow-tags
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main --follow-tags
+
+      - name: Push resumed release commit
+        if: steps.ver.outputs.resume == 'true'
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes" \
+            git push "git@github.com:${GITHUB_REPOSITORY}.git" HEAD:main
 
       - run: npm publish --provenance --access public
 
