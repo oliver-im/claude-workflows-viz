@@ -47,7 +47,7 @@ Using the plaintext prompt in the Claude Code binary, and the published type con
 
 Check **[docs/usage.md](docs/usage.md)** for the manual.
 
-By default the workflow files are either saved in `.claude/workflows` or `~/.claude/workflows`. The visual diagram can be used in PRs when adding a dynamic workflow to the repo, or in more public settings. Personally I think this can be useful when sharing dynamic workflows in gists.
+By default the workflow files are either saved in `.claude/workflows` or `~/.claude/workflows`. The visual diagram can be used in PRs when adding a dynamic workflow to the repo, or in more public settings. For example use `claude-workflows-viz <workflow.js> --share` to upload the svg to a GitHub gist, with options to upload png or workflow files as well.
 
 ## Examples
 
