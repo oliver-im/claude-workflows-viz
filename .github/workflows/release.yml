@@ -1,33 +1,32 @@
 name: release
 
-# Tag-driven npm publish via OIDC Trusted Publishing (no stored token).
+# Dispatch-driven npm release via OIDC Trusted Publishing (no stored token).
+# The runner bumps the version, tests that exact tree, creates the tag on the
+# bumped commit, pushes both to main, and publishes the package.
 #
-# Cut a release by bumping `version` in package.json on main (a normal commit),
-# then tag that commit and push the tag:
+# Run from the Actions UI, or with:
+#   gh workflow run release.yml -f version=patch
+#   gh workflow run release.yml -f version=0.1.2
 #
-#   npm version patch        # or minor / major / an explicit 0.1.1 — edits package.json + commits + tags
-#   git push origin main     # land the bump commit on main (admin bypass or PR)
-#   git push origin v0.1.1   # push the tag → this workflow runs
-#
-# Unlike jidoka's release, nothing here pushes to protected `main`, so no deploy
-# key is needed: the version bump is your own commit, and the tag/Release use the
-# built-in token. The job guards that package.json matches the tag, runs the full
-# gate, publishes with provenance, and opens a GitHub Release.
-#
-# One-time setup (see README "Releasing"): publish v0.1.0 manually once to create
-# the package, then configure npm Trusted Publishing for it → GitHub Actions →
-# repo `oliver-im/claude-workflows-viz`, workflow `release.yml`.
+# One-time setup: publish v0.1.0 manually once to create the package, then
+# configure npm Trusted Publishing for it -> GitHub Actions -> repository
+# `oliver-im/claude-workflows-viz`, workflow `release.yml`.
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Explicit semver (0.1.2) or a bump keyword (patch/minor/major)"
+        required: true
+        default: patch
+        type: string
 
-# One release at a time; never cancel a publish mid-flight.
+# Only one release at a time; never cancel one mid-push.
 concurrency:
   group: release
   cancel-in-progress: false
 
 permissions:
-  contents: write # create the GitHub Release
+  contents: write # push the version commit/tag and create the GitHub Release
   id-token: write # OIDC: npm Trusted Publishing + provenance attestation
 
 jobs:
@@ -36,7 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history + tags so --generate-notes has a prior tag to diff
+          ref: main
+          fetch-depth: 0 # need full history + tags for the existence check and notes
 
       - uses: actions/setup-node@v4
         with:
@@ -49,21 +49,60 @@ jobs:
 
       - run: npm ci
 
-      - name: Guard package.json version matches the tag
+      - name: Compute release version
+        id: ver
+        env:
+          INPUT: ${{ inputs.version }} # via env, never interpolated into the script
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "::error::tag v$tag does not match package.json version $pkg"
+          current=$(node -p "require('./package.json').version")
+          case "$INPUT" in
+            major|minor|patch)
+              IFS=. read -r major minor patch <<EOF
+          $current
+          EOF
+              case "$INPUT" in
+                major) next="$((major + 1)).0.0" ;;
+                minor) next="$major.$((minor + 1)).0" ;;
+                patch) next="$major.$minor.$((patch + 1))" ;;
+              esac
+              ;;
+            *) next="${INPUT#v}" ;;
+          esac
+          echo "$next" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "::error::Not a semver version: $next"
             exit 1
-          fi
-          echo "Releasing v$pkg"
+          }
+          tag="v$next"
+          git rev-parse "$tag" >/dev/null 2>&1 && {
+            echo "::error::Tag $tag already exists"
+            exit 1
+          }
+          echo "Releasing $current -> $next"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - run: npm test # pretest builds dist/cli.js with the new version baked in, then vitest
+      - name: Bump package manifests
+        env:
+          NEXT: ${{ steps.ver.outputs.next }}
+        run: npm version "$NEXT" --no-git-tag-version
+
+      - run: npm test # pretest rebuilds dist/cli.js with the new version baked in
+
+      - name: Commit, tag, and push
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "release: $TAG"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin HEAD:main --follow-tags
 
       - run: npm publish --provenance --access public
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: gh release create "$TAG" --title "$TAG" --generate-notes
