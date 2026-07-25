@@ -22,7 +22,7 @@ Minted when `agent()` gained `opts.effort`.
 
 | Workflow | Pattern | Render |
 | --- | --- | --- |
-| [`review-pr.js`](level-2/review-pr.js) | review pipeline — staged lanes, no inter-stage barrier; effort tiered `low` → `medium` → `high` → `low` | [SVG](level-2/review-pr.svg) · [PNG](level-2/review-pr.png) |
+| [`review-pr.js`](level-2/review-pr.js) | review pipeline — staged lanes, no inter-stage barrier; effort `medium` → `high` → `low`, with the mapping agent setting none and inheriting the session tier | [SVG](level-2/review-pr.svg) · [PNG](level-2/review-pr.png) |
 | [`tier-the-effort.js`](level-2/tier-the-effort.js) | effort tiering — `opts.effort` per stage: skim `low`, root-cause `max`, cross-examine `high`, draft `low` | [SVG](level-2/tier-the-effort.svg) · [PNG](level-2/tier-the-effort.png) |
 
 `review-pr.js` is also the README's annotated hero. **The hero always sits at the
