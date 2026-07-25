@@ -306,7 +306,21 @@ function captureAgentProse(ccDir) {
   // surrounding bundle is pure ASCII — a property of what the minifier put nearby,
   // not a guarantee; one literal non-ASCII byte would shift every offset after it.)
   // The pattern is ASCII-only, so it matches identically either way.
-  const BACK_WINDOW = 1024 * 1024; // ~100× the cc-2.1.220 builder, so nesting is the realistic risk, not truncation
+  // KNOWN LIMIT, stated plainly because it is the one hole the checks below do NOT
+  // close. A function that encloses the anchor but *starts* before `winStart` is
+  // never enumerated, so it lands in neither `enclosing` nor `unresolved`; if a
+  // nested helper inside it starts within the window, that helper is the sole
+  // enclosing candidate and is accepted. That narrowing is silent.
+  //
+  // It is not cheaply fixable: proving no enclosing function begins before an
+  // arbitrary point means scanning back to a known-safe lexical boundary, and a
+  // 250MB single-file minified bundle offers none. What bounds the risk is that such
+  // a function must span from before `winStart` past the anchor — over a megabyte of
+  // one function — and that on any RE-capture the drift gate prints baseline vs
+  // current byte counts, so a narrowed artifact shows up as a large unexplained drop
+  // that the reconcile ritual puts in front of a human. The exposure is a first
+  // capture taken right after upstream restructures this code.
+  const BACK_WINDOW = 1024 * 1024; // ~100× the cc-2.1.220 builder (8.8KB back, 16KB long)
   const AHEAD_WINDOW = 512 * 1024;
   // How close to the end of a parse window an error must be raised to read as
   // "the window cut this function off" rather than "this is not a function".
@@ -320,40 +334,59 @@ function captureAgentProse(ccDir) {
     const candStart = winStart + m.index;
     const candEnd = Math.min(buf.length, candStart + AHEAD_WINDOW);
     const candText = buf.subarray(candStart, candEnd).toString("utf8");
+    const truncated = candEnd < buf.length;
+
+    // Offsets first, before anything compares them. `candText` was decoded from
+    // exactly (candEnd - candStart) bytes, so equal lengths prove every character is
+    // single-byte — and therefore that acorn's character offsets ARE byte offsets.
+    // Without this the enclosure test below would compare acorn's char offset against
+    // a byte offset, and enough raw non-ASCII ahead of the anchor would make a
+    // genuinely enclosing function look like it closes early. It would then be
+    // skipped, leaving a nested helper as the false sole survivor. An unmeasurable
+    // candidate is recorded, never skipped.
+    if (candText.length !== candEnd - candStart) {
+      unresolved.push({
+        start: candStart,
+        message: "contains non-ASCII source bytes, so parser offsets cannot be trusted as byte offsets",
+      });
+      continue;
+    }
+
     let parsed;
     try {
       parsed = acorn.parseExpressionAt(candText, 0, { ecmaVersion: "latest" });
     } catch (err) {
       // Most candidates are not functions at all — a `function` keyword inside a
       // string literal, a method shorthand — and those fail immediately. But a
-      // candidate can also fail because its body ran past AHEAD_WINDOW, and THAT
-      // one matters: skipping it would discard a function we could not measure,
-      // and if it was the outer builder, the nested helper inside it becomes the
-      // only survivor and the "exactly one" check below waves through exactly the
-      // silent narrowing it exists to prevent.
+      // candidate can also fail because its body ran past AHEAD_WINDOW, and THAT one
+      // matters: skipping it discards a function we could not measure, and if it was
+      // the outer builder, the nested helper inside it becomes the only survivor and
+      // the "exactly one" check below waves through the very narrowing it exists to
+      // prevent.
       //
-      // The two are told apart by WHERE acorn raised, not by the message: a
-      // window that cut off a function errors at its very end, while a genuine
-      // non-function errors near its start. That is not a close call — at
-      // cc-2.1.220 all 87 real failures raise ≥520,000 chars from the end of a
-      // 512KB window, so the margin below has four orders of magnitude of slack.
+      // Two independent tests, because neither alone is sufficient:
+      //
+      //   - Position. A cut-off string, template, regex, or plain run-out errors at
+      //     the window's very end, while a genuine non-function errors near its
+      //     start. At cc-2.1.220 that is not a close call: all 87 real failures raise
+      //     ≥520,000 chars from the end of a 512KB window.
+      //   - Message. A cut-off BLOCK COMMENT is the exception that breaks position:
+      //     acorn's `skipBlockComment` looks ahead for `*/` with indexOf and raises
+      //     with the cursor still at the comment's opening, so a comment starting
+      //     more than a margin back reads as "errored early" — i.e. as a non-function.
+      //     Every such error is an `Unterminated …`, which no genuine failure here
+      //     produces (all 87 are `Unexpected token`), so the kind is a safe test where
+      //     the position is not.
       const raisedAt = err.raisedAt ?? err.pos ?? 0;
-      const cutOff = candEnd < buf.length && candText.length - raisedAt <= TRUNCATION_MARGIN;
+      const cutOff =
+        truncated &&
+        (/^Unterminated /.test(err.message) || candText.length - raisedAt <= TRUNCATION_MARGIN);
       if (cutOff) unresolved.push({ start: candStart, message: err.message });
       continue;
     }
+    // Safe to compare now: the single-byte check above established that these two
+    // offsets are in the same units.
     if (parsed.end <= anchor - candStart) continue; // closes before the anchor
-    // Here `candText` IS decoded utf8, so fragment contents come out as real
-    // strings — but that makes acorn's offsets char-based while `anchor`/`candStart`
-    // are byte-based. They agree only while the region is single-byte throughout, so
-    // check rather than assume; a mismatch makes the comparison just made, and every
-    // offset after it, meaningless.
-    if (Buffer.byteLength(candText.slice(0, parsed.end)) !== parsed.end) {
-      throw new Error(
-        `the function at byte ${candStart} contains non-ASCII source bytes, so parser offsets ` +
-          "no longer line up with binary offsets — reconcile manually",
-      );
-    }
     enclosing.push({ start: candStart, text: candText, fn: parsed });
   }
 

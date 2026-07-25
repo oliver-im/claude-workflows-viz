@@ -153,14 +153,34 @@ tests. Two enclosing candidates is therefore a "reconcile manually", not a
 tie-break.
 
 "Exactly one" only proves uniqueness if every candidate was actually *measured*, so a
-candidate the parse window cut off voids the claim as well. Those are told apart from
-genuine non-functions by where acorn raised, not by the message: a truncated function
-errors at the very end of its window, a `function` keyword inside a string errors near
-the start. At cc-2.1.220 the separation is four orders of magnitude — every real
-failure raises ≥520,000 characters from the end of a 512 KB window — so an
-unmeasurable candidate is a loud failure rather than a silently skipped one. This
-matters because skipping it is precisely how a too-large outer builder would leave a
-nested helper as the false sole survivor.
+candidate that could not be is recorded rather than skipped — skipping is precisely
+how a too-large outer builder would leave a nested helper as the false sole survivor.
+Three ways a candidate goes unmeasurable, each caught before the count:
+
+- **Cut off by the parse window.** Position tells these apart from genuine
+  non-functions: a truncated function errors at the very end of its window, a
+  `function` keyword inside a string errors near the start. At cc-2.1.220 that gap is
+  four orders of magnitude — every real failure raises ≥520,000 characters from the
+  end of a 512 KB window.
+- **Cut off inside a block comment.** The exception that breaks position: acorn's
+  `skipBlockComment` looks ahead for `*/` and raises with the cursor still at the
+  comment's *opening*, so this reads as "errored early". The error *kind* separates it
+  — every such failure is an `Unterminated …`, which no genuine non-function here
+  produces (all 87 are `Unexpected token`).
+- **Carrying non-ASCII source.** acorn's offsets are character-based, the anchor's is
+  byte-based. They agree only while the region is single-byte, so that is established
+  *before* the two are compared — otherwise enough raw multibyte text ahead of the
+  anchor would make a genuinely enclosing function look like it closes early.
+
+**One hole stays open, and is documented rather than papered over.** A function that
+encloses the anchor but *starts* before the 1 MB back window is never enumerated, so
+it is neither enclosing nor unresolved, and a nested helper inside it can pass as the
+sole candidate. Closing that would mean proving no function begins before an arbitrary
+point, which needs a known-safe lexical boundary that a 250 MB minified single-file
+bundle does not offer. What bounds it: such a function must span over a megabyte, and
+on any re-capture the drift gate prints baseline vs current byte counts, so a narrowed
+artifact appears as a large unexplained drop in front of the human doing the reconcile.
+The real exposure is a first capture taken just after upstream restructures this code.
 
 `ts/__tests__/capture-grammar.test.ts` drives all of this against crafted fixtures,
 since the real binary only exists on a machine with Claude Code installed and cannot
