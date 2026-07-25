@@ -28,7 +28,7 @@ export const meta = {
       title: "Verify and bank the survivors",
       detail:
         "Confirm each fresh bug actually reproduces, drop the false positives, and add what's left to the running ledger.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Stop when the well runs dry",

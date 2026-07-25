@@ -51,7 +51,7 @@ export interface Block {
 
 // ---------------------------------------------------------------------------
 // Model → color, adapted from planview's mermaid classDefs. Matched by
-// substring so a full model id (e.g. "claude-opus-4-8") still resolves; an
+// substring so a full model id (e.g. "claude-opus-5") still resolves; an
 // unrecognized model falls back to a neutral slate swatch.
 // ---------------------------------------------------------------------------
 

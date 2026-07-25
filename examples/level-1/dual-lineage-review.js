@@ -29,7 +29,7 @@ export const meta = {
       title: "Claude review",
       detail:
         "A Claude reviewer reads the diff for correctness, security, and convention drift, reporting each finding with file:line and a confidence.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "External review",

@@ -32,7 +32,7 @@ export const meta = {
       title: "Refute in parallel",
       detail:
         "Spawn skeptics on distinct lenses — correctness, security, regressions — each told to break the patch and to default to rejecting it.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Ship or bounce",

@@ -2,7 +2,7 @@ The following is 100% written by a human.
 
 > claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with execution steps and agent topology.
 
-![Anatomy of a claude-workflows-viz diagram — the meta block, phase table, and inferred agent graph, keyed to an Anatomy legend](examples/level-1/review-pr.annotated.png)
+![Anatomy of a claude-workflows-viz diagram — the meta block, phase table, and inferred agent graph, keyed to an Anatomy legend](examples/level-2/review-pr.annotated.png)
 
 ## Install
 

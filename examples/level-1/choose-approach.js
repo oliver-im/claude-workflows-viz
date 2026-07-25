@@ -29,7 +29,7 @@ export const meta = {
       title: "Judge pairwise",
       detail:
         "Every match pits two approaches on the same rubric; the judge picks the stronger and names the single deciding factor.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Advance the bracket",

@@ -370,7 +370,7 @@ function renderParallelLaneCell(members: LaneMember[], detailByTitle: Map<string
   return { body: rules + cells.map((c) => c.body).join(""), height };
 }
 
-/** A model's short family name for a cramped sub-cell ("claude-opus-4-8" →
+/** A model's short family name for a cramped sub-cell ("claude-opus-5" →
  *  "opus"); an unrecognized id is returned verbatim (the caller truncates).
  *  Keyed off `MODEL_SWATCHES` — the same table `swatchFor` matches on — so a new
  *  model family gets its color and its short name from one edit. */

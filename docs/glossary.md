@@ -209,7 +209,7 @@ table in §C maps one to the other.
 ## D. Diagram anatomy (the annotated hero)
 
 `scripts/annotate-anatomy.mjs` overlays keyed coral pins on the committed
-`examples/level-1/review-pr` render to label the parts of a diagram. Every pin
+`examples/level-2/review-pr` render to label the parts of a diagram. Every pin
 resolves to a term defined above — the legend *is* this glossary, not free prose.
 The hero shows all pins under one **Anatomy** legend; the terms still fall in two
 families (mirroring §A vs the graph it produces), listed separately here:
@@ -226,7 +226,7 @@ families (mirroring §A vs the graph it produces), listed separately here:
 | F | `phases[].model` |
 | G | `phases` (the array) |
 
-**Topology anatomy — the body graph (pins H–K)**
+**Topology anatomy — the body graph (pins H–L)**
 
 | Pin | Term | Points at | Defined in |
 | --- | --- | --- | --- |
@@ -234,11 +234,18 @@ families (mirroring §A vs the graph it produces), listed separately here:
 | I | shape | the fork hub — here a **fan-out** | §A "two shapes", §B **shape** |
 | J | label | the node's caption — here `review:correctness` | §A `agent()` options → `label` |
 | K | multiplicity | the `×N` badge — count unknown until runtime | §B `Multiplicity` `unknown` |
+| L | effort | the muted tier badge left of a node — here `low` | §A `agent()` options → `effort` |
 
-The four pins are the graph's whole vocabulary at one altitude: **node** (the
+The five pins are the graph's whole vocabulary at one altitude: **node** (the
 atom), **shape** (how nodes compose — fan-out here, else branches / barrier /
 loop / …), **label** (the node's caption), **multiplicity** (the `×N` badge here
-— count unknown until runtime). **stage** (§A) is
+— count unknown until runtime), **effort** (the reasoning tier, mirrored opposite
+the `×N`). L points at the *last* node, not the first: every node's badge sits in
+its top-left corner, so a box drawn around the first node would clip it, and only
+the bottom of the graph leaves a left-side pin clear canvas. The **mapping agent
+sets no effort at all** — omitted means "inherit the session tier", and the hero
+deliberately shows that absence drawing nothing rather than a placeholder.
+**stage** (§A) is
 deliberately *not* pinned — in `review-pr` each pipeline stage lines up 1:1 with a
 **phase**, so the phase bands already name it; a stage pin earns its place only
 where stages and phases diverge.

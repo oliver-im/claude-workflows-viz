@@ -113,7 +113,9 @@ describe("analyzer corpus invariant", () => {
 
 describe("per-example structure", () => {
   it("review-pr: agent → pipeline(named dims; expanded review:*; nested verify fan-out) → agent", () => {
-    const t = analyzeExample("review-pr.js");
+    // The one named example not under level-1: it is the README hero, which is
+    // kept at the newest grammar level (see examples/README.md).
+    const t = analyzeRel("level-2/review-pr.js");
     expect(t.steps.map((s) => s.kind)).toEqual(["agent", "pipeline", "agent"]);
 
     const pipe = t.steps[1] as PipelineStep;

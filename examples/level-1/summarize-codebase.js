@@ -32,7 +32,7 @@ export const meta = {
       title: "Synthesize the overview",
       detail:
         "Merge the per-module summaries into one architecture doc: a dependency sketch, the real entry points, and where a newcomer should start.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
   ],
 };

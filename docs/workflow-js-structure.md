@@ -194,7 +194,7 @@ Mapping the body to what gets drawn (render: `examples/level-1/choose-approach.p
 | --- | --- | --- |
 | `phase("Draft the contenders")` | sets band 0 | green lane "1 Draft the contenders", `sonnet` badge (from `meta`) |
 | `parallel(PRIORITIES.map(p => () => agent(`draft:${p}`)))` | `parallel` `fanout`, `named` ×4 | hub → 4 agent circles `draft:simplest…fastest to ship` → coral **barrier** |
-| `phase("Judge pairwise")` | sets band 1 | purple lane, `claude-opus-4-8` badge |
+| `phase("Judge pairwise")` | sets band 1 | purple lane, `claude-opus-5` badge |
 | `while (bracket.length > 1) { for (…) { agent("…", {label:"match:…"}) } }` | `loop`(while) ▷ `loop`(for) ▷ `AgentStep` | one `match:${i / 2}` node + **two stacked ↻ badges** (`for i < bracket.length`, `while bracket.length > 1`) |
 | `log(…)` only; *no* `phase("Advance the bracket")` in the body | — (band 2 is `meta`-only, no orchestration) | **slim empty strip** "3 Advance the bracket", *control only*, no badge; the spine edge passes straight through it |
 | `phase("Write up the winner")` + `agent("Document…")` | sets band 3 + `AgentStep` | blue lane, `haiku` badge, one `Document the winning approach:…` node |

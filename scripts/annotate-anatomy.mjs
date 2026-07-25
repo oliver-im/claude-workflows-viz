@@ -14,11 +14,11 @@ import { Resvg } from "@resvg/resvg-js";
  * not its width, so the base render stays full-width (legible when embedded) and
  * the legend gets the whole canvas width to breathe.
  *
- * Pins A–K fall in two families (documented in docs/glossary.md §D), listed in one
+ * Pins A–L fall in two families (documented in docs/glossary.md §D), listed in one
  * card with a thin divider between them:
  *   - META (A–G): the declarative header + phase table — what the `meta` block says.
- *   - BODY (H–K): the graph analyze-body read out of the imperative half —
- *     node / shape / label / multiplicity.
+ *   - BODY (H–L): the graph analyze-body read out of the imperative half —
+ *     node / shape / label / multiplicity / effort.
  *
  * Coordinates are LITERAL (tuned by eye against the base SVG), not computed: keep
  * it dumb, re-tune when the base render moves. The topology boxes live in the
@@ -39,9 +39,9 @@ import { Resvg } from "@resvg/resvg-js";
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const base = join(root, "examples/level-1/review-pr.svg");
-const outSvg = join(root, "examples/level-1/review-pr.annotated.svg");
-const outPng = join(root, "examples/level-1/review-pr.annotated.png");
+const base = join(root, "examples/level-2/review-pr.svg");
+const outSvg = join(root, "examples/level-2/review-pr.annotated.svg");
+const outPng = join(root, "examples/level-2/review-pr.annotated.png");
 
 /**
  * sha256 of the base SVG the pin literals below were last tuned against. This is
@@ -53,7 +53,7 @@ const outPng = join(root, "examples/level-1/review-pr.annotated.png");
  * --retune` (which skips this check and prints the new hash), look at the PNG,
  * adjust the literals until the pins land, then paste the printed hash here.
  */
-const TUNED_AGAINST_BASE_SHA256 = "b4d699b35a9ee7029449d036dcd1accf5e2598c12c042f7be2211ed639d56319";
+const TUNED_AGAINST_BASE_SHA256 = "865a7abc061efca652825e00009e7a8efef25371e64c610a9d4c6b13d15a0b69";
 
 const ACCENT = "#c94f32";
 const INK = "#0f172a";
@@ -94,9 +94,16 @@ const annotations = [
   // shown here (shape→fan-out, multiplicity→the ×N/unknown case). `stage` is NOT pinned:
   // in review-pr each pipeline stage lines up 1:1 with a phase (glossary §D).
   { group: "topo", x: 630, y: 225, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
-  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
+  // Pinned on the RIGHT: the left gutter of the fan is where the outer member's
+  // effort badge sits, and a left pin lands on top of it.
+  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "r", sub: "orchestration strategies such as fan-out, branches, loop" },
   { group: "topo", x: 464, y: 408, w: 110, h: 17, label: "label", pinAt: "l" },
   { group: "topo", x: 655, y: 485, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
+  // The badge left of the LAST node, not the first: the first node's badge sits
+  // inside H's box, and the bottom of the graph is the only place a left-side pin
+  // has clear canvas. Box stops at x=634 — the badge's own right edge — so it
+  // never bites into the circle that starts at 635.
+  { group: "topo", x: 610, y: 618, w: 24, h: 16, label: "effort", pinAt: "l", sub: "reasoning tier for this agent() call" },
 ];
 
 const PIN_NUDGE = 12; // clears the box without pushing left-side pins outside the canvas

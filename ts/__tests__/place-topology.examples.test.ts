@@ -159,7 +159,9 @@ describe("placeTopology — corpus composition", () => {
   });
 
   it("review-pr: all four lanes carry graph (the verify fan lands in 'Adversarially verify', not a strip)", () => {
-    const layout = place("review-pr.js");
+    // The one named example not under level-1: it is the README hero, which is
+    // kept at the newest grammar level (see examples/README.md).
+    const layout = placeRel("level-2/review-pr.js");
     expect(layout.lanes).toHaveLength(4);
     expect(layout.lanes.every((l) => !l.empty)).toBe(true);
     const verifyLane = layout.lanes.findIndex((l) => l.title === "Adversarially verify");

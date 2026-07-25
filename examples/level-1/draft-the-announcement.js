@@ -29,7 +29,7 @@ export const meta = {
       title: "Score on the panel",
       detail:
         "A panel of judges scores all drafts at once, each judge ranking them on one rubric lens — clarity, credibility, memorability — so no single taste decides the winner.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Synthesize the winner",

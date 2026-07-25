@@ -26,7 +26,7 @@ export const meta = {
       title: "Filter by rubric and dedupe",
       detail:
         "Score every name on clarity, memorability, and availability, collapse near-duplicates, and discard everything below the bar.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Shortlist the best",

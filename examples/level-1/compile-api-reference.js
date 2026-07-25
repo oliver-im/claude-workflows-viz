@@ -29,7 +29,7 @@ export const meta = {
       title: "Critique and fill the gaps",
       detail:
         "A critic names what's missing — an undocumented param, an unlisted error, a stale example — and a writer fills each gap; repeat until the critic finds nothing left.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Assemble the reference",

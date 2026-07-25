@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 /**
  * Anatomy-hero drift guard.
  *
- * The README hero (`examples/level-1/review-pr.annotated.png`) is built by
+ * The README hero (`examples/level-2/review-pr.annotated.png`) is built by
  * `scripts/annotate-anatomy.mjs`, which overlays lettered pins on the committed
  * `review-pr` render. Its pin coordinates are LITERALS tuned by eye — nothing
  * computes them from the base — so if the base render moves, the pins quietly
@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const scriptPath = join(root, "scripts", "annotate-anatomy.mjs");
-const basePath = join(root, "examples", "level-1", "review-pr.svg");
+const basePath = join(root, "examples", "level-2", "review-pr.svg");
 
 describe("anatomy hero is tuned against the current base render", () => {
   it("annotate-anatomy.mjs pins the base SVG it was tuned against", () => {
@@ -40,7 +40,7 @@ describe("anatomy hero is tuned against the current base render", () => {
     const actual = createHash("sha256").update(readFileSync(basePath)).digest("hex");
     expect(
       declared![1],
-      "examples/level-1/review-pr.svg has changed since the anatomy pins were tuned, so the " +
+      "examples/level-2/review-pr.svg has changed since the anatomy pins were tuned, so the " +
         "README hero's pins may no longer point at what they name. Run " +
         "`node scripts/annotate-anatomy.mjs --retune`, verify every pin in the output, then " +
         "paste the printed hash into TUNED_AGAINST_BASE_SHA256.",

@@ -78,7 +78,10 @@ to `'general-purpose'`, and a new Resume-section sentence about reading
 
 Corpus: [`examples/level-2/tier-the-effort.js`](../examples/level-2/tier-the-effort.js)
 — an effort-tiered triage pipeline (skim `low` → root-cause `max` → cross-examine
-`high` → digest `low`).
+`high` → digest `low`) — and [`examples/level-2/review-pr.js`](../examples/level-2/review-pr.js),
+**promoted** from level 1 for this level. The README hero always sits at the newest
+level, so minting one means teaching the hero its new construct and moving it, not
+just adding a sample beside it; that promotion is part of the ritual below.
 
 #### Re-captures (same level)
 
@@ -144,7 +147,11 @@ move with no signal to us. The reconciliation ritual is how we catch that.
        recognizer's level. After minting level N, add an `examples/level-N/` directory
        whose specimens showcase the new constructs (stamped `Grammar level: N`) — so the
        corpus becomes a versioned record of how the grammar, and its renders, change over
-       time, and the lock above stays green.
+       time, and the lock above stays green. Finally **promote the README hero**
+       (`review-pr.js`) to level N as well — the front page advertises the current
+       vocabulary, not a subset of it — which means teaching it the new construct,
+       `git mv`-ing it and its four renders, repointing the paths listed in `AGENTS.md`,
+       and re-tuning the anatomy pins against the moved base.
    - **Anchors moved** (the capture can't find the prose start/end or a named
      interface) → it fails loud with a "reconcile manually" message; the extraction
      itself needs attention before a hash comparison is even meaningful.
