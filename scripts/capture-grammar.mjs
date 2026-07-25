@@ -283,7 +283,7 @@ function captureAgentProse(ccDir) {
   const anchor = hits[0];
 
   // The builder's name is minifier-generated (`mvd` at cc-2.1.220), so it cannot be
-  // anchored on. Walk back from the prose over every `function <ident>(` in range
+  // anchored on. Walk back from the prose over every `function` keyword in range
   // instead — stable under renames, since only the shape is matched — and let acorn
   // measure each one. Its lexer already knows strings, template nesting, regex
   // literals, and comments, all of which a hand-rolled brace scan would have to
@@ -297,8 +297,8 @@ function captureAgentProse(ccDir) {
   // valid manifest, passing tests — just short. So instead: find EVERY candidate that
   // encloses the anchor and require exactly one. Two means the anchor sits in a
   // nested function and we cannot tell which is the description; that is a
-  // "reconcile manually", not a guess. (939 candidates in the window at cc-2.1.220,
-  // exactly one enclosing, ~110ms — cheap enough to check rather than assume.)
+  // "reconcile manually", not a guess. (1069 candidates in the window at cc-2.1.220,
+  // exactly one enclosing, ~120ms — cheap enough to check rather than assume.)
   //
   // The window is decoded latin1, NOT utf8: candidate offsets are used as byte
   // offsets into `buf`, and latin1 is the only decoding where one char is exactly one
@@ -306,20 +306,34 @@ function captureAgentProse(ccDir) {
   // surrounding bundle is pure ASCII — a property of what the minifier put nearby,
   // not a guarantee; one literal non-ASCII byte would shift every offset after it.)
   // The pattern is ASCII-only, so it matches identically either way.
-  // KNOWN LIMIT, stated plainly because it is the one hole the checks below do NOT
-  // close. A function that encloses the anchor but *starts* before `winStart` is
-  // never enumerated, so it lands in neither `enclosing` nor `unresolved`; if a
-  // nested helper inside it starts within the window, that helper is the sole
-  // enclosing candidate and is accepted. That narrowing is silent.
+  // KNOWN LIMIT, stated plainly because it is the one shape the checks below do NOT
+  // close. Enumeration finds `function`-keyword forms that START inside the window,
+  // so an enclosing construct that is neither — either a function beginning before
+  // `winStart`, or an arrow function / class or object method, which have no
+  // `function` keyword to match — is never enumerated. It lands in neither
+  // `enclosing` nor `unresolved`, and if a nested `function` inside it starts within
+  // the window, that one is the sole enclosing candidate and is accepted. That
+  // narrowing is silent.
   //
-  // It is not cheaply fixable: proving no enclosing function begins before an
-  // arbitrary point means scanning back to a known-safe lexical boundary, and a
-  // 250MB single-file minified bundle offers none. What bounds the risk is that such
-  // a function must span from before `winStart` past the anchor — over a megabyte of
-  // one function — and that on any RE-capture the drift gate prints baseline vs
-  // current byte counts, so a narrowed artifact shows up as a large unexplained drop
-  // that the reconcile ritual puts in front of a human. The exposure is a first
-  // capture taken right after upstream restructures this code.
+  // Neither half is cheaply fixable. Proving no enclosing function begins before an
+  // arbitrary point means scanning back to a known-safe lexical boundary, and a 250MB
+  // single-file minified bundle offers none; enumerating arrows and methods means
+  // matching `(a,b)=>{` and `name(a){`, shapes so common in minified code that the
+  // candidate list would be dominated by decoys whose parse failures this routine
+  // would then have to classify.
+  //
+  // What bounds the risk: the enclosing construct has to be big. A pre-window
+  // function must span from before `winStart` past the anchor — over a megabyte of
+  // one function — and an arrow or method must still contain both the anchor and a
+  // nested named function, i.e. be a builder written in a form upstream does not use
+  // for this code today (`async function mvd`). What exposes it: on any RE-capture
+  // the artifact's sha256 is compared against the committed baseline, so a narrowed
+  // capture almost certainly reads as drift and lands in the reconcile ritual in
+  // front of a human — though drift alone does not say *narrowing*, and the byte
+  // count that prints alongside it need not fall by much, since a mistakenly chosen
+  // helper can hold most of the prose. The uncovered case is a FIRST capture taken
+  // right after upstream restructures this code, where there is no baseline to differ
+  // from.
   const BACK_WINDOW = 1024 * 1024; // ~100× the cc-2.1.220 builder (8.8KB back, 16KB long)
   const AHEAD_WINDOW = 512 * 1024;
   // How close to the end of a parse window an error must be raised to read as
@@ -328,9 +342,34 @@ function captureAgentProse(ccDir) {
   const winStart = Math.max(0, anchor - BACK_WINDOW);
   const before = buf.subarray(winStart, anchor).toString("latin1");
 
+  // All four `function`-keyword forms, because every one of them can enclose the
+  // anchor and a form that is not enumerated is not merely missed — it leaves a
+  // nested helper inside it as the sole survivor of the uniqueness check, which is
+  // the silent narrowing this whole routine exists to prevent:
+  //
+  //   - `async` prefix. NOT optional in practice: at cc-2.1.220 the builder is
+  //     `async function mvd(e,t,r)`. Starting the match at the `function` keyword
+  //     drops the prefix and re-parses the body without it, which measures the right
+  //     extent today only because that body happens to contain no `await` — one
+  //     `await` upstream turns it into an "Unexpected token" raised far from the
+  //     window end, i.e. indistinguishable by position from a `function` inside a
+  //     string. (No line break allowed before `function`, per the grammar's
+  //     `async [no LineTerminator] function`: `async\nfunction f(){}` really is a
+  //     plain declaration, and matches as one.)
+  //   - `*`, for generators: `function\s+` cannot cross it, so `function* f(` was
+  //     never a candidate at all.
+  //   - No name, for anonymous function expressions — 130 of them in this window.
+  //
+  // `\b` on both sides so `myfunction(` and `functionfoo(` are not read as keywords.
+  // Verified against cc-2.1.220 that this strictly dominates the older
+  // `function\s+<ident>\s*\(`: the same single enclosing function (6 bytes longer —
+  // the `async `), zero candidates lost, 130 gained, and 84 fewer unexplained parse
+  // failures, those being async functions re-parsed without their prefix.
+  const FUNCTION_KEYWORD = /(?:\basync[^\S\r\n]+)?\bfunction\b\s*\*?\s*[A-Za-z0-9_$]*\s*\(/g;
+
   const enclosing = [];
   const unresolved = [];
-  for (const m of before.matchAll(/function\s+[A-Za-z0-9_$]+\s*\(/g)) {
+  for (const m of before.matchAll(FUNCTION_KEYWORD)) {
     const candStart = winStart + m.index;
     const candEnd = Math.min(buf.length, candStart + AHEAD_WINDOW);
     const candText = buf.subarray(candStart, candEnd).toString("utf8");
@@ -356,26 +395,26 @@ function captureAgentProse(ccDir) {
     try {
       parsed = acorn.parseExpressionAt(candText, 0, { ecmaVersion: "latest" });
     } catch (err) {
-      // Most candidates are not functions at all — a `function` keyword inside a
-      // string literal, a method shorthand — and those fail immediately. But a
-      // candidate can also fail because its body ran past AHEAD_WINDOW, and THAT one
-      // matters: skipping it discards a function we could not measure, and if it was
-      // the outer builder, the nested helper inside it becomes the only survivor and
-      // the "exactly one" check below waves through the very narrowing it exists to
+      // Some candidates are not functions at all — a `function` keyword inside a
+      // string literal or a comment — and those fail immediately. But a candidate can
+      // also fail because its body ran past AHEAD_WINDOW, and THAT one matters:
+      // skipping it discards a function we could not measure, and if it was the outer
+      // builder, the nested helper inside it becomes the only survivor and the
+      // "exactly one" check below waves through the very narrowing it exists to
       // prevent.
       //
       // Two independent tests, because neither alone is sufficient:
       //
       //   - Position. A cut-off string, template, regex, or plain run-out errors at
       //     the window's very end, while a genuine non-function errors near its
-      //     start. At cc-2.1.220 that is not a close call: all 87 real failures raise
-      //     ≥520,000 chars from the end of a 512KB window.
+      //     start. At cc-2.1.220 that is not a close call: all 3 real failures raise
+      //     ≥523,000 chars from the end of a 512KB window.
       //   - Message. A cut-off BLOCK COMMENT is the exception that breaks position:
       //     acorn's `skipBlockComment` looks ahead for `*/` with indexOf and raises
       //     with the cursor still at the comment's opening, so a comment starting
       //     more than a margin back reads as "errored early" — i.e. as a non-function.
       //     Every such error is an `Unterminated …`, which no genuine failure here
-      //     produces (all 87 are `Unexpected token`), so the kind is a safe test where
+      //     produces (all 3 are `Unexpected token`), so the kind is a safe test where
       //     the position is not.
       const raisedAt = err.raisedAt ?? err.pos ?? 0;
       const cutOff =

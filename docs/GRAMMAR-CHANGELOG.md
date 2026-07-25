@@ -142,9 +142,17 @@ name says so, because a file called `agent-tool-description.txt` would read as a
 rendered description, and it is not one.
 
 Finding the builder is where this could go quietly wrong, so it refuses instead of
-guessing. Its name is minified, so the capture walks back over *every*
-`function <ident>(` within 1 MB of the anchor, parses each, and requires that
-**exactly one** encloses the anchor. Taking the nearest match would be the obvious
+guessing. Its name is minified, so the capture walks back over *every* `function`
+keyword within 1 MB of the anchor, parses each, and requires that **exactly one**
+encloses the anchor. All four keyword forms count — an `async` prefix, a generator
+`*`, and an omitted name — because a form that is not enumerated is not merely
+missed: whatever named function sits inside it becomes the sole survivor of the
+uniqueness check. That is not theoretical. At cc-2.1.220 the builder is
+`async function mvd(e,t,r)`, and an earlier pattern that started at the `function`
+keyword dropped the `async` and re-parsed the body without it; that measures the
+right extent today only because the body happens to contain no `await`, and one
+`await` upstream would have turned it into an ordinary-looking parse failure.
+Taking the nearest match would be the obvious
 shortcut and fails silently: if upstream ever nests the anchor-bearing fragment in a
 helper while other literals stay in the outer builder, the nearest match is that
 helper, and the capture inventories a subtree — yielding an artifact that is short
@@ -160,27 +168,43 @@ Three ways a candidate goes unmeasurable, each caught before the count:
 - **Cut off by the parse window.** Position tells these apart from genuine
   non-functions: a truncated function errors at the very end of its window, a
   `function` keyword inside a string errors near the start. At cc-2.1.220 that gap is
-  four orders of magnitude — every real failure raises ≥520,000 characters from the
+  four orders of magnitude — every real failure raises ≥523,000 characters from the
   end of a 512 KB window.
 - **Cut off inside a block comment.** The exception that breaks position: acorn's
   `skipBlockComment` looks ahead for `*/` and raises with the cursor still at the
   comment's *opening*, so this reads as "errored early". The error *kind* separates it
   — every such failure is an `Unterminated …`, which no genuine non-function here
-  produces (all 87 are `Unexpected token`).
+  produces (all 3 are `Unexpected token`).
 - **Carrying non-ASCII source.** acorn's offsets are character-based, the anchor's is
   byte-based. They agree only while the region is single-byte, so that is established
   *before* the two are compared — otherwise enough raw multibyte text ahead of the
   anchor would make a genuinely enclosing function look like it closes early.
 
-**One hole stays open, and is documented rather than papered over.** A function that
-encloses the anchor but *starts* before the 1 MB back window is never enumerated, so
-it is neither enclosing nor unresolved, and a nested helper inside it can pass as the
-sole candidate. Closing that would mean proving no function begins before an arbitrary
-point, which needs a known-safe lexical boundary that a 250 MB minified single-file
-bundle does not offer. What bounds it: such a function must span over a megabyte, and
-on any re-capture the drift gate prints baseline vs current byte counts, so a narrowed
-artifact appears as a large unexplained drop in front of the human doing the reconcile.
-The real exposure is a first capture taken just after upstream restructures this code.
+**One shape stays open, and is documented rather than papered over.** Enumeration
+finds `function`-keyword forms that *start inside* the window, so an enclosing
+construct that is neither — a function beginning before the 1 MB back window, or an
+arrow function / class or object method, which have no `function` keyword to match —
+is never enumerated. It is neither enclosing nor unresolved, and a nested function
+inside it can pass as the sole candidate.
+
+Neither half is cheap to close. Ruling out a pre-window function means proving none
+begins before an arbitrary point, which needs a known-safe lexical boundary that a
+250 MB minified single-file bundle does not offer; enumerating arrows and methods
+means matching `(a,b)=>{` and `name(a){`, shapes so common in minified code that the
+candidate list would be swamped by decoys whose parse failures would then have to be
+classified — trading a narrow silent hole for a wide noisy one.
+
+What bounds it is that the enclosing construct has to be big: a pre-window function
+must span over a megabyte, and an arrow or method must hold both the anchor and a
+nested named function, i.e. be a builder written in a form upstream does not use here
+today. What exposes it is that re-capture compares the artifact's sha256 against the
+committed baseline, so a narrowed capture almost certainly reads as drift and reaches
+the human doing the reconcile. That is a real backstop but not a precise one: drift
+says the bytes moved, not that they *narrowed*, and the byte count printed beside it
+need not fall by much, since a mistakenly chosen helper can still hold most of the
+prose — treat it as a prompt to look, not as a detector. The uncovered case is a
+first capture taken just after upstream restructures this code, where there is no
+baseline to differ from at all.
 
 `ts/__tests__/capture-grammar.test.ts` drives all of this against crafted fixtures,
 since the real binary only exists on a machine with Claude Code installed and cannot
