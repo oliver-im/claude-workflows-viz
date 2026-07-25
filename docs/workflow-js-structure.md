@@ -14,7 +14,7 @@ authority for it: `ts/extract-meta.ts` (the `meta` block) and
 > security spine of the whole tool.
 
 > **Grammar provenance.** The recognizer supports grammar level **≤ 2**, reconciled
-> against `cc-2.1.219` on 2026-07-24. Upstream snapshots live in
+> against `cc-2.1.220` on 2026-07-25. Upstream snapshots live in
 > [`spec/upstream/`](../spec/upstream/); the level ledger — what each level pins and
 > how a bump is minted — is [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md). When the
 > grammar drifts, [§5 Maintenance](#5-maintenance-what-a-grammar-change-touches) is

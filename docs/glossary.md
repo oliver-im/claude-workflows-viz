@@ -16,7 +16,7 @@ table in §C maps one to the other.
 > grammar, which Claude Code owns and does not formally version. What that subset
 > is reconciled *against* — the pinned upstream baseline — lives in
 > [`spec/upstream/`](../spec/upstream/), named with a grammar level in
-> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.219`).
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.220`).
 > The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see

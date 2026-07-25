@@ -80,6 +80,23 @@ Corpus: [`examples/level-2/tier-the-effort.js`](../examples/level-2/tier-the-eff
 — an effort-tiered triage pipeline (skim `low` → root-cause `max` → cross-examine
 `high` → digest `low`).
 
+#### Re-captures (same level)
+
+| Capture | Bytes | sha256 (`workflow-tool-description.txt`) | Why it stays level 2 |
+| --- | --- | --- | --- |
+| [`cc-2.1.220`](../spec/upstream/2026-07-25-cc-2.1.220/) (2026-07-25) | 19581 | `54a255eba06f67ac…` | Four minifier identifier renames inside the prose's interpolations (`${fj_}`→`${bj_}`, `${uj_}`→`${gj_}`, `${dj_}`→`${_j_}`, `${pj_}`→`${yj_}`). Each is 3 characters, so the byte count is unchanged and only the hash moved. Normalize every `${…}` to a placeholder and the two captures are byte-identical; the input schema is untouched. No vocabulary change, so the recognizer is unaffected. |
+
+`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.220`), not the version the
+level was minted at (`2.1.219`) — the level is the primary key, the version is
+provenance.
+
+> **Known noise.** The gate hashes a *minified* artifact, so any release that
+> reshuffles those identifiers trips it with nothing to reconcile. Hashing a
+> normalized form (every `${identifier}` collapsed to one placeholder) would make the
+> check signal-only, at the cost of no longer detecting a change that is *purely* an
+> interpolation swap — which by construction carries no grammar meaning. Not done yet;
+> noted here so the next re-capture of this kind isn't re-diagnosed from scratch.
+
 *Not a grammar change, landed alongside:* the Claude 5 family added a fourth model,
 so `fable` joined `opus`/`sonnet`/`haiku` in the swatch table. Model names are not
 part of the captured grammar (`opts.model` is an unenumerated string in the prose;

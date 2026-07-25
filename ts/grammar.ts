@@ -118,7 +118,7 @@ export const RECOGNIZER_LEVEL: GrammarLevel = 2;
  * `ts/__tests__/grammar.test.ts` pins it to the latest committed baseline so the
  * two can't silently diverge.
  */
-export const RECOGNIZER_LEVEL_CC = "2.1.219";
+export const RECOGNIZER_LEVEL_CC = "2.1.220";
 
 /**
  * Map every **wired** token to the grammar level that introduced it — the lookup
