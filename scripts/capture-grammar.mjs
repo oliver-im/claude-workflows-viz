@@ -57,12 +57,18 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_NAME = "@anthropic-ai/claude-code";
 
 /**
- * Is `dir` a usable claude-code package root? Both the right `package.json` AND
- * both capture artifacts must be present. Requiring the artifacts is what lets
- * the caller keep searching past a layout that identifies as the package but
- * can't be captured from — notably the native installer's
- * `~/.local/share/claude/versions/<ver>`, a single self-contained binary with no
- * `package.json` and no `sdk-tools.d.ts` at all.
+ * Is `dir` a usable claude-code package root? Three outcomes, which the callers
+ * distinguish: `null` (not this package at all — no/unreadable `package.json`, or
+ * a different name), `{dir, version, missing}` (the right package, but a capture
+ * artifact is absent), or `{dir, version}` (good).
+ *
+ * The `missing` case is deliberately reported rather than folded into `null`: a
+ * directory that IS the package but can't be captured from is a much more useful
+ * thing to say in the failure message than "not found". Layouts that ship the CLI
+ * without the package scaffolding — e.g. the native installer's
+ * `~/.local/share/claude/versions/<ver>`, a self-contained binary — never reach
+ * that check; they fail the `package.json` test on the first line and return
+ * `null`.
  */
 function readPackageAt(dir) {
   const pkgJson = join(dir, "package.json");

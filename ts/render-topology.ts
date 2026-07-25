@@ -446,10 +446,15 @@ function graphContentBounds(
     // badge hanging off the left, and the label.
     ext(n.x - n.r, n.x + n.r + (n.mult !== undefined ? 2 : 0));
     if (n.mult !== undefined) ext(n.x, n.x + n.r + 1 + estTextW(n.mult, BADGE_FONT));
-    // Right-anchored at `x − r − 1`, so it grows leftward from there.
+    // Right-anchored at `x − r − 1`, so it grows leftward from there. Drawn with
+    // `knockoutText`, so — like every other haloed quantity here — its bound
+    // carries the halo's half-width on both edges; measuring the plain text
+    // alone lets the stroke overhang the packed page (the bug e1b2f6f fixed for
+    // the decision, loop, and control-arc labels).
     if (n.effort !== undefined) {
       const bx = n.x - n.r - 1;
-      ext(bx - estTextW(truncatePlain(n.effort, EFFORT_BADGE_MAX), BADGE_FONT - 1.5), bx);
+      const w = estTextW(truncatePlain(n.effort, EFFORT_BADGE_MAX), BADGE_FONT - 1.5);
+      ext(bx - w - LABEL_HALO_W / 2, bx + LABEL_HALO_W / 2);
     }
     if (n.label && (opts.showDerivedLabels || n.labelExplicit !== false)) {
       if (n.labelBelow === true) {

@@ -140,11 +140,12 @@ multiplexers and version managers shadow it with a wrapper script that lives
 elsewhere and re-execs the real CLI, and a wrapper's `realpath` is the wrapper, so
 walking up from it finds nothing. The capture script therefore tries three
 strategies in order: `CLAUDE_CODE_DIR` if set, then the walk-up from `PATH`, then
-`npm root -g`. A candidate only counts if it holds **both** capture artifacts, which
-is also what rules out the native installer's
-`~/.local/share/claude/versions/<ver>` — a self-contained binary with no
-`package.json` and no `sdk-tools.d.ts`. If all three miss, the error lists what was
-tried; set `CLAUDE_CODE_DIR` to the package root to settle it.
+`npm root -g`. A candidate only counts if it holds **both** capture artifacts, so a
+package directory that can't actually be captured from is reported as such instead of
+silently passing. (Layouts with no package scaffolding at all — the native
+installer's `~/.local/share/claude/versions/<ver>` is a self-contained binary — are
+rejected earlier, on the `package.json` test.) If all three miss, the error lists
+what was tried; set `CLAUDE_CODE_DIR` to the package root to settle it.
 
 > **Implemented.** `npm run check-grammar` (the `scripts/capture-grammar.mjs --check`
 > mode) re-captures from the installed package and compares each artifact's sha256
