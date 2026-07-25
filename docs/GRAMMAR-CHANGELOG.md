@@ -23,16 +23,28 @@ not as the key.)
 A level is minted from a **capture**, not from a Claude Code release number:
 
 1. **Capture.** `npm run capture-grammar` (`scripts/capture-grammar.mjs`) snapshots
-   the two artifacts that define the grammar's surface, read straight from the
-   locally installed package — nothing is executed:
+   the artifacts that define the grammar's surface, read straight from the locally
+   installed package — nothing is executed. They come in two pairs.
+
+   The **Workflow** tool — the authoring contract for a dynamic-workflow file:
    - **`workflow-tool-description.txt`** — the Workflow tool description prose (the
      authoring contract for `meta` / `agent` / `parallel` / `pipeline` / `phase`),
      extracted as text from the compiled `bin/claude.exe`.
    - **`workflow-input-schema.d.ts`** — the `WorkflowInput` / `WorkflowOutput`
      declarations sliced from the shipped `sdk-tools.d.ts`.
 
+   The **Agent** tool — the *subagent* surface an `agent()` call spawns onto
+   ([added 2026-07-25](#capture-surface--the-agent-tool-added-2026-07-25-no-level-change)):
+   - **`agent-tool-description.fragments.txt`** — the Agent tool description's prose
+     fragments. Not a verbatim slice: that description is *built*, not stored, so
+     this is an inventory (see the subsection below).
+   - **`agent-input-schema.d.ts`** — the `AgentInput` / `AgentOutput` declarations.
+
    The snapshot lands dated and version-stamped under
-   `spec/upstream/<YYYY-MM-DD>-cc-<version>/`, with a `manifest.json`.
+   `spec/upstream/<YYYY-MM-DD>-cc-<version>/`, with a `manifest.json`. Snapshots
+   predating an artifact simply lack it, and cannot be back-filled once that
+   install is gone; `ts/__tests__/grammar.test.ts` enforces the one rule that
+   matters — the capture surface may grow, never shrink.
 
 2. **Hash.** Each artifact is content-hashed (sha256); that hash is the fingerprint.
    The Claude Code version and capture date travel along as **provenance metadata**,
@@ -93,19 +105,60 @@ just adding a sample beside it; that promotion is part of the ritual below.
 level was minted at (`2.1.219`) — the level is the primary key, the version is
 provenance.
 
-> **Known noise.** The gate hashes a *minified* artifact, so any release that
-> reshuffles those identifiers trips it with nothing to reconcile. Hashing a
-> normalized form (every `${identifier}` collapsed to one placeholder) would make the
-> check signal-only, at the cost of no longer detecting a change that is *purely* an
-> interpolation swap — which by construction carries no grammar meaning. Not done yet;
-> noted here so the next re-capture of this kind isn't re-diagnosed from scratch.
+#### Capture surface — the Agent tool (added 2026-07-25, no level change)
+
+A workflow's `agent()` call spawns a **subagent**, so the Agent tool's surface is
+part of what a workflow *means*: `opts.agentType` resolves against that tool's
+registry, and `opts.model`'s enum lives in its `AgentInput`, not in `WorkflowInput`.
+Level 2's own closing footnote already leaned on that fact — and asserted it against
+an artifact the baseline never captured. That is also why `fable` reached us by
+accident rather than through the gate. Two artifacts close the hole:
+
+| Artifact | Bytes | sha256 |
+| --- | --- | --- |
+| `agent-tool-description.fragments.txt` | 17282 | `6c7c4751ca45e15b4000db617e7ae013be52b5b6061da84f1d0a82e23cc66ba6` |
+| `agent-input-schema.d.ts` | 4154 | `98f41956ca06800972e387697970192f9ca2365a981a34768985ec7b701d20de` |
+
+Captured into [`spec/upstream/2026-07-25-cc-2.1.220/`](../spec/upstream/2026-07-25-cc-2.1.220/),
+in place: it is the same install, now pinned more completely, and the two Workflow
+artifacts came back byte-identical. The two earlier snapshots predate this pair and
+can never be back-filled — those installs are gone.
+
+**This is not a level bump.** A level tracks the vocabulary a workflow *file* may
+use, and the recognizer learned nothing here; `requiredLevel ≤ recognizerLevel` is
+untouched. Widening what we *pin* is not widening what we *parse*.
+
+**Why `.fragments.txt` and not `-description.txt`.** The Agent tool description is
+not stored anywhere — a builder function assembles it from ~12 conditional fragments
+(fork vs. fresh agent, background vs. synchronous, plan tier, teammate context), so
+there is no string to slice, and which fragments apply depends on runtime state.
+Executing the builder to find out is not on the table. So the capture does what the
+renderer does with a workflow body: parse it (acorn), and report only what the source
+literally says — every string and template literal in source order, one per fragment,
+each `${…}` collapsed to a placeholder. Every variant is present; the conditions that
+select them are not. The name says so, because a file called `agent-tool-description.txt`
+would read as a rendered description, and it is not one.
+
+> **Known noise.** The Workflow prose is hashed *raw* and minified, so any release
+> that reshuffles the identifiers inside its `${…}` trips the gate with nothing to
+> reconcile (see the re-capture row above). The Agent prose is immune by
+> construction — collapsing every interpolation is exactly the normalization
+> proposed here, and it had to happen there because that artifact is mostly *code*,
+> so a raw slice would churn on essentially every release. Retrofitting it to the
+> Workflow artifact is still open, and is deliberately not a free win: it would move
+> that artifact's bytes, and the two snapshots whose hashes it would invalidate
+> (cc-2.1.173, cc-2.1.219) can no longer be re-captured to match. The cost of the
+> normalization either way is not detecting a change that is *purely* an
+> interpolation swap — which by construction carries no grammar meaning.
 
 *Not a grammar change, landed alongside:* the Claude 5 family added a fourth model,
 so `fable` joined `opus`/`sonnet`/`haiku` in the swatch table. Model names are not
-part of the captured grammar (`opts.model` is an unenumerated string in the prose;
+part of the *workflow* grammar (`opts.model` is an unenumerated string in the prose;
 the `"sonnet" | "opus" | "haiku" | "fable"` enum lives in the **Agent** tool's
 `sdk-tools.d.ts` entry, not the Workflow tool's), so this earns no level — it is a
-rendering-fidelity fix, not a vocabulary change.
+rendering-fidelity fix, not a vocabulary change. That enum is no longer unpinned,
+though: it is captured as of the subsection above, so the next family to appear
+should reach `MODEL_SWATCHES` through the gate rather than by observation.
 
 ### Level 1 — baseline (`cc-2.1.173`, captured 2026-06-23)
 
@@ -177,7 +230,8 @@ what was tried; set `CLAUDE_CODE_DIR` to the package root to settle it.
 > disk) — exit **0** in sync, **non-zero** on any drift, and a loud failure if
 > `claude` isn't installed or an anchor moved.
 > As noted above, it runs only where the `claude` binary lives, never on a generic CI
-> runner. Its CC-independent companion — the lexicon ↔ recognizer consistency test
-> (`ts/__tests__/grammar.test.ts`, asserting the wired vocabulary still matches what the
-> recognizer dispatches) — needs no install, and so is the half that *does* run in
-> ordinary `vitest` CI.
+> runner. Its CC-independent companion is `ts/__tests__/grammar.test.ts`, which needs
+> no install and so is the half that *does* run in ordinary `vitest` CI: it asserts
+> the wired vocabulary still matches what the recognizer dispatches, **and** holds
+> every committed snapshot to its own manifest (bytes and sha256, in both directions)
+> so the baseline is verifiably reproducible offline rather than merely committed.

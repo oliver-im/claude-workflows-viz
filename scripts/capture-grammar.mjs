@@ -10,23 +10,34 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import * as acorn from "acorn";
 
 /**
- * Capture — and check — the upstream Claude Code workflow grammar: the language
- * this tool statically parses, which Claude Code owns and does not formally
- * version, read from the locally installed `@anthropic-ai/claude-code` package,
- * content-hashed and dated. Two artifacts define the grammar:
+ * Capture — and check — the upstream Claude Code grammar surface this tool
+ * statically parses, which Claude Code owns and does not formally version, read
+ * from the locally installed `@anthropic-ai/claude-code` package, content-hashed
+ * and dated. Four artifacts, in two pairs.
  *
- *   - the Workflow tool *description* prose (the `meta`/`agent`/`parallel`/
- *     `pipeline`/`phase` authoring contract), embedded as a plaintext template
- *     literal inside the compiled `bin/claude.exe`; and
- *   - the Workflow *input schema* (`WorkflowInput`/`WorkflowOutput`), shipped as
+ * The **Workflow** tool — the authoring contract for a dynamic-workflow file:
+ *   - `workflow-tool-description.txt` — the description prose (`meta`/`agent`/
+ *     `parallel`/`pipeline`/`phase`), embedded as a plaintext template literal
+ *     inside the compiled `bin/claude.exe`; and
+ *   - `workflow-input-schema.d.ts` — `WorkflowInput`/`WorkflowOutput`, shipped as
  *     declarations in `sdk-tools.d.ts`.
  *
- * Nothing is executed: the binary is scanned for a known string range and the
- * `.d.ts` is sliced as text. Anchors are matched strictly: a missing anchor
- * throws ("the grammar's shape moved; reconcile manually") rather than capturing
- * garbage.
+ * The **Agent** tool — the *subagent* surface a workflow's `agent()` call
+ * ultimately spawns onto, and the reason it is pinned at all: `opts.agentType`
+ * resolves against this tool's registry, and `opts.model`'s enum lives in its
+ * schema, not the Workflow one. Before these two artifacts existed the changelog
+ * asserted facts about the Agent tool against a baseline that never captured it:
+ *   - `agent-tool-description.fragments.txt` — see `captureAgentProse`; and
+ *   - `agent-input-schema.d.ts` — `AgentInput`/`AgentOutput`.
+ *
+ * Nothing is executed: the binary is scanned for known string ranges, the one
+ * assembled description is recovered by *parsing* (acorn) rather than running its
+ * builder, and the `.d.ts` is sliced as text. Anchors are matched strictly: a
+ * missing or ambiguous anchor throws ("the grammar's shape moved; reconcile
+ * manually") rather than capturing garbage.
  *
  * Two modes:
  *   - default — write the capture to `spec/upstream/<YYYY-MM-DD>-cc-<version>/`
@@ -46,11 +57,23 @@ import { fileURLToPath } from "node:url";
 // sentence and ends at the literal's closing delimiter — a backtick immediately
 // followed by `})`. That order never collides with inline code in the prose
 // (which closes spans as `…})` + backtick, i.e. the reverse).
-const PROSE_START = "Execute a workflow script that orchestrates multiple subagents deterministically.";
-const PROSE_END = "`})";
+const WORKFLOW_PROSE_START =
+  "Execute a workflow script that orchestrates multiple subagents deterministically.";
+const WORKFLOW_PROSE_END = "`})";
+
+// The Agent tool description has no such delimiters — it is built, not stored —
+// so the anchor is only a way in; `captureAgentProse` finds the extent.
+const AGENT_PROSE_ANCHOR = "Launch a new agent to handle complex, multi-step tasks.";
+
+/** Every `${…}` in the Agent prose collapses to this. See `captureAgentProse`. */
+const AGENT_INTERPOLATION = "${…}";
+/** Fragment delimiter in the Agent prose artifact; asserted un-collidable at capture. */
+const AGENT_FRAGMENT_SEP = "-".repeat(40);
 
 const ARTIFACT_PROSE = "workflow-tool-description.txt";
 const ARTIFACT_SCHEMA = "workflow-input-schema.d.ts";
+const ARTIFACT_AGENT_PROSE = "agent-tool-description.fragments.txt";
+const ARTIFACT_AGENT_SCHEMA = "agent-input-schema.d.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -189,7 +212,7 @@ function locateClaudeCode() {
 function captureProse(ccDir) {
   const binPath = join(ccDir, "bin", "claude.exe");
   const buf = readFileSync(binPath);
-  const start = buf.indexOf(PROSE_START);
+  const start = buf.indexOf(WORKFLOW_PROSE_START);
   if (start < 0) {
     throw new Error(
       `Workflow description anchor not found in ${binPath} — the grammar's wording moved; reconcile manually`,
@@ -199,13 +222,165 @@ function captureProse(ccDir) {
   // window (so a longer future description can't be silently truncated) and no
   // decoding of the arbitrary binary past the close. The description is ASCII
   // (non-ASCII is source-escaped as \uXXXX), so the byte range decodes exactly.
-  const end = buf.indexOf(PROSE_END, start + PROSE_START.length);
+  const end = buf.indexOf(WORKFLOW_PROSE_END, start + WORKFLOW_PROSE_START.length);
   if (end < 0) {
     throw new Error(
-      `Workflow description close delimiter (${PROSE_END}) not found after the anchor — reconcile manually`,
+      `Workflow description close delimiter (${WORKFLOW_PROSE_END}) not found after the anchor — reconcile manually`,
     );
   }
   return buf.subarray(start, end).toString("utf8");
+}
+
+/**
+ * Extract the Agent (subagent) tool description's PROSE from the compiled binary.
+ *
+ * Unlike the Workflow description, there is no string to slice. The Agent
+ * description is *assembled* by a builder function from ~12 conditional fragments
+ * — fork vs. fresh agent, background vs. synchronous, plan tier, teammate context
+ * — so no single literal holds it, and which fragments apply depends on runtime
+ * state we do not have and will not manufacture. Running the builder to find out
+ * is off the table: this project never executes what it inspects. So we do the
+ * same thing the renderer does with a workflow body — parse it, and report only
+ * what the source literally says.
+ *
+ * The capture is therefore an inventory of the builder's string and template
+ * literals in source order, one per fragment, with every interpolation collapsed
+ * to `${…}`. Every variant is present (nothing is chosen for the reader), and the
+ * conditions that select them are not — an honest trade, and the reason the file
+ * is named `.fragments.txt` rather than `-description.txt`: it is not a rendered
+ * description and must not read as one.
+ *
+ * Collapsing the interpolations is load-bearing, not cosmetic. The Workflow prose
+ * is captured raw, so its hash churns whenever the minifier reshuffles the
+ * identifiers inside its `${…}` (the "Known noise" box in
+ * `docs/GRAMMAR-CHANGELOG.md`). This builder is mostly *code*, so a raw slice
+ * would trip the gate on essentially every release with nothing to reconcile.
+ * Normalizing makes the artifact stable against renames by construction — at the
+ * cost of not seeing a change that is purely an identifier swap, which by
+ * construction carries no grammar meaning.
+ */
+function captureAgentProse(ccDir) {
+  const binPath = join(ccDir, "bin", "claude.exe");
+  const buf = readFileSync(binPath);
+
+  // The binary carries this sentence TWICE: once as source (opening a template
+  // literal) and once in the JSC bytecode constant pool, where the same text sits
+  // as a NUL-delimited fragment with its `${…}` already split away. Only the
+  // source copy is preceded by a backtick, which is the whole discriminator —
+  // a plain `indexOf` finds the bytecode copy first and would capture garbage.
+  const BACKTICK = 0x60;
+  const hits = [];
+  for (let i = buf.indexOf(AGENT_PROSE_ANCHOR); i >= 0; i = buf.indexOf(AGENT_PROSE_ANCHOR, i + 1)) {
+    if (buf[i - 1] === BACKTICK) hits.push(i);
+  }
+  if (hits.length !== 1) {
+    throw new Error(
+      `expected exactly one source-form Agent description anchor in ${binPath}, found ${hits.length} — ` +
+        "the grammar's shape moved; reconcile manually",
+    );
+  }
+  const anchor = hits[0];
+
+  // The builder's name is minifier-generated (`mvd` at cc-2.1.220), so it cannot
+  // be anchored on. Walk back from the prose to the nearest enclosing
+  // `function <ident>(` instead — stable under renames, since only the shape is
+  // matched.
+  // Decoded as latin1, NOT utf8: `fnRel` is used as a byte offset into `buf`, and
+  // latin1 is the only decoding where one char is exactly one byte, so the two
+  // cannot diverge. (utf8 happens to agree today because the surrounding bundle is
+  // pure ASCII — but that is a property of what the minifier put nearby, not a
+  // guarantee, and one literal non-ASCII byte in the window would shift every
+  // offset after it.) The pattern is ASCII-only, so it matches identically either
+  // way.
+  const BACK_WINDOW = 64 * 1024;
+  const winStart = Math.max(0, anchor - BACK_WINDOW);
+  const before = buf.subarray(winStart, anchor).toString("latin1");
+  let fnRel = -1;
+  for (const m of before.matchAll(/function\s+[A-Za-z0-9_$]+\s*\(/g)) fnRel = m.index;
+  if (fnRel < 0) {
+    throw new Error(
+      "no enclosing function found before the Agent description anchor — reconcile manually",
+    );
+  }
+  const fnStart = winStart + fnRel;
+
+  // Let acorn measure the extent. Its lexer already knows strings, template
+  // nesting, regex literals, and comments — all of which a hand-rolled brace scan
+  // would have to re-derive, and would get wrong on the first regex in minified
+  // code. `parseExpressionAt` reads exactly one function and stops at its closing
+  // brace, so the window past it is never decoded as anything meaningful.
+  const AHEAD_WINDOW = 512 * 1024;
+  const text = buf.subarray(fnStart, Math.min(buf.length, fnStart + AHEAD_WINDOW)).toString("utf8");
+  let fn;
+  try {
+    fn = acorn.parseExpressionAt(text, 0, { ecmaVersion: "latest" });
+  } catch (err) {
+    throw new Error(
+      `could not parse the Agent description builder at byte ${fnStart}: ${err.message} — reconcile manually`,
+    );
+  }
+  // Here `text` IS decoded as utf8, so that fragment contents come out as real
+  // strings — but that makes acorn's offsets char-based while `anchor`/`fnStart`
+  // are byte-based. They agree only while the region is single-byte throughout, so
+  // check that rather than assume it; a mismatch means the comparison below (and
+  // any offset reasoning after it) is meaningless.
+  if (Buffer.byteLength(text.slice(0, fn.end)) !== fn.end) {
+    throw new Error(
+      "the Agent description builder contains non-ASCII source bytes, so parser offsets no " +
+        "longer line up with binary offsets — reconcile manually",
+    );
+  }
+  // The walk-back found *a* function; this proves it is the enclosing one.
+  if (fn.end <= anchor - fnStart) {
+    throw new Error(
+      "the function preceding the Agent description anchor closes before it — reconcile manually",
+    );
+  }
+
+  // Collect string and template literals in source order. Nested templates inside
+  // an interpolation are visited in their own right, so both arms of a
+  // `${cond ? `a` : `b`}` survive as separate fragments — flattened, but never
+  // dropped.
+  const frags = [];
+  (function walk(node) {
+    if (node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child);
+      return;
+    }
+    if (typeof node.type !== "string") return;
+    if (node.type === "Literal" && typeof node.value === "string") {
+      frags.push([node.start, node.value]);
+    } else if (node.type === "TemplateLiteral") {
+      frags.push([
+        node.start,
+        node.quasis.map((q) => q.value.cooked ?? "").join(AGENT_INTERPOLATION),
+      ]);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "type" || key === "start" || key === "end") continue;
+      walk(node[key]);
+    }
+  })(fn);
+
+  frags.sort((a, b) => a[0] - b[0]);
+  // Empties are the `:""` arms of the fragment ternaries — they carry no prose,
+  // and keeping them would make the artifact churn on pure control-flow edits.
+  const kept = frags.map(([, s]) => s).filter((s) => s.trim() !== "");
+  if (kept.length === 0) {
+    throw new Error("the Agent description builder yielded no prose — reconcile manually");
+  }
+  // The delimiter has to be unambiguous for the artifact to be readable as a
+  // fragment list. Assert that rather than hope: a fragment that ever contains a
+  // bare separator line silently merges two entries in every future diff.
+  const collision = kept.find((s) => s.split("\n").includes(AGENT_FRAGMENT_SEP));
+  if (collision !== undefined) {
+    throw new Error(
+      "an Agent prose fragment contains the fragment separator; the delimiter is no longer " +
+        "unambiguous — reconcile manually",
+    );
+  }
+  return `${kept.join(`\n${AGENT_FRAGMENT_SEP}\n`)}\n`;
 }
 
 /** Slice one top-level `export interface <name> { ... }` block out of the .d.ts. */
@@ -227,9 +402,44 @@ function captureSchema(ccDir) {
   return `${sliceInterface(dts, "WorkflowInput")}\n\n${sliceInterface(dts, "WorkflowOutput")}\n`;
 }
 
+/**
+ * Slice one top-level declaration — `export interface X {…}` OR `export type X = …`
+ * — out of the .d.ts, by running to the next top-level `export`.
+ *
+ * `sliceInterface` above cannot do this job: it ends at the first `}` in column 0,
+ * and `AgentOutput` is a *union type alias* whose last member closes at `};`
+ * indented four spaces, so that rule runs straight past it into the rest of the
+ * file. The two slicers are kept separate rather than unified because changing
+ * how the Workflow schema is sliced would move its bytes, and with them a
+ * committed baseline hash that two snapshots (cc-2.1.173, cc-2.1.219) can no
+ * longer be re-captured to match.
+ */
+function sliceTopLevelDecl(dts, name) {
+  const opener = new RegExp(String.raw`^export (?:interface|type) ${name}\b`, "m");
+  const m = opener.exec(dts);
+  if (!m) {
+    throw new Error(`declaration ${name} not found in sdk-tools.d.ts — reconcile manually`);
+  }
+  const after = m.index + m[0].length;
+  const next = dts.slice(after).search(/\nexport /);
+  return `${dts.slice(m.index, next < 0 ? dts.length : after + next).trimEnd()}\n`;
+}
+
+/**
+ * Capture the Agent (subagent) input/output schema. This is the artifact that
+ * actually earns its keep for a workflow renderer: `AgentInput.model` is where the
+ * `"sonnet" | "opus" | "haiku" | "fable"` enum behind `MODEL_SWATCHES` lives, and
+ * `subagent_type` is the registry `agent()`'s `opts.agentType` resolves against.
+ * Both were previously unpinned — `fable` was noticed by accident, not by the gate.
+ */
+function captureAgentSchema(ccDir) {
+  const dts = readFileSync(join(ccDir, "sdk-tools.d.ts"), "utf8");
+  return `${sliceTopLevelDecl(dts, "AgentInput")}\n${sliceTopLevelDecl(dts, "AgentOutput")}`;
+}
+
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
-/** Capture both defining artifacts from the install (the shared capture core). */
+/** Capture every defining artifact from the install (the shared capture core). */
 function captureArtifacts() {
   const { dir: ccDir, version } = locateClaudeCode();
   return {
@@ -237,6 +447,8 @@ function captureArtifacts() {
     artifacts: {
       [ARTIFACT_PROSE]: captureProse(ccDir),
       [ARTIFACT_SCHEMA]: captureSchema(ccDir),
+      [ARTIFACT_AGENT_PROSE]: captureAgentProse(ccDir),
+      [ARTIFACT_AGENT_SCHEMA]: captureAgentSchema(ccDir),
     },
   };
 }

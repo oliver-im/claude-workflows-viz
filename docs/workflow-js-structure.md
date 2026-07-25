@@ -233,8 +233,11 @@ probe for the new token both land — you cannot grow the vocabulary halfway.
   `render-topology.ts`, since a badge outside the bounds math gets clipped when the
   page packs to content. Update §3.3/glossary.
 - **A new model family**: one entry in `MODEL_SWATCHES` (`svg-primitives.ts`) — both
-  `swatchFor` and `shortModel` key off that table. Not a grammar change: model names
-  are not part of the captured grammar.
+  `swatchFor` and `shortModel` key off that table. Not a grammar change: `opts.model`
+  is an unenumerated string in the Workflow prose, so no level moves. The enum it is
+  drawn from does sit in the baseline — `AgentInput.model` in `agent-input-schema.d.ts`
+  — so `npm run check-grammar` is what should surface the next family; before that
+  artifact was pinned, `fable` was noticed by eye.
 
 Regression guardrails that should stay green through any such change:
 `--view phases` byte-identical (snapshot), **0 cross-card edges** across

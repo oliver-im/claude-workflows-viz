@@ -1,6 +1,6 @@
 {
   "ccVersion": "2.1.220",
-  "capturedAt": "2026-07-25T02:22:54.709Z",
+  "capturedAt": "2026-07-25T04:39:34.152Z",
   "artifacts": {
     "workflow-tool-description.txt": {
       "bytes": 19581,
@@ -9,6 +9,14 @@
     "workflow-input-schema.d.ts": {
       "bytes": 3064,
       "sha256": "fe6f86e00a7f739fc606aa758a4cc04c17c85a12a5ca30c3d441a190558f44a2"
+    },
+    "agent-tool-description.fragments.txt": {
+      "bytes": 17282,
+      "sha256": "6c7c4751ca45e15b4000db617e7ae013be52b5b6061da84f1d0a82e23cc66ba6"
+    },
+    "agent-input-schema.d.ts": {
+      "bytes": 4154,
+      "sha256": "98f41956ca06800972e387697970192f9ca2365a981a34768985ec7b701d20de"
     }
   }
 }

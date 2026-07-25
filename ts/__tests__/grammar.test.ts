@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +61,73 @@ describe("RECOGNIZER_LEVEL_CC is pinned to the latest baseline", () => {
     const latest = baselines[baselines.length - 1];
     const manifest = JSON.parse(readFileSync(join(upstreamDir, latest, "manifest.json"), "utf8"));
     expect(RECOGNIZER_LEVEL_CC).toBe(manifest.ccVersion);
+  });
+});
+
+describe("committed spec/upstream snapshots are self-consistent", () => {
+  // The install-dependent gate (`npm run check-grammar`) proves the *baseline*
+  // still matches what ships. It cannot run in CI, and it only ever reads the
+  // latest snapshot — so nothing else guards the committed corpus itself. These
+  // checks need no `claude` binary: they hold each snapshot to its own manifest,
+  // which is what makes the baseline "reproducible offline" rather than merely
+  // committed.
+  const upstreamDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "spec", "upstream");
+  const baselines = readdirSync(upstreamDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && /^\d{4}-\d{2}-\d{2}-cc-/.test(d.name))
+    .map((d) => d.name)
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  it.each(baselines)("%s — manifest and files agree exactly", (name) => {
+    const dir = join(upstreamDir, name);
+    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    const onDisk = readdirSync(dir).filter((f) => f !== "manifest.json");
+    // Both directions: an artifact edited by hand fails the hash, and one added
+    // or dropped without re-capturing fails the set comparison.
+    expect(sorted(onDisk)).toEqual(sorted(Object.keys(manifest.artifacts)));
+    for (const [artifact, { bytes, sha256 }] of Object.entries(
+      manifest.artifacts as Record<string, { bytes: number; sha256: string }>,
+    )) {
+      const content = readFileSync(join(dir, artifact));
+      expect(content.length, `${name}/${artifact} byte count`).toBe(bytes);
+      expect(createHash("sha256").update(content).digest("hex"), `${name}/${artifact}`).toBe(sha256);
+    }
+  });
+
+  it("the capture surface only ever grows", () => {
+    // Snapshots predating an artifact legitimately lack it — cc-2.1.173 and
+    // cc-2.1.219 were captured before the Agent tool was pinned, and those
+    // installs are gone, so they can never be back-filled. What must NOT happen is
+    // the reverse: a re-capture that quietly stops pinning something. Each
+    // snapshot's artifact set has to contain every earlier one's.
+    const sets = baselines.map(
+      (name) =>
+        new Set(
+          Object.keys(
+            JSON.parse(readFileSync(join(upstreamDir, name, "manifest.json"), "utf8")).artifacts,
+          ),
+        ),
+    );
+    for (let i = 1; i < sets.length; i++) {
+      const dropped = [...sets[i - 1]].filter((a) => !sets[i].has(a));
+      expect(dropped, `${baselines[i]} stopped capturing ${dropped.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("the latest baseline pins both the Workflow and the Agent tool", () => {
+    // A pin, not a duplicated constant: `agent()` spawns a subagent, so the Agent
+    // tool's surface is part of what a workflow means — `opts.agentType` resolves
+    // against its registry and `opts.model`'s enum lives in its schema, not the
+    // Workflow one. Losing either pair would leave the changelog asserting things
+    // about an untracked artifact, which is how `fable` got noticed by accident
+    // rather than by the gate.
+    const latest = baselines[baselines.length - 1];
+    const manifest = JSON.parse(readFileSync(join(upstreamDir, latest, "manifest.json"), "utf8"));
+    expect(sorted(Object.keys(manifest.artifacts))).toEqual([
+      "agent-input-schema.d.ts",
+      "agent-tool-description.fragments.txt",
+      "workflow-input-schema.d.ts",
+      "workflow-tool-description.txt",
+    ]);
   });
 });
 
