@@ -141,6 +141,19 @@ placeholder. Every variant is present; the conditions that select them are not. 
 name says so, because a file called `agent-tool-description.txt` would read as a
 rendered description, and it is not one.
 
+Finding the builder is where this could go quietly wrong, so it refuses instead of
+guessing. Its name is minified, so the capture walks back over *every*
+`function <ident>(` within 1 MB of the anchor, parses each, and requires that
+**exactly one** encloses the anchor. Taking the nearest match would be the obvious
+shortcut and fails silently: if upstream ever nests the anchor-bearing fragment in a
+helper while other literals stay in the outer builder, the nearest match is that
+helper, and the capture inventories a subtree — yielding an artifact that is short
+but perfectly self-consistent, with a valid hash, a valid manifest, and passing
+tests. Two enclosing candidates is therefore a "reconcile manually", not a
+tie-break. `ts/__tests__/capture-grammar.test.ts` drives that rule and the anchor and
+slicing rules against crafted fixtures, since the real binary only exists on a
+machine with Claude Code installed and cannot be made to fail on purpose.
+
 **Why one file and not 44.** Fragments have no stable identity upstream, so any
 per-file layout has to invent one. Measured against the two edits upstream actually
 makes — rewording a fragment, and inserting one at position 22 of 44:

@@ -282,61 +282,86 @@ function captureAgentProse(ccDir) {
   }
   const anchor = hits[0];
 
-  // The builder's name is minifier-generated (`mvd` at cc-2.1.220), so it cannot
-  // be anchored on. Walk back from the prose to the nearest enclosing
-  // `function <ident>(` instead — stable under renames, since only the shape is
-  // matched.
-  // Decoded as latin1, NOT utf8: `fnRel` is used as a byte offset into `buf`, and
-  // latin1 is the only decoding where one char is exactly one byte, so the two
-  // cannot diverge. (utf8 happens to agree today because the surrounding bundle is
-  // pure ASCII — but that is a property of what the minifier put nearby, not a
-  // guarantee, and one literal non-ASCII byte in the window would shift every
-  // offset after it.) The pattern is ASCII-only, so it matches identically either
-  // way.
-  const BACK_WINDOW = 64 * 1024;
+  // The builder's name is minifier-generated (`mvd` at cc-2.1.220), so it cannot be
+  // anchored on. Walk back from the prose over every `function <ident>(` in range
+  // instead — stable under renames, since only the shape is matched — and let acorn
+  // measure each one. Its lexer already knows strings, template nesting, regex
+  // literals, and comments, all of which a hand-rolled brace scan would have to
+  // re-derive and would get wrong on the first regex in minified code.
+  //
+  // Taking the NEAREST match would be the obvious shortcut, and it is wrong in a way
+  // that fails silently: if upstream ever nests the anchor-bearing fragment inside a
+  // helper while other description literals stay in the outer builder, the nearest
+  // match is that helper, and the capture quietly inventories a subtree instead of
+  // the description. The artifact would still be internally consistent — valid hash,
+  // valid manifest, passing tests — just short. So instead: find EVERY candidate that
+  // encloses the anchor and require exactly one. Two means the anchor sits in a
+  // nested function and we cannot tell which is the description; that is a
+  // "reconcile manually", not a guess. (939 candidates in the window at cc-2.1.220,
+  // exactly one enclosing, ~110ms — cheap enough to check rather than assume.)
+  //
+  // The window is decoded latin1, NOT utf8: candidate offsets are used as byte
+  // offsets into `buf`, and latin1 is the only decoding where one char is exactly one
+  // byte, so the two cannot diverge. (utf8 happens to agree today because the
+  // surrounding bundle is pure ASCII — a property of what the minifier put nearby,
+  // not a guarantee; one literal non-ASCII byte would shift every offset after it.)
+  // The pattern is ASCII-only, so it matches identically either way.
+  const BACK_WINDOW = 1024 * 1024; // ~100× the cc-2.1.220 builder, so nesting is the realistic risk, not truncation
+  const AHEAD_WINDOW = 512 * 1024;
   const winStart = Math.max(0, anchor - BACK_WINDOW);
   const before = buf.subarray(winStart, anchor).toString("latin1");
-  let fnRel = -1;
-  for (const m of before.matchAll(/function\s+[A-Za-z0-9_$]+\s*\(/g)) fnRel = m.index;
-  if (fnRel < 0) {
-    throw new Error(
-      "no enclosing function found before the Agent description anchor — reconcile manually",
-    );
-  }
-  const fnStart = winStart + fnRel;
 
-  // Let acorn measure the extent. Its lexer already knows strings, template
-  // nesting, regex literals, and comments — all of which a hand-rolled brace scan
-  // would have to re-derive, and would get wrong on the first regex in minified
-  // code. `parseExpressionAt` reads exactly one function and stops at its closing
-  // brace, so the window past it is never decoded as anything meaningful.
-  const AHEAD_WINDOW = 512 * 1024;
-  const text = buf.subarray(fnStart, Math.min(buf.length, fnStart + AHEAD_WINDOW)).toString("utf8");
-  let fn;
-  try {
-    fn = acorn.parseExpressionAt(text, 0, { ecmaVersion: "latest" });
-  } catch (err) {
+  const enclosing = [];
+  let lastParseError;
+  for (const m of before.matchAll(/function\s+[A-Za-z0-9_$]+\s*\(/g)) {
+    const candStart = winStart + m.index;
+    const candText = buf
+      .subarray(candStart, Math.min(buf.length, candStart + AHEAD_WINDOW))
+      .toString("utf8");
+    let parsed;
+    try {
+      parsed = acorn.parseExpressionAt(candText, 0, { ecmaVersion: "latest" });
+    } catch (err) {
+      // Most candidates are not functions we can parse in isolation (a `function`
+      // keyword inside a string, or one whose body runs past AHEAD_WINDOW). Only a
+      // candidate that fails to parse AND would otherwise have enclosed the anchor
+      // is interesting, and we cannot know that without parsing it — so remember the
+      // last error for the diagnostic below and move on.
+      lastParseError = err;
+      continue;
+    }
+    if (parsed.end <= anchor - candStart) continue; // closes before the anchor
+    // Here `candText` IS decoded utf8, so fragment contents come out as real
+    // strings — but that makes acorn's offsets char-based while `anchor`/`candStart`
+    // are byte-based. They agree only while the region is single-byte throughout, so
+    // check rather than assume; a mismatch makes the comparison just made, and every
+    // offset after it, meaningless.
+    if (Buffer.byteLength(candText.slice(0, parsed.end)) !== parsed.end) {
+      throw new Error(
+        `the function at byte ${candStart} contains non-ASCII source bytes, so parser offsets ` +
+          "no longer line up with binary offsets — reconcile manually",
+      );
+    }
+    enclosing.push({ start: candStart, text: candText, fn: parsed });
+  }
+
+  if (enclosing.length === 0) {
     throw new Error(
-      `could not parse the Agent description builder at byte ${fnStart}: ${err.message} — reconcile manually`,
+      "no function enclosing the Agent description anchor was found within " +
+        `${BACK_WINDOW / 1024}KB before it${
+          lastParseError ? ` (last parse error: ${lastParseError.message})` : ""
+        } — reconcile manually`,
     );
   }
-  // Here `text` IS decoded as utf8, so that fragment contents come out as real
-  // strings — but that makes acorn's offsets char-based while `anchor`/`fnStart`
-  // are byte-based. They agree only while the region is single-byte throughout, so
-  // check that rather than assume it; a mismatch means the comparison below (and
-  // any offset reasoning after it) is meaningless.
-  if (Buffer.byteLength(text.slice(0, fn.end)) !== fn.end) {
+  if (enclosing.length > 1) {
     throw new Error(
-      "the Agent description builder contains non-ASCII source bytes, so parser offsets no " +
-        "longer line up with binary offsets — reconcile manually",
+      `${enclosing.length} nested functions enclose the Agent description anchor ` +
+        `(at bytes ${enclosing.map((e) => e.start).join(", ")}); the description builder can no ` +
+        "longer be identified unambiguously, and guessing risks capturing only a subtree — " +
+        "reconcile manually",
     );
   }
-  // The walk-back found *a* function; this proves it is the enclosing one.
-  if (fn.end <= anchor - fnStart) {
-    throw new Error(
-      "the function preceding the Agent description anchor closes before it — reconcile manually",
-    );
-  }
+  const { text, fn } = enclosing[0];
 
   // Collect string and template literals in source order. Nested templates inside
   // an interpolation are visited in their own right, so both arms of a
@@ -564,8 +589,45 @@ function runCheck() {
   console.log("\n✓ grammar in sync with the latest baseline — the recognizer is still reconciled.");
 }
 
-if (process.argv.includes("--check")) {
-  runCheck();
-} else {
-  runCapture();
+/**
+ * Only run when invoked as a CLI. Importing this file must stay side-effect-free so
+ * the extraction can be unit-tested against synthetic fixtures — the real binary is
+ * a moving target that only exists on a machine with Claude Code installed, so
+ * without this the selectors above (which is where the subtle failures live) could
+ * only ever be exercised by hand.
+ */
+function invokedDirectly() {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
+
+if (invokedDirectly()) {
+  if (process.argv.includes("--check")) {
+    runCheck();
+  } else {
+    runCapture();
+  }
+}
+
+// Exported for `ts/__tests__/capture-grammar.test.ts`. The CLI does not use these
+// bindings; they exist so the anchor/enclosure/slicing rules can be driven with
+// crafted inputs instead of only the one binary that happens to be installed.
+export {
+  AGENT_FRAGMENT_SEP,
+  AGENT_INTERPOLATION,
+  ARTIFACT_AGENT_PROSE,
+  ARTIFACT_AGENT_SCHEMA,
+  ARTIFACT_PROSE,
+  ARTIFACT_SCHEMA,
+  captureAgentProse,
+  captureAgentSchema,
+  captureProse,
+  captureSchema,
+  sliceInterface,
+  sliceTopLevelDecl,
+};
