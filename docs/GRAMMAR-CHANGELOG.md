@@ -129,15 +129,30 @@ use, and the recognizer learned nothing here; `requiredLevel ≤ recognizerLevel
 untouched. Widening what we *pin* is not widening what we *parse*.
 
 **Why `.fragments.txt` and not `-description.txt`.** The Agent tool description is
-not stored anywhere — a builder function assembles it from ~12 conditional fragments
-(fork vs. fresh agent, background vs. synchronous, plan tier, teammate context), so
-there is no string to slice, and which fragments apply depends on runtime state.
-Executing the builder to find out is not on the table. So the capture does what the
-renderer does with a workflow body: parse it (acorn), and report only what the source
-literally says — every string and template literal in source order, one per fragment,
-each `${…}` collapsed to a placeholder. Every variant is present; the conditions that
-select them are not. The name says so, because a file called `agent-tool-description.txt`
-would read as a rendered description, and it is not one.
+not stored anywhere — a builder function assembles it. At cc-2.1.220 that is **10
+runtime gates** (fork support, background vs. synchronous, plan tier, teammate
+context, remote sandbox…) driving **29 branch points** over **60 string/template
+literals**, of which 44 are non-empty. So there is no string to slice, and which of
+them apply depends on runtime state. Executing the builder to find out is not on the
+table. The capture therefore does what the renderer does with a workflow body: parse
+it (acorn), and report only what the source literally says — every string and
+template literal in source order, one per fragment, each `${…}` collapsed to a
+placeholder. Every variant is present; the conditions that select them are not. The
+name says so, because a file called `agent-tool-description.txt` would read as a
+rendered description, and it is not one.
+
+**Why one file and not 44.** Fragments have no stable identity upstream. Numbering
+them into separate files (`fragment-07.txt`) means one insertion renumbers every file
+after it — the same churn the in-file format avoids, but worse, because git sees 37
+rewritten files instead of one insertion hunk. Content-hashed names would be stable
+but would destroy source order, which is the only structure the artifact has. Naming
+them semantically would mean deciding which gate each belongs to and inventing a
+label for it — the enclosing variables are minified (`g`, `m`, `y`, `C`, `T`…), so
+any such name is a paraphrase, and this project does not paraphrase what it captures.
+The separator lines already give per-fragment diff hunks, which is the only thing
+splitting would have bought. Capturing the *assembled* variants instead — one file
+per flag combination — is not merely inconvenient: choosing a combination means
+evaluating those 10 gates, which is running the builder.
 
 > **Known noise.** The Workflow prose is hashed *raw* and minified, so any release
 > that reshuffles the identifiers inside its `${…}` trips the gate with nothing to

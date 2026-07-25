@@ -235,13 +235,14 @@ function captureProse(ccDir) {
  * Extract the Agent (subagent) tool description's PROSE from the compiled binary.
  *
  * Unlike the Workflow description, there is no string to slice. The Agent
- * description is *assembled* by a builder function from ~12 conditional fragments
- * — fork vs. fresh agent, background vs. synchronous, plan tier, teammate context
- * — so no single literal holds it, and which fragments apply depends on runtime
- * state we do not have and will not manufacture. Running the builder to find out
- * is off the table: this project never executes what it inspects. So we do the
- * same thing the renderer does with a workflow body — parse it, and report only
- * what the source literally says.
+ * description is *assembled* by a builder function: at cc-2.1.220, 10 runtime gates
+ * (fork support, background vs. synchronous, plan tier, teammate context, remote
+ * sandbox…) drive 29 branch points over 60 string/template literals. No single
+ * literal holds the description, and which of them apply depends on runtime state
+ * we do not have and will not manufacture. Running the builder to find out is off
+ * the table: this project never executes what it inspects. So we do the same thing
+ * the renderer does with a workflow body — parse it, and report only what the
+ * source literally says.
  *
  * The capture is therefore an inventory of the builder's string and template
  * literals in source order, one per fragment, with every interpolation collapsed
