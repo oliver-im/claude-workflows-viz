@@ -4,8 +4,8 @@
  * Render it (without ever running it):
  *   claude-workflows-viz examples/level-2/tier-the-effort.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The level-2 sample: every `agent()` sets `opts.effort`, which draws as a
  * muted badge to the LEFT of each node — the mirror of the ×N badge on the
@@ -57,25 +57,29 @@ export const meta = {
 const reports = args?.reports ?? [];
 const LENSES = ["timing", "memory", "config"];
 
-const causes = await pipeline(
-  reports,
-  (report) =>
-    agent(`Extract the stack frame, build id, and first repro step from: ${report}`, {
-      label: `skim:${report}`,
-      phase: "Skim every report",
-      effort: "low",
-      model: "haiku",
-      schema: { type: "object", properties: { frame: { type: "string" } } },
-    }),
-  (skim, report) =>
-    agent(`Root-cause this crash. Frame: ${skim.frame}. Report: ${report}`, {
-      label: `root-cause:${report}`,
-      phase: "Root-cause each crash",
-      effort: "max",
-      model: "claude-opus-5",
-      schema: { type: "object", properties: { cause: { type: "string" } } },
-    }),
-);
+// A stage that throws drops its report to `null` (and skips the rest of the
+// chain), so filter before anything downstream reads a field off a cause.
+const causes = (
+  await pipeline(
+    reports,
+    (report) =>
+      agent(`Extract the stack frame, build id, and first repro step from: ${report}`, {
+        label: `skim:${report}`,
+        phase: "Skim every report",
+        effort: "low",
+        model: "haiku",
+        schema: { type: "object", properties: { frame: { type: "string" } } },
+      }),
+    (skim, report) =>
+      agent(`Root-cause this crash. Frame: ${skim.frame}. Report: ${report}`, {
+        label: `root-cause:${report}`,
+        phase: "Root-cause each crash",
+        effort: "max",
+        model: "claude-opus-5",
+        schema: { type: "object", properties: { cause: { type: "string" } } },
+      }),
+  )
+).filter(Boolean);
 
 // Every lens gets its own shot at every cause; a cause no lens can break stands.
 phase("Cross-examine the causes");

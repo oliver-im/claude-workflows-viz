@@ -133,15 +133,29 @@ function locateClaudeCode() {
     onPath = "";
   }
   if (onPath) {
-    const found = walkUpFrom(dirname(realpathSync(onPath)));
+    // `realpathSync` can throw on a path `command -v` was happy with: a
+    // permissions wall on a parent directory, a symlink loop, or the binary
+    // being swapped out between the two calls (Claude Code self-updates, so
+    // that race is real). None of those mean there is no install to capture
+    // from — record the miss and let strategy 3 run, rather than taking the
+    // whole locate down with an uncaught throw.
+    let resolved;
+    try {
+      resolved = realpathSync(onPath);
+    } catch (err) {
+      tried.push(`\`claude\` on PATH (${onPath}) — cannot be resolved: ${err.message}`);
+    }
+    const found = resolved ? walkUpFrom(dirname(resolved)) : undefined;
     if (found && !found.missing) return found;
-    tried.push(
-      `\`claude\` on PATH (${onPath}) — ${
-        found?.missing
-          ? `found ${found.dir} but it is missing ${found.missing.join(", ")}`
-          : "resolves outside any package (a wrapper script?)"
-      }`,
-    );
+    if (resolved) {
+      tried.push(
+        `\`claude\` on PATH (${onPath}) — ${
+          found?.missing
+            ? `found ${found.dir} but it is missing ${found.missing.join(", ")}`
+            : "resolves outside any package (a wrapper script?)"
+        }`,
+      );
+    }
   } else {
     tried.push("`claude` is not on PATH");
   }

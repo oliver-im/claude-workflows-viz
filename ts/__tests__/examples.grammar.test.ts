@@ -33,19 +33,26 @@ import { parseWorkflowSource } from "../extract-meta.js";
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-
-// Every directory that ships hand-authored workflow `.js` files in the npm package
-// (`package.json` "files"). Each must stay locked to a declared grammar level.
-const GRAMMAR_DIRS = ["examples/level-1", "examples/level-2"];
+const examplesRoot = join(root, "examples");
 
 /** The `* Grammar level: 1` header marker — the in-file level declaration. */
 const DECLARED_LEVEL = /\*\s*Grammar level:\s*(\d+)\b/;
 
-const grammarFiles = GRAMMAR_DIRS.flatMap((dir) =>
-  readdirSync(join(root, dir))
-    .filter((f) => f.endsWith(".js"))
-    .map((f) => join(dir, f)),
-);
+// Every level directory that ships hand-authored workflow `.js` files in the npm
+// package (`package.json` "files"), DISCOVERED rather than listed — a hand-kept
+// list is exactly how a new `examples/level-N/` slips past the lock it most needs:
+// the moment a level is minted, its samples are the least-proven in the corpus.
+// Dropping the directory in enrolls it here, in the same sweep the analyzer and
+// placement corpus tests already use.
+const grammarFiles = readdirSync(examplesRoot, { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^level-\d+$/.test(d.name))
+  .map((d) => d.name)
+  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  .flatMap((dir) =>
+    readdirSync(join(examplesRoot, dir))
+      .filter((f) => f.endsWith(".js"))
+      .map((f) => join("examples", dir, f)),
+  );
 
 describe("shipped examples declare and stay within their grammar level", () => {
   it("discovers the shipped workflow corpus", () => {

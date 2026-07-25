@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Generate-And-Filter.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/name-the-feature.js --open
+ *   claude-workflows-viz examples/level-1/name-the-feature.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (This one deliberately omits `whenToUse` to exercise the sparse header.)
  *

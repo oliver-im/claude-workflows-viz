@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz.
  *
  * From a clone of this repo, render it with:
- *   claude-workflows-viz examples/review-pr.js --open
+ *   claude-workflows-viz examples/level-1/review-pr.js --open
  *
- * The tool draws the `meta` block below and NEVER runs the orchestration code
- * beneath it — the body is here only so this reads like a real workflow.
+ * The tool draws the `meta` block below AND the orchestration code beneath it,
+ * and NEVER runs either — the body is recovered by static analysis alone.
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */

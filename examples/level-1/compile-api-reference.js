@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Completeness Critic.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/compile-api-reference.js --open
+ *   claude-workflows-viz examples/level-1/compile-api-reference.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The loop is driven by a critic agent at its head — what it says is missing
  * becomes the next round of work — not by a fixed pass count.)

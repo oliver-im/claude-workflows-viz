@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Classify-And-Act.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/triage-issue.js --open
+ *   claude-workflows-viz examples/level-1/triage-issue.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */

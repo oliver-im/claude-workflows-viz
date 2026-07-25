@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Map-Reduce Pipeline.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/localize-release-notes.js --open
+ *   claude-workflows-viz examples/level-1/localize-release-notes.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The only bundled sample to exercise `isolation: "worktree"` — each locale
  * writes its own file in parallel — and `workflow()`, here as the reduce step.)

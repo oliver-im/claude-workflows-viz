@@ -967,7 +967,11 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
 
   if (optsArg) {
     if (optsArg.type !== "ObjectExpression") {
-      note(ctx, "agent() options are not an inline object literal; label/model/effort/phase unread", optsArg);
+      note(
+        ctx,
+        "agent() options are not an inline object literal; label/model/effort/agentType/phase unread",
+        optsArg,
+      );
     } else {
       for (const prop of optsArg.properties) {
         if (prop.type !== "Property" || prop.computed) {
