@@ -214,6 +214,38 @@ describe("captureAgentProse — builder identification", () => {
     expect(proseOf(anon)).toEqual([`${ANCHOR} Anonymous.`]);
   });
 
+  it("keeps `async` attached across a block comment, which the grammar allows", () => {
+    // `async [no LineTerminator here] function` admits a comment as the separator,
+    // so `async/**/function` is a legal async function and loses its prefix to a
+    // whitespace-only pattern — the same silent discard as above, one lexical form
+    // over. Covered for correctness rather than reach: there are zero
+    // `async <comment> function` in the whole 257MB binary.
+    const commented = `async/**/function outer(a){
+      const n = await probe(a);
+      let head = \`Prose that belongs to the description.\`;
+      function inner(b){ let g = \`${ANCHOR} Header.\`; return g; }
+      return head + inner(a) + n;
+    }`;
+    expect(() => proseOf(commented)).toThrow(/nested functions enclose.*reconcile manually/s);
+  });
+
+  it("rejects a decoy that parses and spans the anchor but does not contain it", () => {
+    // The regex is lexically blind, so a candidate can start inside a string. Here
+    // the bytes from that point reparse into a valid anonymous function whose body
+    // is a single comment swallowing the real builder — it spans the anchor, so an
+    // offset-only enclosure test counts it as a second candidate and turns a working
+    // capture into a spurious "reconcile manually". Requiring the parse to contain a
+    // template literal opening AT the anchor rejects it: there, the anchor is inside
+    // a comment, which is not in the AST at all.
+    // The trailing `;` is load-bearing: acorn reads one token past the function body
+    // to see whether the expression continues, so a tail ending `"` would abort the
+    // decoy on an unterminated string and quietly make this fixture prove nothing.
+    const decoyed = `const a = "function(){/*";
+    ${BUILDER}
+    const b = "*/};";`;
+    expect(proseOf(decoyed)).toEqual(proseOf(BUILDER));
+  });
+
   it("refuses when a fragment would collide with the separator", () => {
     const collide = `function b(){ return \`${ANCHOR}\\n${SEP}\\ntail\`; }`;
     expect(() => proseOf(collide)).toThrow(/no longer\s+unambiguous/);

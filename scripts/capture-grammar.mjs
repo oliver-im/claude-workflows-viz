@@ -260,6 +260,27 @@ function captureProse(ccDir) {
  * cost of not seeing a change that is purely an identifier swap, which by
  * construction carries no grammar meaning.
  */
+/**
+ * Does `node`'s tree contain a template literal that OPENS at `offset`? Used to
+ * confirm a candidate function really contains the anchor as prose, rather than
+ * merely spanning its offset. Early-exits on the first hit; only ever walked for
+ * the handful of candidates that span the anchor at all.
+ */
+function templateOpensAt(node, offset) {
+  if (node === null || typeof node !== "object") return false;
+  if (Array.isArray(node)) return node.some((child) => templateOpensAt(child, offset));
+  if (typeof node.type !== "string") return false;
+  if (node.type === "TemplateLiteral" && node.start === offset) return true;
+  // Nothing that starts after the offset can contain it, and acorn emits `start`
+  // monotonically down the tree — so this prunes rather than merely short-circuits.
+  if (node.start > offset || node.end <= offset) return false;
+  for (const key of Object.keys(node)) {
+    if (key === "type" || key === "start" || key === "end") continue;
+    if (templateOpensAt(node[key], offset)) return true;
+  }
+  return false;
+}
+
 function captureAgentProse(ccDir) {
   const binPath = join(ccDir, "bin", "claude.exe");
   const buf = readFileSync(binPath);
@@ -353,9 +374,13 @@ function captureAgentProse(ccDir) {
   //     extent today only because that body happens to contain no `await` — one
   //     `await` upstream turns it into an "Unexpected token" raised far from the
   //     window end, i.e. indistinguishable by position from a `function` inside a
-  //     string. (No line break allowed before `function`, per the grammar's
-  //     `async [no LineTerminator] function`: `async\nfunction f(){}` really is a
-  //     plain declaration, and matches as one.)
+  //     string. The separator is whitespace OR a block comment, both restricted to
+  //     no line break, because that is exactly what the grammar's
+  //     `async [no LineTerminator here] function` admits: `async/**/function f(){}`
+  //     is a legal async function, while `async\nfunction f(){}` really is a plain
+  //     declaration and matches as one. (The comment form is covered for
+  //     correctness, not for reach — there are zero `async <comment> function` in
+  //     the whole 257MB binary, since a minifier has no reason to emit one.)
   //   - `*`, for generators: `function\s+` cannot cross it, so `function* f(` was
   //     never a candidate at all.
   //   - No name, for anonymous function expressions — 130 of them in this window.
@@ -365,7 +390,11 @@ function captureAgentProse(ccDir) {
   // `function\s+<ident>\s*\(`: the same single enclosing function (6 bytes longer —
   // the `async `), zero candidates lost, 130 gained, and 84 fewer unexplained parse
   // failures, those being async functions re-parsed without their prefix.
-  const FUNCTION_KEYWORD = /(?:\basync[^\S\r\n]+)?\bfunction\b\s*\*?\s*[A-Za-z0-9_$]*\s*\(/g;
+  const NO_BREAK_SEP = String.raw`(?:[^\S\r\n]|/\*(?:(?!\*/)[^\r\n])*\*/)`;
+  const FUNCTION_KEYWORD = new RegExp(
+    String.raw`(?:\basync${NO_BREAK_SEP}+)?\bfunction\b\s*\*?\s*[A-Za-z0-9_$]*\s*\(`,
+    "g",
+  );
 
   const enclosing = [];
   const unresolved = [];
@@ -426,6 +455,21 @@ function captureAgentProse(ccDir) {
     // Safe to compare now: the single-byte check above established that these two
     // offsets are in the same units.
     if (parsed.end <= anchor - candStart) continue; // closes before the anchor
+
+    // Spanning the anchor is necessary but NOT sufficient, because the regex is
+    // lexically blind: it happily starts a candidate inside a string or comment,
+    // where acorn — parsing from that offset with no knowledge of the surrounding
+    // state — can reinterpret the bytes into something that parses. Text split as
+    // `"function(){/*"` … `"*/}"` around the real builder yields a perfectly valid
+    // anonymous function whose body is one comment swallowing the anchor. It spans,
+    // so the offset test alone accepts it as a second enclosing candidate.
+    //
+    // So require the parse to actually SEE the anchor as prose: a template literal
+    // opening at exactly `anchor - 1`, the backtick the anchor search matched on.
+    // In the decoy the anchor is inside a comment, which is not in the AST at all.
+    // This can only ever reject, never mis-select — if it were somehow to reject the
+    // true builder, `enclosing` empties and the capture throws rather than narrows.
+    if (!templateOpensAt(parsed, anchor - candStart - 1)) continue;
     enclosing.push({ start: candStart, text: candText, fn: parsed });
   }
 

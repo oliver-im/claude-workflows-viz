@@ -151,7 +151,13 @@ uniqueness check. That is not theoretical. At cc-2.1.220 the builder is
 `async function mvd(e,t,r)`, and an earlier pattern that started at the `function`
 keyword dropped the `async` and re-parsed the body without it; that measures the
 right extent today only because the body happens to contain no `await`, and one
-`await` upstream would have turned it into an ordinary-looking parse failure.
+`await` upstream would have turned it into an ordinary-looking parse failure. The
+`async` separator admits a block comment as well as whitespace, both barred from
+containing a line break, because that is exactly what the grammar's
+`async [no LineTerminator here] function` allows — `async/**/function f(){}` is a
+legal async function, `async⏎function f(){}` is a plain one. (Correctness, not
+reach: the binary contains zero `async <comment> function`.)
+
 Taking the nearest match would be the obvious
 shortcut and fails silently: if upstream ever nests the anchor-bearing fragment in a
 helper while other literals stay in the outer builder, the nearest match is that
@@ -159,6 +165,19 @@ helper, and the capture inventories a subtree — yielding an artifact that is s
 but perfectly self-consistent, with a valid hash, a valid manifest, and passing
 tests. Two enclosing candidates is therefore a "reconcile manually", not a
 tie-break.
+
+Enclosure itself is structural, not positional. A candidate that merely *spans* the
+anchor's offset is not enough, because the pattern is lexically blind — it starts
+candidates inside strings and comments, where acorn, parsing from that offset with no
+knowledge of the surrounding state, can reinterpret the bytes into something valid.
+Text split as `"function(){/*"` … `"*/};"` around the real builder parses as an
+anonymous function whose entire body is one comment swallowing the anchor; it spans,
+so an offset-only test counts it as a second candidate and turns a working capture
+into a spurious refusal. So the parse must actually *see* the anchor as prose: a
+template literal opening at exactly the backtick the anchor search matched. In the
+decoy that region is a comment, which is not in the AST at all. The check can only
+reject, never mis-select — rejecting the true builder would empty the candidate list
+and throw, not narrow.
 
 "Exactly one" only proves uniqueness if every candidate was actually *measured*, so a
 candidate that could not be is recorded rather than skipped — skipping is precisely
