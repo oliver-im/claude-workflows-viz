@@ -30,7 +30,9 @@ The workflow grammar is owned by Claude Code and not formally versioned upstream
 
 ## Examples corpus
 
-Bundled workflows live under a per-level directory (`examples/level-1/`, `examples/level-2/`); each declares its level in-file (a `Grammar level: N` header). A sample sits at the level of the newest construct it uses, so level-1 is the baseline-vocabulary set, not a legacy one. `npm run regen-examples` rebuilds the committed SVG/PNG renders. `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file stamp, and what the file actually uses all agree, so a sample can't silently drift past the recognizer.
+Bundled workflows live under a per-level directory (`examples/level-1/`, `examples/level-2/`); each declares its level in-file (a `Grammar level: N` header). A sample sits at the level of the newest construct it uses, so level-1 is the baseline-vocabulary set, not a legacy one. `npm run regen-examples` rebuilds the committed SVG/PNG renders.
+
+The README hero (`examples/level-1/review-pr.annotated.png`) is a **separate** docs asset from `scripts/annotate-anatomy.mjs`, deliberately not wired into `regen-examples`: its pin coordinates are hand-tuned literals, so regenerating over a moved base would misalign them rather than fix them. The script pins its base by sha256 (`TUNED_AGAINST_BASE_SHA256`) and `ts/__tests__/anatomy-hero.test.ts` holds that hash to the committed `review-pr.svg`. If a render change moves that file, the test fails: run `node scripts/annotate-anatomy.mjs --retune`, **check every pin still points at what it names**, then paste the printed hash back into the script. Bumping the hash without looking defeats the guard. `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file stamp, and what the file actually uses all agree, so a sample can't silently drift past the recognizer.
 
 ## When Implementing
 
