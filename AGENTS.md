@@ -22,15 +22,15 @@ The render pipeline (`ts/cli.ts` is the commander entry):
 4. **`place-topology.ts` / `topo-geometry.ts`** — hand-rolled, phase-driven placement into geometry (no dagre/elk dependency).
 5. **`render-topology.ts` / `render-svg.ts` / `svg-primitives.ts`** — emit SVG; **`render-png.ts`** rasterizes via `@resvg/resvg-js` then optimizes with `@napi-rs/image` (palette-quantize + lossless oxipng repack — visually lossless, deterministic/byte-stable) — all native, no browser; **`html.ts`** for `--format html`; **`emit-json.ts`** dumps the full static analysis for `--format json`.
 
-`model.ts` maps a phase/agent `model` to its color swatch (opus/sonnet/haiku, matched inside full ids like `claude-opus-4-8`).
+`model.ts` holds the zod schema for the `meta` block. The model→color map is `MODEL_SWATCHES` in `svg-primitives.ts` (opus/sonnet/haiku/fable, matched as a substring so full ids like `claude-opus-5` resolve); `shortModel` in `render-topology.ts` keys off the same table, so a new model family is one edit.
 
 ## Grammar levels
 
-The workflow grammar is owned by Claude Code and not formally versioned upstream. This tool pins the moving target under its own monotonic **grammar level** (`requiredLevel ≤ recognizerLevel`), reconciled against a captured baseline in `spec/upstream/<date>-cc-<ver>/` (the verbatim tool description + input schema + a `manifest.json` of sha256s — intentionally committed so the baseline is reproducible offline). `feature-detect.ts` + `grammar.ts` implement per-file detection; the ledger is `docs/GRAMMAR-CHANGELOG.md`. The drift check is `npm run check-grammar` — it **requires a local Claude Code install** to re-capture, so it is *not* run in CI.
+The workflow grammar is owned by Claude Code and not formally versioned upstream. This tool pins the moving target under its own monotonic **grammar level** (`requiredLevel ≤ recognizerLevel`), reconciled against a captured baseline in `spec/upstream/<date>-cc-<ver>/` (the verbatim tool description + input schema + a `manifest.json` of sha256s — intentionally committed so the baseline is reproducible offline). `feature-detect.ts` + `grammar.ts` implement per-file detection; the ledger is `docs/GRAMMAR-CHANGELOG.md`. The drift check is `npm run check-grammar` — it **requires a local Claude Code install** to re-capture, so it is *not* run in CI. The recognizer is at **level 2** (`cc-2.1.219`); if the capture can't find the install (a wrapper script shadowing `claude` on `PATH`), set `CLAUDE_CODE_DIR` to the package root.
 
 ## Examples corpus
 
-Bundled workflows live under a per-level directory (`examples/level-1/` today); each declares its level in-file (a `Grammar level: N` header). `npm run regen-examples` rebuilds the committed SVG/PNG renders. `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file stamp, and what the file actually uses all agree, so a sample can't silently drift past the recognizer.
+Bundled workflows live under a per-level directory (`examples/level-1/`, `examples/level-2/`); each declares its level in-file (a `Grammar level: N` header). A sample sits at the level of the newest construct it uses, so level-1 is the baseline-vocabulary set, not a legacy one. `npm run regen-examples` rebuilds the committed SVG/PNG renders. `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file stamp, and what the file actually uses all agree, so a sample can't silently drift past the recognizer.
 
 ## When Implementing
 

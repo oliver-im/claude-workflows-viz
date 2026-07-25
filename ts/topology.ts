@@ -60,6 +60,13 @@ export interface AgentStep extends StepBase {
   expandedLabels?: string[];
   multiplicity: Multiplicity;
   model?: string;
+  /**
+   * `opts.effort` — the per-agent reasoning-effort override ('low' | 'medium' |
+   * 'high' | 'xhigh' | 'max'), verbatim as written. Grammar level 2. Kept RAW
+   * and unvalidated: the renderer draws whatever literal the author wrote, on
+   * the same "render what the body says" rule that keeps `model` a free string.
+   */
+  effort?: string;
   agentType?: string;
   promptPreview?: string;
 }

@@ -36,7 +36,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 // Every directory that ships hand-authored workflow `.js` files in the npm package
 // (`package.json` "files"). Each must stay locked to a declared grammar level.
-const GRAMMAR_DIRS = ["examples/level-1"];
+const GRAMMAR_DIRS = ["examples/level-1", "examples/level-2"];
 
 /** The `* Grammar level: 1` header marker — the in-file level declaration. */
 const DECLARED_LEVEL = /\*\s*Grammar level:\s*(\d+)\b/;

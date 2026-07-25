@@ -61,6 +61,7 @@ export const LEXICON: readonly LexiconEntry[] = [
   // ── wired · agent() options (the agentStep options switch) ──
   { token: "label", kind: "agent-option", wired: true, sinceLevel: 1, note: "node caption — string or template literal" },
   { token: "model", kind: "agent-option", wired: true, sinceLevel: 1, note: "colors the agent circle — string literal only" },
+  { token: "effort", kind: "agent-option", wired: true, sinceLevel: 2, note: "reasoning-effort badge on the agent node — string literal only" },
   { token: "agentType", kind: "agent-option", wired: true, sinceLevel: 1, note: "recorded — string literal only" },
   { token: "phase", kind: "agent-option", wired: true, sinceLevel: 1, note: "overrides the ambient phase for this node — string literal only" },
   { token: "schema", kind: "agent-option", wired: true, sinceLevel: 1, note: "recognized as an option, but carries no visual meaning" },
@@ -105,7 +106,7 @@ export const AGENT_OPTION_KEYS: ReadonlySet<string> = wiredSet("agent-option");
  * file that needs a higher level than this uses constructs newer than what the
  * recognizer understands — the caniuse-style comparison in `feature-detect.ts`.
  */
-export const RECOGNIZER_LEVEL: GrammarLevel = 1;
+export const RECOGNIZER_LEVEL: GrammarLevel = 2;
 
 /**
  * The Claude Code version the current `RECOGNIZER_LEVEL` is reconciled to — the
@@ -117,7 +118,7 @@ export const RECOGNIZER_LEVEL: GrammarLevel = 1;
  * `ts/__tests__/grammar.test.ts` pins it to the latest committed baseline so the
  * two can't silently diverge.
  */
-export const RECOGNIZER_LEVEL_CC = "2.1.173";
+export const RECOGNIZER_LEVEL_CC = "2.1.219";
 
 /**
  * Map every **wired** token to the grammar level that introduced it — the lookup

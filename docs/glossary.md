@@ -16,7 +16,7 @@ table in §C maps one to the other.
 > grammar, which Claude Code owns and does not formally version. What that subset
 > is reconciled *against* — the pinned upstream baseline — lives in
 > [`spec/upstream/`](../spec/upstream/), named with a grammar level in
-> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 1**, `cc-2.1.173`).
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.219`).
 > The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
@@ -72,6 +72,8 @@ table in §C maps one to the other.
 - **`label`** — the node's caption (string or template literal). Wins over the
   prompt for the label.
 - **`model`** — colors the agent circle (string literal only).
+- **`effort`** — draws the effort badge left of the circle (string literal only).
+  Grammar level 2; taken verbatim, not checked against the documented tiers.
 - **`agentType`** — recorded (string literal only).
 - **`phase`** — overrides the ambient phase for this one agent (string literal
   only); also registers a new lane if unseen.
@@ -159,8 +161,11 @@ table in §C maps one to the other.
 - **swimlane / stripe** — the faint rectangle painted behind a phase's nodes.
 - **chip** — the numbered circle (`1`, `2`, …) at a lane's top-left.
 - **model badge / tint** — the colored pill (and faint lane wash) keyed off a
-  model name; opus/sonnet/haiku are matched even inside a full id like
-  `claude-opus-4-8`; anything else is neutral.
+  model name; opus/sonnet/haiku/fable are matched even inside a full id like
+  `claude-opus-5`; anything else is neutral.
+- **effort badge** — the muted word (`low`, `max`, …) set to the LEFT of an agent
+  node, from `agent()`'s `opts.effort`. Deliberately the mirror of the ×N badge on
+  the right, so the two never collide and both stay clear of the node label.
 - **control-only strip** — a slim empty lane (a phase with no orchestration),
   labeled *control only*, with no model badge.
 - **loop badge** — the rendered `GLoop` (`↻ repeat while …`). Nested loops stack.

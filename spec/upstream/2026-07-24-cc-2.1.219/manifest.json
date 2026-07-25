@@ -1,0 +1,14 @@
+{
+  "ccVersion": "2.1.219",
+  "capturedAt": "2026-07-24T23:40:58.947Z",
+  "artifacts": {
+    "workflow-tool-description.txt": {
+      "bytes": 19581,
+      "sha256": "212f59ac753f5c2fc4e9deb9ad7f31f08035928c5dc93d630b92e2e1370fdfb8"
+    },
+    "workflow-input-schema.d.ts": {
+      "bytes": 3064,
+      "sha256": "fe6f86e00a7f739fc606aa758a4cc04c17c85a12a5ca30c3d441a190558f44a2"
+    }
+  }
+}

@@ -111,7 +111,7 @@ describe("every orchestration-call token is dispatched to a recognized step", ()
 
 // Each agent option, exercised on an agent() call, with the observable proof the
 // recognizer's option switch (`analyze-body.ts`, `switch (key)`) actually read it.
-// Keyed by token so a NEW option with no entry fails loudly. Four options set a
+// Keyed by token so a NEW option with no entry fails loudly. Five options set a
 // field — deleting their switch case (while keeping the lexicon key) leaves the
 // field unset and the probe fails, so these have real dispatch teeth. `schema` and
 // `isolation` are the exceptions: their `case …: break` arms are inert, so the same
@@ -130,6 +130,7 @@ const OPTION_DISPATCH: Record<
     },
   },
   model: { opt: `model: "opus"`, check: (a) => expect(a.model).toBe("opus") },
+  effort: { opt: `effort: "max"`, check: (a) => expect(a.effort).toBe("max") },
   agentType: { opt: `agentType: "codex"`, check: (a) => expect(a.agentType).toBe("codex") },
   phase: { opt: `phase: "B"`, check: (a) => expect(a.phase).toBe("B") },
   schema: {

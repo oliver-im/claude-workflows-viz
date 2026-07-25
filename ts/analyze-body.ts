@@ -961,12 +961,13 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
   let optLabel: string | undefined;
   let labelTemplate: any; // the raw TemplateLiteral node, kept for expansion
   let model: string | undefined;
+  let effort: string | undefined;
   let agentType: string | undefined;
   let optPhase: string | undefined;
 
   if (optsArg) {
     if (optsArg.type !== "ObjectExpression") {
-      note(ctx, "agent() options are not an inline object literal; label/model/phase unread", optsArg);
+      note(ctx, "agent() options are not an inline object literal; label/model/effort/phase unread", optsArg);
     } else {
       for (const prop of optsArg.properties) {
         if (prop.type !== "Property" || prop.computed) {
@@ -1005,6 +1006,16 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             const lit = stringLiteralValue(prop.value);
             if (lit !== undefined) model = lit;
             else note(ctx, "agent model is not a string literal; model unread", prop.value);
+            break;
+          }
+          case "effort": {
+            // Taken verbatim, like `model`: the grammar documents five tiers,
+            // but the renderer draws whatever literal is written rather than
+            // policing the set — an unknown tier is the author's statement, not
+            // ours to correct.
+            const lit = stringLiteralValue(prop.value);
+            if (lit !== undefined) effort = lit;
+            else note(ctx, "agent effort is not a string literal; effort unread", prop.value);
             break;
           }
           case "agentType": {
@@ -1107,6 +1118,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
     span: spanOf(call),
     ...(expandedLabels !== undefined ? { expandedLabels } : {}),
     ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
     ...(agentType !== undefined ? { agentType } : {}),
     ...(promptPreview !== undefined ? { promptPreview } : {}),
   };

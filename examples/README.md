@@ -1,12 +1,26 @@
 # Example gallery
 
 The bundled workflows are the tool's **example corpus** — versioned by
-[grammar level](../docs/GRAMMAR-CHANGELOG.md) under `level-N/` (today `level-1/`),
-each also declaring its level in-file (a `Grammar level: N` header). The test
+[grammar level](../docs/GRAMMAR-CHANGELOG.md) under `level-N/`, each also
+declaring its level in-file (a `Grammar level: N` header). The test
 `ts/__tests__/examples.grammar.test.ts` enforces that the directory, the in-file
 stamp, and what the file actually uses all agree, so a sample can't silently
 drift past the recognizer; `npm run regen-examples` rebuilds the committed
 SVG/PNG renders.
+
+A sample lives at the level of the **newest construct it uses**, so the level-1
+directory is not legacy — it is the set of workflows expressible in the baseline
+vocabulary, and most workflows still are.
+
+## Level 2
+
+Minted when `agent()` gained `opts.effort`.
+
+| Workflow | Pattern | Render |
+| --- | --- | --- |
+| [`tier-the-effort.js`](level-2/tier-the-effort.js) | effort tiering — `opts.effort` per stage: skim `low`, root-cause `max`, cross-examine `high`, draft `low` | [SVG](level-2/tier-the-effort.svg) · [PNG](level-2/tier-the-effort.png) |
+
+## Level 1
 
 The twelve level-1 workflows cover all six patterns from Anthropic's
 [*A harness for every task*](https://claude.com/blog/a-harness-for-every-task-dynamic-workflows-in-claude-code)

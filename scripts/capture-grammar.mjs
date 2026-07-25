@@ -54,29 +54,115 @@ const ARTIFACT_SCHEMA = "workflow-input-schema.d.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Locate the installed @anthropic-ai/claude-code package directory + version. */
+const PKG_NAME = "@anthropic-ai/claude-code";
+
+/**
+ * Is `dir` a usable claude-code package root? Both the right `package.json` AND
+ * both capture artifacts must be present. Requiring the artifacts is what lets
+ * the caller keep searching past a layout that identifies as the package but
+ * can't be captured from — notably the native installer's
+ * `~/.local/share/claude/versions/<ver>`, a single self-contained binary with no
+ * `package.json` and no `sdk-tools.d.ts` at all.
+ */
+function readPackageAt(dir) {
+  const pkgJson = join(dir, "package.json");
+  if (!existsSync(pkgJson)) return null;
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
+  } catch {
+    return null;
+  }
+  if (pkg.name !== PKG_NAME) return null;
+  const missing = [join("bin", "claude.exe"), "sdk-tools.d.ts"].filter(
+    (f) => !existsSync(join(dir, f)),
+  );
+  return missing.length > 0 ? { dir, version: pkg.version, missing } : { dir, version: pkg.version };
+}
+
+/** Walk up from a path looking for the package root. */
+function walkUpFrom(start) {
+  let dir = start;
+  while (true) {
+    const found = readPackageAt(dir);
+    if (found) return found;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/**
+ * Locate the installed @anthropic-ai/claude-code package directory + version.
+ *
+ * Three strategies, in order — because `claude` on PATH is NOT reliably a file
+ * inside the package. It is for an npm install (`…/bin/claude` symlinks into
+ * `…/lib/node_modules/@anthropic-ai/claude-code/`), but multiplexers and version
+ * managers commonly shadow it with a *wrapper script* that lives somewhere else
+ * entirely and re-execs the real CLI — cmux, for instance, puts a bash shim in a
+ * temp dir. `realpathSync` on a wrapper resolves to the wrapper, so the walk-up
+ * finds nothing. Falling back to `npm root -g` recovers the ordinary npm install
+ * underneath; `CLAUDE_CODE_DIR` is the escape hatch for anything else.
+ */
 function locateClaudeCode() {
+  const tried = [];
+
+  // 1. An explicit override always wins — point it at the package root.
+  const override = process.env.CLAUDE_CODE_DIR;
+  if (override) {
+    const found = readPackageAt(override);
+    if (found && !found.missing) return found;
+    tried.push(
+      `CLAUDE_CODE_DIR=${override} — ${
+        found?.missing ? `missing ${found.missing.join(", ")}` : `not a ${PKG_NAME} package root`
+      }`,
+    );
+  }
+
+  // 2. Walk up from `claude` on PATH (the npm-install case).
   let onPath;
   try {
     onPath = execSync("command -v claude", { encoding: "utf8" }).trim();
   } catch {
-    throw new Error("`claude` is not on PATH — install Claude Code to capture its grammar");
+    onPath = "";
   }
-  // `bin/claude.exe` is the package's canonical bin entry on every platform (the
-  // per-OS binaries are optionalDependencies the postinstall copies in), so the
-  // package root is found by walking up from whatever `claude` resolves to.
-  let dir = dirname(realpathSync(onPath));
-  while (true) {
-    const pkgJson = join(dir, "package.json");
-    if (existsSync(pkgJson)) {
-      const pkg = JSON.parse(readFileSync(pkgJson, "utf8"));
-      if (pkg.name === "@anthropic-ai/claude-code") return { dir, version: pkg.version };
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  if (onPath) {
+    const found = walkUpFrom(dirname(realpathSync(onPath)));
+    if (found && !found.missing) return found;
+    tried.push(
+      `\`claude\` on PATH (${onPath}) — ${
+        found?.missing
+          ? `found ${found.dir} but it is missing ${found.missing.join(", ")}`
+          : "resolves outside any package (a wrapper script?)"
+      }`,
+    );
+  } else {
+    tried.push("`claude` is not on PATH");
   }
-  throw new Error(`could not find the @anthropic-ai/claude-code package from ${onPath}`);
+
+  // 3. The global npm root — where a PATH wrapper is usually hiding the install.
+  let globalRoot;
+  try {
+    globalRoot = execSync("npm root -g", { encoding: "utf8" }).trim();
+  } catch {
+    globalRoot = "";
+  }
+  if (globalRoot) {
+    const candidate = join(globalRoot, PKG_NAME);
+    const found = readPackageAt(candidate);
+    if (found && !found.missing) return found;
+    tried.push(
+      `\`npm root -g\` (${candidate}) — ${
+        found?.missing ? `missing ${found.missing.join(", ")}` : "no package there"
+      }`,
+    );
+  }
+
+  throw new Error(
+    `could not locate an ${PKG_NAME} install to capture from. Tried:\n` +
+      tried.map((t) => `  - ${t}`).join("\n") +
+      `\n  Set CLAUDE_CODE_DIR to the package root (the directory holding bin/claude.exe and sdk-tools.d.ts).`,
+  );
 }
 
 /** Extract the Workflow tool description prose from the compiled binary. */

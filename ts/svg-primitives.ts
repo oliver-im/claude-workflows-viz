@@ -65,6 +65,13 @@ export const MODEL_SWATCHES: ReadonlyArray<readonly [string, Swatch]> = [
   ["opus", { fill: "#ede9fe", stroke: "#8b5cf6", text: "#3b0764" }],
   ["sonnet", { fill: "#dcfce7", stroke: "#22c55e", text: "#14532d" }],
   ["haiku", { fill: "#dbeafe", stroke: "#3b82f6", text: "#1e3a5f" }],
+  // The Claude 5 family's fourth model. Amber is the one hue left with real
+  // separation from the other three AS NODE FILLS — teal would sit between
+  // sonnet's green and haiku's blue, and a magenta would read as opus's violet
+  // at swatch-dot size. It runs close to the coral ACCENT, but ACCENT only ever
+  // marks structure (barriers, decisions, loop badges), never a node fill, so
+  // the two never compete on the same shape.
+  ["fable", { fill: "#fef3c7", stroke: "#f59e0b", text: "#78350f" }],
 ];
 export const MODEL_FALLBACK: Swatch = {
   fill: "#f1f5f9",

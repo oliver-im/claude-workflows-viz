@@ -13,10 +13,10 @@ authority for it: `ts/extract-meta.ts` (the `meta` block) and
 > template expressions) in `meta` is *rejected*, not evaluated. This is the
 > security spine of the whole tool.
 
-> **Grammar provenance.** The recognizer supports grammar level **≤ 1**, reconciled
-> against `cc-2.1.173` on 2026-06-23. Upstream snapshots live in
-> [`spec/upstream/`](../spec/upstream/); the level ledger — what level 1 pins and how
-> a bump is minted — is [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md). When the
+> **Grammar provenance.** The recognizer supports grammar level **≤ 2**, reconciled
+> against `cc-2.1.219` on 2026-07-24. Upstream snapshots live in
+> [`spec/upstream/`](../spec/upstream/); the level ledger — what each level pins and
+> how a bump is minted — is [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md). When the
 > grammar drifts, [§5 Maintenance](#5-maintenance-what-a-grammar-change-touches) is
 > the edit-site map.
 
@@ -82,8 +82,8 @@ key — the object is built with a null prototype so it can't pollute validation
 | `phases[].model` | string | — | color swatch; omit ⇒ no badge |
 
 Unknown keys are ignored. A missing `phases` normalizes to `[]`. `model` is
-free-form: `opus`/`sonnet`/`haiku` are matched for color **even inside a full id**
-(`claude-opus-4-8`); anything else gets a neutral badge.
+free-form: `opus`/`sonnet`/`haiku`/`fable` are matched for color **even inside a
+full id** (`claude-opus-5`); anything else gets a neutral badge.
 
 ---
 
@@ -135,7 +135,7 @@ the CLI falls back to the `phases` view wholesale.
 
 | Source | Becomes | Notes |
 | --- | --- | --- |
-| `agent(prompt, opts?)` | `AgentStep` | label = `opts.label` → prompt literal/template-head → `"agent"`. `model`/`agentType`/`phase` read from opts (literals only). |
+| `agent(prompt, opts?)` | `AgentStep` | label = `opts.label` → prompt literal/template-head → `"agent"`. `model`/`effort`/`agentType`/`phase` read from opts (literals only). `effort` (grammar level 2) draws as a muted badge left of the node — the mirror of the ×N badge on the right — and is taken verbatim, not checked against the documented tiers. |
 | `workflow(name)` | `WorkflowStep` | label from string-literal name, else source slice. |
 | `parallel([f, g])` | `ParallelStep` `branches` | each element must be an inline thunk; non-thunks → opaque. |
 | `parallel(XS.map(cb))` | `ParallelStep` `fanout` | width = `XS`'s multiplicity (§3.4); `(x)=>()=>…` double-arrow unwraps. |
@@ -209,20 +209,37 @@ one short vertical is the phase-as-overlay payoff: no card wall to route around.
 
 When Claude Code's workflow grammar changes, the likely edit sites:
 
-- **A new orchestration call** (say `race(…)`): add it to
-  `ORCHESTRATION_CALLEES` *and* give it a recognizer in `walkExpression`
-  (→ a new `Step` kind in `topology.ts`, a `place*` in `place-topology.ts`, a
-  `render*` in `render-topology.ts`). Update §3.1/§3.3 and the glossary bridge.
+The wired vocabulary (orchestration calls + agent options) is **not** hand-kept in
+the recognizer: `grammar.ts`'s `LEXICON` is the single source, and
+`ORCHESTRATION_CALLEES` / `AGENT_OPTION_KEYS` are derived from it. So every wired
+change starts with a `LEXICON` entry (tagged with the level that introduced it), and
+`ts/__tests__/grammar.test.ts` then *fails* until the recognizer's dispatch and a
+probe for the new token both land — you cannot grow the vocabulary halfway.
+
+- **A new orchestration call** (say `race(…)`): add a `LEXICON` entry *and* give it
+  a recognizer in `walkExpression` (→ a new `Step` kind in `topology.ts`, a `place*`
+  in `place-topology.ts`, a `render*` in `render-topology.ts`), plus a `CALL_DISPATCH`
+  probe. Update §3.1/§3.3 and the glossary bridge.
 - **A new `meta` field**: extend `metaSchema` in `model.ts`; decide whether it
   draws (header/lane) and update §2.
 - **A new fan-out idiom** (a new way to express width): extend
   `resolveMultiplicity`; update §3.4.
-- **A new agent option**: handle it in `agentStep`; update §3.3/glossary.
+- **A new agent option**: add a `LEXICON` entry, read it in `agentStep`, and add an
+  `OPTION_DISPATCH` probe. If it also **draws**, it has to be threaded the whole way
+  down: a field on `AgentStep` (`topology.ts`) → `GNode` (`topo-geometry.ts`) → every
+  site in `place-topology.ts` that builds an agent node (the spine node, the fan-out's
+  collapsed *and* row members, and both pipeline-cell shapes — miss one and the badge
+  silently vanishes in that layout) → `renderAgent` **and** `graphContentBounds` in
+  `render-topology.ts`, since a badge outside the bounds math gets clipped when the
+  page packs to content. Update §3.3/glossary.
+- **A new model family**: one entry in `MODEL_SWATCHES` (`svg-primitives.ts`) — both
+  `swatchFor` and `shortModel` key off that table. Not a grammar change: model names
+  are not part of the captured grammar.
 
 Regression guardrails that should stay green through any such change:
 `--view phases` byte-identical (snapshot), **0 cross-card edges** across
-`examples/level-1/*.svg` (corpus test), and the v1 fallback path (analysis failure or
-`hasOrchestration === false` ⇒ phases page, exit 0).
+`examples/level-*/*.svg` (the corpus tests sweep every level directory), and the v1
+fallback path (analysis failure or `hasOrchestration === false` ⇒ phases page, exit 0).
 
 *Detecting* that the grammar changed in the first place — and the grammar-level
 bump that follows an edit here — is the reconciliation ritual in

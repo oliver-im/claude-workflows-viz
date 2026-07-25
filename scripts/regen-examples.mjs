@@ -13,7 +13,12 @@ import { basename, dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "dist/cli.js");
 
-const dirs = ["examples/level-1"];
+// Auto-discovered, so minting a grammar level and adding `examples/level-N/`
+// doesn't also require remembering to list it here.
+const dirs = readdirSync(join(root, "examples"), { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^level-\d+$/.test(d.name))
+  .map((d) => `examples/${d.name}`)
+  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 const jobs = [];
 for (const dir of dirs) {
   const abs = join(root, dir);
