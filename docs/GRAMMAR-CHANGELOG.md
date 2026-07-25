@@ -150,9 +150,21 @@ helper while other literals stay in the outer builder, the nearest match is that
 helper, and the capture inventories a subtree — yielding an artifact that is short
 but perfectly self-consistent, with a valid hash, a valid manifest, and passing
 tests. Two enclosing candidates is therefore a "reconcile manually", not a
-tie-break. `ts/__tests__/capture-grammar.test.ts` drives that rule and the anchor and
-slicing rules against crafted fixtures, since the real binary only exists on a
-machine with Claude Code installed and cannot be made to fail on purpose.
+tie-break.
+
+"Exactly one" only proves uniqueness if every candidate was actually *measured*, so a
+candidate the parse window cut off voids the claim as well. Those are told apart from
+genuine non-functions by where acorn raised, not by the message: a truncated function
+errors at the very end of its window, a `function` keyword inside a string errors near
+the start. At cc-2.1.220 the separation is four orders of magnitude — every real
+failure raises ≥520,000 characters from the end of a 512 KB window — so an
+unmeasurable candidate is a loud failure rather than a silently skipped one. This
+matters because skipping it is precisely how a too-large outer builder would leave a
+nested helper as the false sole survivor.
+
+`ts/__tests__/capture-grammar.test.ts` drives all of this against crafted fixtures,
+since the real binary only exists on a machine with Claude Code installed and cannot
+be made to fail on purpose.
 
 **Why one file and not 44.** Fragments have no stable identity upstream, so any
 per-file layout has to invent one. Measured against the two edits upstream actually

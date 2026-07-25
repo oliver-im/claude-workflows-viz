@@ -308,26 +308,38 @@ function captureAgentProse(ccDir) {
   // The pattern is ASCII-only, so it matches identically either way.
   const BACK_WINDOW = 1024 * 1024; // ~100× the cc-2.1.220 builder, so nesting is the realistic risk, not truncation
   const AHEAD_WINDOW = 512 * 1024;
+  // How close to the end of a parse window an error must be raised to read as
+  // "the window cut this function off" rather than "this is not a function".
+  const TRUNCATION_MARGIN = 64;
   const winStart = Math.max(0, anchor - BACK_WINDOW);
   const before = buf.subarray(winStart, anchor).toString("latin1");
 
   const enclosing = [];
-  let lastParseError;
+  const unresolved = [];
   for (const m of before.matchAll(/function\s+[A-Za-z0-9_$]+\s*\(/g)) {
     const candStart = winStart + m.index;
-    const candText = buf
-      .subarray(candStart, Math.min(buf.length, candStart + AHEAD_WINDOW))
-      .toString("utf8");
+    const candEnd = Math.min(buf.length, candStart + AHEAD_WINDOW);
+    const candText = buf.subarray(candStart, candEnd).toString("utf8");
     let parsed;
     try {
       parsed = acorn.parseExpressionAt(candText, 0, { ecmaVersion: "latest" });
     } catch (err) {
-      // Most candidates are not functions we can parse in isolation (a `function`
-      // keyword inside a string, or one whose body runs past AHEAD_WINDOW). Only a
-      // candidate that fails to parse AND would otherwise have enclosed the anchor
-      // is interesting, and we cannot know that without parsing it — so remember the
-      // last error for the diagnostic below and move on.
-      lastParseError = err;
+      // Most candidates are not functions at all — a `function` keyword inside a
+      // string literal, a method shorthand — and those fail immediately. But a
+      // candidate can also fail because its body ran past AHEAD_WINDOW, and THAT
+      // one matters: skipping it would discard a function we could not measure,
+      // and if it was the outer builder, the nested helper inside it becomes the
+      // only survivor and the "exactly one" check below waves through exactly the
+      // silent narrowing it exists to prevent.
+      //
+      // The two are told apart by WHERE acorn raised, not by the message: a
+      // window that cut off a function errors at its very end, while a genuine
+      // non-function errors near its start. That is not a close call — at
+      // cc-2.1.220 all 87 real failures raise ≥520,000 chars from the end of a
+      // 512KB window, so the margin below has four orders of magnitude of slack.
+      const raisedAt = err.raisedAt ?? err.pos ?? 0;
+      const cutOff = candEnd < buf.length && candText.length - raisedAt <= TRUNCATION_MARGIN;
+      if (cutOff) unresolved.push({ start: candStart, message: err.message });
       continue;
     }
     if (parsed.end <= anchor - candStart) continue; // closes before the anchor
@@ -345,12 +357,24 @@ function captureAgentProse(ccDir) {
     enclosing.push({ start: candStart, text: candText, fn: parsed });
   }
 
+  // Checked BEFORE the count, because an unmeasurable candidate makes the count
+  // meaningless: "exactly one enclosing" only proves uniqueness if every candidate
+  // was actually resolved. If this fires, raising AHEAD_WINDOW past the size of the
+  // function at the reported byte is the fix.
+  if (unresolved.length > 0) {
+    throw new Error(
+      `${unresolved.length} candidate function(s) could not be measured — the ${
+        AHEAD_WINDOW / 1024
+      }KB parse window cut them off (first at byte ${unresolved[0].start}: ${
+        unresolved[0].message
+      }). One of them may enclose the Agent description anchor, so uniqueness cannot be ` +
+        "established — reconcile manually",
+    );
+  }
   if (enclosing.length === 0) {
     throw new Error(
       "no function enclosing the Agent description anchor was found within " +
-        `${BACK_WINDOW / 1024}KB before it${
-          lastParseError ? ` (last parse error: ${lastParseError.message})` : ""
-        } — reconcile manually`,
+        `${BACK_WINDOW / 1024}KB before it — reconcile manually`,
     );
   }
   if (enclosing.length > 1) {
