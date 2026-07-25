@@ -15,10 +15,24 @@ import type { Layout } from "../topo-geometry.js";
  * per-shape facts the swimlane composition has to get right.
  */
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples", "level-1");
+const examplesRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples");
 
-const place = (name: string): Layout => {
-  const src = readFileSync(join(dir, name), "utf8");
+/** Every level directory's `.js` files, as `level-N/name.js` — the corpus-wide
+ *  sweeps below run over ALL levels, so a new `examples/level-N/` enrolls in the
+ *  invariants automatically instead of quietly going unchecked. The named
+ *  per-shape tests further down stay pinned to their own level-1 files. */
+const levelDirs = readdirSync(examplesRoot, { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^level-\d+$/.test(d.name))
+  .map((d) => d.name)
+  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+const corpus = levelDirs.flatMap((d) =>
+  readdirSync(join(examplesRoot, d))
+    .filter((f) => f.endsWith(".js"))
+    .map((f) => `${d}/${f}`),
+);
+
+const placeRel = (rel: string): Layout => {
+  const src = readFileSync(join(examplesRoot, rel), "utf8");
   const program = parseWorkflowSource(src);
   const meta = extractMetaFromProgram(program);
   return placeTopology(
@@ -26,6 +40,7 @@ const place = (name: string): Layout => {
     meta,
   );
 };
+const place = (name: string): Layout => placeRel(`level-1/${name}`);
 
 const nodeById = (layout: Layout, id: string) => layout.nodes.find((n) => n.id === id);
 /** Edges that point up or jump to an earlier band — the back-routes a card wall
@@ -38,22 +53,25 @@ const backRoutes = (layout: Layout) =>
   });
 
 describe("placeTopology — corpus composition", () => {
-  const files = readdirSync(dir).filter((f) => f.endsWith(".js"));
+  const files = corpus;
 
-  it("covers all 12 examples", () => {
-    expect(files).toHaveLength(12);
+  it("covers every level directory's examples", () => {
+    // A tripwire against the corpus silently shrinking — bump it deliberately
+    // when a sample is added or retired. Every level dir must contribute.
+    expect(files).toHaveLength(13);
+    for (const d of levelDirs) expect(files.some((f) => f.startsWith(`${d}/`)), d).toBe(true);
   });
 
   it("every example: ZERO back-routes (no edge points up or to an earlier band)", () => {
     for (const f of files) {
-      const layout = place(f);
+      const layout = placeRel(f);
       expect(backRoutes(layout), f).toEqual([]);
     }
   });
 
   it("every example: every fan member / pipeline cell connects onward (no dangling fan)", () => {
     for (const f of files) {
-      const layout = place(f);
+      const layout = placeRel(f);
       // Any agent node that shares its lane with a barrier is part of a fan/grid
       // and must have an outgoing edge.
       const barrierLanes = new Set(layout.nodes.filter((n) => n.kind === "barrier").map((n) => n.phase));
@@ -66,7 +84,7 @@ describe("placeTopology — corpus composition", () => {
 
   it("every example: lanes are ordered top→down and non-overlapping", () => {
     for (const f of files) {
-      const layout = place(f);
+      const layout = placeRel(f);
       for (let i = 1; i < layout.lanes.length; i++) {
         expect(layout.lanes[i].yTop, `${f} lane ${i}`).toBeGreaterThanOrEqual(layout.lanes[i - 1].yBot - 1);
       }
@@ -141,7 +159,9 @@ describe("placeTopology — corpus composition", () => {
   });
 
   it("review-pr: all four lanes carry graph (the verify fan lands in 'Adversarially verify', not a strip)", () => {
-    const layout = place("review-pr.js");
+    // The one named example not under level-1: it is the README hero, which is
+    // kept at the newest grammar level (see examples/README.md).
+    const layout = placeRel("level-2/review-pr.js");
     expect(layout.lanes).toHaveLength(4);
     expect(layout.lanes.every((l) => !l.empty)).toBe(true);
     const verifyLane = layout.lanes.findIndex((l) => l.title === "Adversarially verify");
@@ -153,7 +173,7 @@ describe("placeTopology — corpus composition", () => {
 
   it("is deterministic across runs for every example", () => {
     for (const f of files) {
-      expect(JSON.stringify(place(f)), f).toBe(JSON.stringify(place(f)));
+      expect(JSON.stringify(placeRel(f)), f).toBe(JSON.stringify(placeRel(f)));
     }
   });
 });

@@ -39,6 +39,9 @@ export interface GNode {
   labelExplicit?: boolean;
   /** Agent model key for the color swatch (RAW); absent ⇒ neutral. */
   model?: string;
+  /** Agent reasoning-effort badge (RAW, e.g. "low" / "max"); absent ⇒ inherits
+   *  the session effort, and nothing is drawn. */
+  effort?: string;
   /** Pre-rendered multiplicity badge, e.g. "×4" / "×N" (RAW); absent ⇒ one. */
   mult?: string;
   /** Row/grid member: render the label centered BELOW (a spine node defaults to

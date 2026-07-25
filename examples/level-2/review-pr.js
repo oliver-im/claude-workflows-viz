@@ -2,12 +2,19 @@
  * Sample dynamic workflow for claude-workflows-viz.
  *
  * From a clone of this repo, render it with:
- *   claude-workflows-viz examples/review-pr.js --open
+ *   claude-workflows-viz examples/level-2/review-pr.js --open
  *
- * The tool draws the `meta` block below and NEVER runs the orchestration code
- * beneath it — the body is here only so this reads like a real workflow.
+ * The tool draws the `meta` block below AND the orchestration code beneath it,
+ * and NEVER runs either — the body is recovered by static analysis alone.
  *
- * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
+ * (This is the README's annotated hero, so it deliberately sits at the NEWEST
+ * grammar level — the front page should advertise the current vocabulary, not a
+ * subset of it. Hence the `opts.effort` tiers, drawn as a muted badge left of
+ * each node, and `claude-fable-5` on the drafting phase. The first agent sets no
+ * effort on purpose: omitted means "inherit the session tier", and the hero
+ * should show that absence draws nothing rather than a placeholder.)
+ *
+ * Grammar level: 2 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
 export const meta = {
   name: "Review a pull request",
@@ -32,13 +39,13 @@ export const meta = {
       title: "Adversarially verify",
       detail:
         "Spawn a panel of skeptics per finding, each prompted to refute it; drop anything the panel cannot defend.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Synthesize the report",
       detail:
         "Dedupe the survivors, rank them by severity, and write the review with reproducible citations.",
-      model: "sonnet",
+      model: "claude-fable-5",
     },
   ],
 };
@@ -52,6 +59,10 @@ const DIMENSIONS = ["correctness", "security", "performance"];
 const FINDINGS = { type: "object", properties: { findings: { type: "array" } } };
 const VERDICT = { type: "object", properties: { real: { type: "boolean" } } };
 
+// Effort is tiered the way the grammar advises: `low` for the mechanical passes,
+// the higher tier reserved for the one genuinely adversarial step. The mapping
+// agent sets none at all — `effort` is optional, and an omitted one inherits the
+// session's tier and draws no badge.
 phase("Map the diff");
 const slices = await agent("List changed files vs main, grouped by subsystem.");
 
@@ -61,6 +72,7 @@ const reviewed = await pipeline(
     agent(`Review these slices for ${dim} issues: ${JSON.stringify(slices)}`, {
       label: `review:${dim}`,
       phase: "Review by dimension",
+      effort: "medium",
       schema: FINDINGS,
     }),
   (review) =>
@@ -69,6 +81,7 @@ const reviewed = await pipeline(
         agent(`Adversarially verify (default to refuted): ${f.title}`, {
           label: `verify:${f.title}`,
           phase: "Adversarially verify",
+          effort: "high",
           schema: VERDICT,
         }).then((verdict) => ({ ...f, verdict })),
       ),
@@ -76,7 +89,11 @@ const reviewed = await pipeline(
 );
 
 phase("Synthesize the report");
-const confirmed = reviewed.flat().filter((f) => f.verdict?.real);
+// `f?.` — a thunk that threw resolves to null in the parallel result, and a
+// stage that threw drops its whole dimension to null; neither is a finding.
+const confirmed = reviewed.flat().filter((f) => f?.verdict?.real);
 log(`${confirmed.length} findings survived verification`);
-const report = await agent(`Write a ranked review of: ${JSON.stringify(confirmed)}`);
+const report = await agent(`Write a ranked review of: ${JSON.stringify(confirmed)}`, {
+  effort: "low",
+});
 log(report);

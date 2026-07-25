@@ -2,7 +2,7 @@ The following is 100% written by a human.
 
 > claude-workflows-viz is a Node CLI that converts a Claude Code workflow .js file into a diagram with execution steps and agent topology.
 
-![Anatomy of a claude-workflows-viz diagram — the meta block, phase table, and inferred agent graph, keyed to an Anatomy legend](examples/level-1/review-pr.annotated.png)
+![Anatomy of a claude-workflows-viz diagram — the meta block, phase table, and inferred agent graph, keyed to an Anatomy legend](examples/level-2/review-pr.annotated.png)
 
 ## Install
 
@@ -23,7 +23,7 @@ Dynamic workflows inherently have a graph formulation within, because it involve
 
 ## Dynamic Workflows - Under the hood
 
-So what is inside a workflow file? As we will later discuss in more detail, there is no formal spec for dynamic workflows, so all of this may change in the future. But as of now, we have the next best thing, which is the [workflow tool description prompt](spec/upstream/2026-06-23-cc-2.1.173/workflow-tool-description.txt) that is provided to the main agent when executing workflow files. This is the plain text embedded inside the Claude Code binary (found by Claude Code). It is 159 lines and quite readable.
+So what is inside a workflow file? As we will later discuss in more detail, there is no formal spec for dynamic workflows, so all of this may change in the future. But as of now, we have the next best thing, which is the [workflow tool description prompt](spec/upstream/2026-07-25-cc-2.1.220/workflow-tool-description.txt) that is provided to the main agent when executing workflow files. This is the plain text embedded inside the Claude Code binary (found by Claude Code). It is 158 lines and quite readable.
 
 Claude Code also ships `sdk-tools.d.ts` next to the binary, and it contains the published type contract for WorkflowInput and WorkflowOutput.
 

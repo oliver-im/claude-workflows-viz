@@ -22,10 +22,24 @@ import type {
  * regression, not an acceptable fallback.
  */
 
-const examplesDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples", "level-1");
+const examplesRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "examples");
 
-const analyzeExample = (name: string): Topology => {
-  const src = readFileSync(join(examplesDir, name), "utf8");
+/** Every level directory's `.js` files, as `level-N/name.js`. The corpus
+ *  invariant below sweeps ALL levels, so a new `examples/level-N/` is held to the
+ *  same zero-opaque / zero-note bar the moment it lands; the named per-example
+ *  structure tests further down stay pinned to their own level-1 files. */
+const levelDirs = readdirSync(examplesRoot, { withFileTypes: true })
+  .filter((d) => d.isDirectory() && /^level-\d+$/.test(d.name))
+  .map((d) => d.name)
+  .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+const corpus = levelDirs.flatMap((d) =>
+  readdirSync(join(examplesRoot, d))
+    .filter((f) => f.endsWith(".js"))
+    .map((f) => `${d}/${f}`),
+);
+
+const analyzeRel = (rel: string): Topology => {
+  const src = readFileSync(join(examplesRoot, rel), "utf8");
   const program = parseWorkflowSource(src);
   const meta = extractMetaFromProgram(program);
   return analyzeBody(
@@ -34,6 +48,7 @@ const analyzeExample = (name: string): Topology => {
     meta.phases.map((p) => p.title),
   );
 };
+const analyzeExample = (name: string): Topology => analyzeRel(`level-1/${name}`);
 
 /** Every step in the tree, structures included, depth-first. */
 const collectSteps = (steps: readonly Step[]): Step[] => {
@@ -66,19 +81,22 @@ type Fanout = ParallelStep & { form: "fanout" };
 type Branches = ParallelStep & { form: "branches" };
 
 describe("analyzer corpus invariant", () => {
-  const files = readdirSync(examplesDir).filter((f) => f.endsWith(".js"));
+  const files = corpus;
 
-  it("covers all 12 example workflows", () => {
-    expect(files).toHaveLength(12);
+  it("covers every level directory's example workflows", () => {
+    // A tripwire against the corpus silently shrinking — bump it deliberately
+    // when a sample is added or retired. Every level dir must contribute.
+    expect(files).toHaveLength(13);
+    for (const d of levelDirs) expect(files.some((f) => f.startsWith(`${d}/`)), d).toBe(true);
   });
 
   it("every example: orchestration recognized, ZERO opaques, ZERO notes, meta bands seeded", () => {
     for (const f of files) {
-      const t = analyzeExample(f);
+      const t = analyzeRel(f);
       expect(t.hasOrchestration, f).toBe(true);
       expect(t.notes, f).toEqual([]);
       expect(collectSteps(t.steps).filter((s) => s.kind === "opaque"), f).toEqual([]);
-      const src = readFileSync(join(examplesDir, f), "utf8");
+      const src = readFileSync(join(examplesRoot, f), "utf8");
       const titles = extractMetaFromProgram(parseWorkflowSource(src)).phases.map((p) => p.title);
       expect(t.bands.slice(0, titles.length), f).toEqual(
         titles.map((title) => ({ title, inMeta: true })),
@@ -88,14 +106,16 @@ describe("analyzer corpus invariant", () => {
 
   it("is deterministic across runs", () => {
     for (const f of files) {
-      expect(JSON.stringify(analyzeExample(f))).toBe(JSON.stringify(analyzeExample(f)));
+      expect(JSON.stringify(analyzeRel(f))).toBe(JSON.stringify(analyzeRel(f)));
     }
   });
 });
 
 describe("per-example structure", () => {
   it("review-pr: agent → pipeline(named dims; expanded review:*; nested verify fan-out) → agent", () => {
-    const t = analyzeExample("review-pr.js");
+    // The one named example not under level-1: it is the README hero, which is
+    // kept at the newest grammar level (see examples/README.md).
+    const t = analyzeRel("level-2/review-pr.js");
     expect(t.steps.map((s) => s.kind)).toEqual(["agent", "pipeline", "agent"]);
 
     const pipe = t.steps[1] as PipelineStep;

@@ -16,7 +16,7 @@ table in §C maps one to the other.
 > grammar, which Claude Code owns and does not formally version. What that subset
 > is reconciled *against* — the pinned upstream baseline — lives in
 > [`spec/upstream/`](../spec/upstream/), named with a grammar level in
-> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 1**, `cc-2.1.173`).
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.220`).
 > The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
@@ -72,6 +72,8 @@ table in §C maps one to the other.
 - **`label`** — the node's caption (string or template literal). Wins over the
   prompt for the label.
 - **`model`** — colors the agent circle (string literal only).
+- **`effort`** — draws the effort badge left of the circle (string literal only).
+  Grammar level 2; taken verbatim, not checked against the documented tiers.
 - **`agentType`** — recorded (string literal only).
 - **`phase`** — overrides the ambient phase for this one agent (string literal
   only); also registers a new lane if unseen.
@@ -159,8 +161,11 @@ table in §C maps one to the other.
 - **swimlane / stripe** — the faint rectangle painted behind a phase's nodes.
 - **chip** — the numbered circle (`1`, `2`, …) at a lane's top-left.
 - **model badge / tint** — the colored pill (and faint lane wash) keyed off a
-  model name; opus/sonnet/haiku are matched even inside a full id like
-  `claude-opus-4-8`; anything else is neutral.
+  model name; opus/sonnet/haiku/fable are matched even inside a full id like
+  `claude-opus-5`; anything else is neutral.
+- **effort badge** — the muted word (`low`, `max`, …) set to the LEFT of an agent
+  node, from `agent()`'s `opts.effort`. Deliberately the mirror of the ×N badge on
+  the right, so the two never collide and both stay clear of the node label.
 - **control-only strip** — a slim empty lane (a phase with no orchestration),
   labeled *control only*, with no model badge.
 - **loop badge** — the rendered `GLoop` (`↻ repeat while …`). Nested loops stack.
@@ -187,7 +192,7 @@ table in §C maps one to the other.
 
 | You write (A) | Tree IR `Step` | Placed as (B) |
 | --- | --- | --- |
-| `agent(p, opts)` | `AgentStep` | **agent circle** (+ model swatch, + `×N` badge if fanned) |
+| `agent(p, opts)` | `AgentStep` | **agent circle** (+ model swatch, + `×N` badge if fanned, + **effort badge** if `opts.effort`) |
 | `workflow(name)` | `WorkflowStep` | **task box** |
 | *(unreadable orchestration)* | `OpaqueStep` | **task box**, label = source slice |
 | `parallel([f, g, …])` | `ParallelStep` `branches` | **hub → arms → barrier bar** |
@@ -204,7 +209,7 @@ table in §C maps one to the other.
 ## D. Diagram anatomy (the annotated hero)
 
 `scripts/annotate-anatomy.mjs` overlays keyed coral pins on the committed
-`examples/level-1/review-pr` render to label the parts of a diagram. Every pin
+`examples/level-2/review-pr` render to label the parts of a diagram. Every pin
 resolves to a term defined above — the legend *is* this glossary, not free prose.
 The hero shows all pins under one **Anatomy** legend; the terms still fall in two
 families (mirroring §A vs the graph it produces), listed separately here:
@@ -221,7 +226,7 @@ families (mirroring §A vs the graph it produces), listed separately here:
 | F | `phases[].model` |
 | G | `phases` (the array) |
 
-**Topology anatomy — the body graph (pins H–K)**
+**Topology anatomy — the body graph (pins H–L)**
 
 | Pin | Term | Points at | Defined in |
 | --- | --- | --- | --- |
@@ -229,11 +234,18 @@ families (mirroring §A vs the graph it produces), listed separately here:
 | I | shape | the fork hub — here a **fan-out** | §A "two shapes", §B **shape** |
 | J | label | the node's caption — here `review:correctness` | §A `agent()` options → `label` |
 | K | multiplicity | the `×N` badge — count unknown until runtime | §B `Multiplicity` `unknown` |
+| L | effort | the muted tier badge left of a node — here `low` | §A `agent()` options → `effort` |
 
-The four pins are the graph's whole vocabulary at one altitude: **node** (the
+The five pins are the graph's whole vocabulary at one altitude: **node** (the
 atom), **shape** (how nodes compose — fan-out here, else branches / barrier /
 loop / …), **label** (the node's caption), **multiplicity** (the `×N` badge here
-— count unknown until runtime). **stage** (§A) is
+— count unknown until runtime), **effort** (the reasoning tier, mirrored opposite
+the `×N`). L points at the *last* node, not the first: every node's badge sits in
+its top-left corner, so a box drawn around the first node would clip it, and only
+the bottom of the graph leaves a left-side pin clear canvas. The **mapping agent
+sets no effort at all** — omitted means "inherit the session tier", and the hero
+deliberately shows that absence drawing nothing rather than a placeholder.
+**stage** (§A) is
 deliberately *not* pinned — in `review-pr` each pipeline stage lines up 1:1 with a
 **phase**, so the phase bands already name it; a stage pin earns its place only
 where stages and phases diverge.

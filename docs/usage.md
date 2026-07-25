@@ -83,13 +83,13 @@ sharing.
 A sample workflow ships with the package. From a clone of this repo:
 
 ```sh
-claude-workflows-viz examples/level-1/review-pr.js --open
+claude-workflows-viz examples/level-2/review-pr.js --open
 ```
 
 After a global install, reference it where npm placed it:
 
 ```sh
-claude-workflows-viz "$(npm root -g)/claude-workflows-viz/examples/level-1/review-pr.js" --open
+claude-workflows-viz "$(npm root -g)/claude-workflows-viz/examples/level-2/review-pr.js" --open
 ```
 
 The bundled workflows are catalogued in [`examples/README.md`](../examples/README.md).
@@ -100,7 +100,7 @@ The bundled workflows are catalogued in [`examples/README.md`](../examples/READM
 npm install
 npm run build      # bundles ts/cli.ts -> dist/cli.js
 npm test
-node dist/cli.js examples/level-1/review-pr.js -o review.svg
+node dist/cli.js examples/level-2/review-pr.js -o review.svg
 ```
 
 `dist/` is gitignored and built on demand (also rebuilt on `pretest`, and on

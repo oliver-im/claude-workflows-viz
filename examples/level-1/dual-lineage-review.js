@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — a two-reviewer gate.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/dual-lineage-review.js --open
+ *   claude-workflows-viz examples/level-1/dual-lineage-review.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The "External review" phase names a non-Claude model, so it renders with
  * the neutral fallback badge instead of an opus/sonnet/haiku color.)
@@ -29,7 +29,7 @@ export const meta = {
       title: "Claude review",
       detail:
         "A Claude reviewer reads the diff for correctness, security, and convention drift, reporting each finding with file:line and a confidence.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "External review",

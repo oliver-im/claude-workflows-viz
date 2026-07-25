@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Tournament.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/choose-approach.js --open
+ *   claude-workflows-viz examples/level-1/choose-approach.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The "Advance the bracket" phase deliberately omits `model` — pure control
  * flow — so it renders with no model badge.)
@@ -29,7 +29,7 @@ export const meta = {
       title: "Judge pairwise",
       detail:
         "Every match pits two approaches on the same rubric; the judge picks the stronger and names the single deciding factor.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Advance the bracket",

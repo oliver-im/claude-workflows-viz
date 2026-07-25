@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Judge Panel.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/draft-the-announcement.js --open
+ *   claude-workflows-viz examples/level-1/draft-the-announcement.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (Two fan-outs in a row — drafts, then judges — distinguish a parallel-scored
  * panel from the single-elimination bracket in choose-approach.js.)
@@ -29,7 +29,7 @@ export const meta = {
       title: "Score on the panel",
       detail:
         "A panel of judges scores all drafts at once, each judge ranking them on one rubric lens — clarity, credibility, memorability — so no single taste decides the winner.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Synthesize the winner",

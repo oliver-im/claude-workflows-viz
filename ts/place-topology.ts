@@ -417,6 +417,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
   const band = cellBand(step, ctx);
   const single = step.body.length === 1 && step.body[0].kind === "agent" ? (step.body[0] as AgentStep) : null;
   const model = single?.model;
+  const effort = single?.effort;
   const members = fanMembers(step, single, ctx);
 
   // One effective member (unknown width, collapse, or non-agent body) → a lone
@@ -432,6 +433,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
       phase: band,
       ...(single ? { labelExplicit: single.labelExplicit } : {}),
       ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
       ...(members.badge !== undefined ? { mult: members.badge } : {}),
     });
     return { entry: n.id, exits: [n.id], top: cy - NODE_R, bottom: cy + NODE_R, minBand: band, maxBand: band };
@@ -453,6 +455,7 @@ function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: nu
       phase: band,
       ...(single ? { labelExplicit: single.labelExplicit } : {}),
       ...(model !== undefined ? { model } : {}),
+      ...(effort !== undefined ? { effort } : {}),
     });
     connect(ctx, source.id, n.id, "fan");
     return n.id;
@@ -796,6 +799,7 @@ function placeStageCell(
       labelBelow: true,
       phase: band,
       ...(s.model !== undefined ? { model: s.model } : {}),
+      ...(s.effort !== undefined ? { effort: s.effort } : {}),
       ...(badge !== undefined ? { mult: badge } : {}),
     });
   }
@@ -812,6 +816,7 @@ function placeStageCell(
       phase: band,
       ...(inner ? { labelExplicit: inner.labelExplicit } : {}),
       ...(inner?.model !== undefined ? { model: inner.model } : {}),
+      ...(inner?.effort !== undefined ? { effort: inner.effort } : {}),
       mult: badge,
     });
   }
@@ -1173,6 +1178,7 @@ function placeAgent(step: AgentStep, ctx: Ctx, topY: number): Placed {
     labelExplicit: step.labelExplicit,
     phase: band,
     ...(step.model !== undefined ? { model: step.model } : {}),
+    ...(step.effort !== undefined ? { effort: step.effort } : {}),
     ...(mult !== undefined ? { mult } : {}),
     ...(step.promptPreview !== undefined ? { tooltip: step.promptPreview } : {}),
   });

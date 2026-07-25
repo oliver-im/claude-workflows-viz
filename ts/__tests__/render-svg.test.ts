@@ -29,7 +29,7 @@ describe("renderSvg", () => {
         phases: [
           { title: "Scan", detail: "Grep CI logs", model: "haiku" },
           { title: "Triage", detail: "Cluster failures", model: "sonnet" },
-          { title: "Fix", detail: "Patch and verify", model: "claude-opus-4-8" },
+          { title: "Fix", detail: "Patch and verify", model: "claude-opus-5" },
         ],
       }),
     );
@@ -37,7 +37,7 @@ describe("renderSvg", () => {
     expect(svg).toContain("#dbeafe"); // haiku fill
     expect(svg).toContain("#dcfce7"); // sonnet fill
     expect(svg).toContain("#ede9fe"); // opus fill, matched via substring on the full id
-    expect(svg).toContain("claude-opus-4-8"); // badge keeps the full label
+    expect(svg).toContain("claude-opus-5"); // badge keeps the full label
   });
 
   it("renders just the header for the no-phases case", () => {

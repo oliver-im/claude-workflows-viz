@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeBody } from "../analyze-body.js";
-import type { GrammarLevel } from "../grammar.js";
+import { type GrammarLevel, RECOGNIZER_LEVEL } from "../grammar.js";
 import { parseWorkflowSource } from "../extract-meta.js";
 import { detectGrammarUse, grammarWarning, requiredGrammarLevel } from "../feature-detect.js";
 
@@ -8,9 +8,11 @@ const parse = (src: string) => parseWorkflowSource(src);
 const META = `export const meta = { name: "x", description: "y" };\n`;
 
 /**
- * The min-computation core. The real lexicon is all level 1, so a synthetic level
- * table is the honest way to exercise the level-2+ path (the acceptance's "assert
- * via a unit test on the min-computation").
+ * The min-computation core, exercised against a SYNTHETIC level table rather than
+ * the real lexicon. The point is the computation, not today's vocabulary: a
+ * synthetic table keeps these cases meaningful no matter which tokens the real
+ * lexicon happens to carry at which level, so minting a level never rewrites them.
+ * (The real lexicon's own level-2 tokens are exercised by `detectGrammarUse` below.)
  */
 describe("requiredGrammarLevel", () => {
   const levels = new Map<string, GrammarLevel>([
@@ -34,10 +36,19 @@ describe("requiredGrammarLevel", () => {
 });
 
 describe("detectGrammarUse", () => {
-  it("a level-1 body: requiredLevel 1, recognizerLevel 1, nothing unrecognized", () => {
+  it("a level-1 body: requiredLevel 1, nothing unrecognized", () => {
     const d = detectGrammarUse(parse(`${META}await agent("do it", { model: "opus" });`));
     expect(d.requiredLevel).toBe(1);
-    expect(d.recognizerLevel).toBe(1);
+    expect(d.recognizerLevel).toBe(RECOGNIZER_LEVEL);
+    expect(d.unrecognized).toEqual([]);
+  });
+
+  // The real lexicon's level-2 token: `agent()`'s `effort` option. Unlike the
+  // synthetic table above, this proves the wired vocabulary itself carries levels
+  // through to a file's required minimum.
+  it("a body using the level-2 `effort` option: requiredLevel 2", () => {
+    const d = detectGrammarUse(parse(`${META}await agent("do it", { effort: "max" });`));
+    expect(d.requiredLevel).toBe(2);
     expect(d.unrecognized).toEqual([]);
   });
 
@@ -91,7 +102,7 @@ describe("analyzeBody grammar attachment", () => {
   it("attaches requiredLevel + recognizerLevel to the Topology", () => {
     const t = analyze(`${META}await agent("go");`);
     expect(t.requiredLevel).toBe(1);
-    expect(t.recognizerLevel).toBe(1);
+    expect(t.recognizerLevel).toBe(RECOGNIZER_LEVEL);
   });
 
   it("a no-orchestration body with an unknown awaited primitive: hasOrchestration false, but the degradation is noted (not silently dropped)", () => {

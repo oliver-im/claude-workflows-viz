@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Loop Until Done.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/hunt-bugs.js --open
+ *   claude-workflows-viz examples/level-1/hunt-bugs.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * (The final phase deliberately has a title but no `detail`.)
  *
@@ -28,7 +28,7 @@ export const meta = {
       title: "Verify and bank the survivors",
       detail:
         "Confirm each fresh bug actually reproduces, drop the false positives, and add what's left to the running ledger.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
     {
       title: "Stop when the well runs dry",

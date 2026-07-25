@@ -9,6 +9,7 @@ import {
   LEFT_COL_W,
   MARGIN,
   MODEL_FALLBACK,
+  MODEL_SWATCHES,
   type TextOpts,
   W,
   arrowHead,
@@ -194,6 +195,9 @@ const TITLE_FONT = 15;
 const LABEL_FONT = 12.5;
 const MEMBER_FONT = 11;
 const BADGE_FONT = 11;
+/** Effort badge cap — 6 covers every documented tier ("medium" is the longest);
+ *  8 leaves slack for an unrecognized literal before it starts crowding. */
+const EFFORT_BADGE_MAX = 8;
 const LOOP_FONT = 11;
 const EDGE_W = 1.3;
 const FAN_W = 1.1;
@@ -366,11 +370,13 @@ function renderParallelLaneCell(members: LaneMember[], detailByTitle: Map<string
   return { body: rules + cells.map((c) => c.body).join(""), height };
 }
 
-/** A model's short family name for a cramped sub-cell ("claude-opus-4-8" →
- *  "opus"); an unrecognized id is returned verbatim (the caller truncates). */
+/** A model's short family name for a cramped sub-cell ("claude-opus-5" →
+ *  "opus"); an unrecognized id is returned verbatim (the caller truncates).
+ *  Keyed off `MODEL_SWATCHES` — the same table `swatchFor` matches on — so a new
+ *  model family gets its color and its short name from one edit. */
 function shortModel(model: string): string {
   const m = model.toLowerCase();
-  for (const key of ["opus", "sonnet", "haiku"]) if (m.includes(key)) return key;
+  for (const [key] of MODEL_SWATCHES) if (m.includes(key)) return key;
   return model;
 }
 
@@ -406,11 +412,12 @@ function knockoutText(x: number, y: number, content: string, o: TextOpts): strin
 /**
  * The graph's horizontal content extent in its own (untranslated) frame: every
  * shape body PLUS every label/badge that sticks out past it — below-set and
- * right-side node labels, the ×N peek circle + badge, the decision condition,
- * and the loop badge — and the edge points for good measure. Computed with the
- * exact draw math the `render*` functions use (same fonts, same truncations,
- * the same `gw`-derived clamps), so the page packs to content without ever
- * clipping a label. Falls back to the full `gw` frame for a graph with no nodes.
+ * right-side node labels, the ×N peek circle + badge, the left-hanging effort
+ * badge, the decision condition, and the loop badge — and the edge points for
+ * good measure. Computed with the exact draw math the `render*` functions use
+ * (same fonts, same truncations, the same `gw`-derived clamps), so the page packs
+ * to content without ever clipping a label. Falls back to the full `gw` frame for
+ * a graph with no nodes.
  */
 function graphContentBounds(
   layout: Layout,
@@ -435,9 +442,20 @@ function graphContentBounds(
       ext(n.x, n.x + n.r + 6 + estTextW(truncatePlain(n.label, 36), MEMBER_FONT) + LABEL_HALO_W / 2);
       continue;
     }
-    // agent / hub — the circle, plus the ×N peek circle + badge and the label.
+    // agent / hub — the circle, plus the ×N peek circle + badge, the effort
+    // badge hanging off the left, and the label.
     ext(n.x - n.r, n.x + n.r + (n.mult !== undefined ? 2 : 0));
     if (n.mult !== undefined) ext(n.x, n.x + n.r + 1 + estTextW(n.mult, BADGE_FONT));
+    // Right-anchored at `x − r − 1`, so it grows leftward from there. Drawn with
+    // `knockoutText`, so — like every other haloed quantity here — its bound
+    // carries the halo's half-width on both edges; measuring the plain text
+    // alone lets the stroke overhang the packed page (the bug e1b2f6f fixed for
+    // the decision, loop, and control-arc labels).
+    if (n.effort !== undefined) {
+      const bx = n.x - n.r - 1;
+      const w = estTextW(truncatePlain(n.effort, EFFORT_BADGE_MAX), BADGE_FONT - 1.5);
+      ext(bx - w - LABEL_HALO_W / 2, bx + LABEL_HALO_W / 2);
+    }
     if (n.label && (opts.showDerivedLabels || n.labelExplicit !== false)) {
       if (n.labelBelow === true) {
         const w = estTextW(truncateToWidth(n.label, 150, MEMBER_FONT), MEMBER_FONT);
@@ -521,6 +539,28 @@ function renderAgent(n: GNode, width: number, opts: { showDerivedLabels: boolean
     parts.push(
       `<text x="${round(n.x + n.r + 1)}" y="${round(n.y - n.r + 2)}" font-size="${BADGE_FONT}" ` +
         `font-weight="700" fill="${ACCENT}">${escapeSvgText(n.mult)}</text>`,
+    );
+  }
+  // Reasoning effort, top-LEFT: the mirror of the ×N badge at top-right, so the
+  // two can't collide and both stay clear of the label (which sits to the RIGHT
+  // on a spine node, BELOW on a row member). Muted, not ACCENT — effort is an
+  // execution knob like the model tint, not structure like a barrier or a loop.
+  // Its own <title> names it, since a bare "max" beside a circle wouldn't say
+  // what it measures; the node's prompt tooltip still covers the rest of the node.
+  if (n.effort !== undefined) {
+    const shown = truncatePlain(n.effort, EFFORT_BADGE_MAX);
+    // Knocked out, unlike the ×N badge: a fan-out's incoming edges sweep through
+    // exactly this corner on the outer members, and muted grey on a 1.3px edge
+    // is far less legible there than the ×N's bold coral.
+    parts.push(
+      `<g><title>${escapeSvgText(`effort: ${n.effort}`)}</title>` +
+        knockoutText(n.x - n.r - 1, n.y - n.r + 2, shown, {
+          size: BADGE_FONT - 1.5,
+          weight: 600,
+          anchor: "end",
+          fill: MUTED,
+        }) +
+        `</g>`,
     );
   }
   return `<g class="agent-node">${parts.join("")}</g>`;

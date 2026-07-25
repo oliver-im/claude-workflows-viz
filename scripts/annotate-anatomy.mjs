@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -13,11 +14,11 @@ import { Resvg } from "@resvg/resvg-js";
  * not its width, so the base render stays full-width (legible when embedded) and
  * the legend gets the whole canvas width to breathe.
  *
- * Pins A–K fall in two families (documented in docs/glossary.md §D), listed in one
+ * Pins A–L fall in two families (documented in docs/glossary.md §D), listed in one
  * card with a thin divider between them:
  *   - META (A–G): the declarative header + phase table — what the `meta` block says.
- *   - BODY (H–K): the graph analyze-body read out of the imperative half —
- *     node / shape / label / multiplicity.
+ *   - BODY (H–L): the graph analyze-body read out of the imperative half —
+ *     node / shape / label / multiplicity / effort.
  *
  * Coordinates are LITERAL (tuned by eye against the base SVG), not computed: keep
  * it dumb, re-tune when the base render moves. The topology boxes live in the
@@ -27,12 +28,32 @@ import { Resvg } from "@resvg/resvg-js";
  * This is a docs-asset generator, not part of the renderer — it reads the
  * committed base SVG and writes a *separate* annotated SVG + PNG, leaving the
  * clean hero untouched.
+ *
+ * Because the pins are hand-tuned, a moved base silently misaligns them — and
+ * simply re-running this script would not help: it would just redraw the same
+ * literals over different content. So the base is PINNED by hash below, and both
+ * this script and `ts/__tests__/anatomy-hero.test.ts` refuse a mismatch. That is
+ * deliberately a human checkpoint, not an auto-fix: only eyes can confirm a pin
+ * still points at the thing it names. (It is also why this script is not wired
+ * into `regen-examples` — a hard stop there would block ordinary render work.)
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const base = join(root, "examples/level-1/review-pr.svg");
-const outSvg = join(root, "examples/level-1/review-pr.annotated.svg");
-const outPng = join(root, "examples/level-1/review-pr.annotated.png");
+const base = join(root, "examples/level-2/review-pr.svg");
+const outSvg = join(root, "examples/level-2/review-pr.annotated.svg");
+const outPng = join(root, "examples/level-2/review-pr.annotated.png");
+
+/**
+ * sha256 of the base SVG the pin literals below were last tuned against. This is
+ * a HUMAN assertion — "I looked at the output and every pin still points at the
+ * thing it names" — so it is updated by hand, never by the script. Bumping it
+ * without re-checking the pins defeats the entire guard.
+ *
+ * Re-tuning loop when the base moves: run `node scripts/annotate-anatomy.mjs
+ * --retune` (which skips this check and prints the new hash), look at the PNG,
+ * adjust the literals until the pins land, then paste the printed hash here.
+ */
+const TUNED_AGAINST_BASE_SHA256 = "865a7abc061efca652825e00009e7a8efef25371e64c610a9d4c6b13d15a0b69";
 
 const ACCENT = "#c94f32";
 const INK = "#0f172a";
@@ -73,9 +94,19 @@ const annotations = [
   // shown here (shape→fan-out, multiplicity→the ×N/unknown case). `stage` is NOT pinned:
   // in review-pr each pipeline stage lines up 1:1 with a phase (glossary §D).
   { group: "topo", x: 630, y: 225, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
-  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "l", sub: "orchestration strategies such as fan-out, branches, loop" },
+  // Pinned on the RIGHT: the left gutter of the fan is where the outer member's
+  // effort badge sits, and a left pin lands on top of it.
+  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "r", sub: "orchestration strategies such as fan-out, branches, loop" },
   { group: "topo", x: 464, y: 408, w: 110, h: 17, label: "label", pinAt: "l" },
   { group: "topo", x: 655, y: 485, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
+  // The badge left of the LAST node, not the first: the first node's badge sits
+  // inside H's box, and the bottom of the graph is the only place a left-side pin
+  // has clear canvas. The box hugs the glyphs (618.3–633.5 × 621.5–628, measured
+  // off the render) with ~3.5px on every side. It can overhang the badge's own
+  // right edge because the circle beside it is ROUND: at the box's bottom (y=632)
+  // the node has only reached x=637.75, so a right edge at 637 still clears it —
+  // which a box sized against the circle's bounding square could not.
+  { group: "topo", x: 615, y: 618, w: 22, h: 14, label: "effort", pinAt: "l", sub: "reasoning tier for this agent() call" },
 ];
 
 const PIN_NUDGE = 12; // clears the box without pushing left-side pins outside the canvas
@@ -193,6 +224,11 @@ function legendBand(items, baseW, baseH) {
   let maxY = colTop;
   groups.forEach((g, gi) => {
     const cx = gi === 0 ? x + pad : rightColX;
+    // ONE text indent per column, past the pin — the bold term and the gray
+    // sub-line under it both read off this, so they cannot drift apart. They did
+    // when each carried its own literal: the sub sat half an indent left of the
+    // very term it qualifies, reading as a second column instead of a continuation.
+    const textX = cx + 32;
     let cy = colTop;
     if (GROUP_HEADER[g.group]) {
       body.push(`<text x="${cx}" y="${cy}" font-size="14" fill="${MUTED}" font-weight="600">${GROUP_HEADER[g.group]}</text>`);
@@ -200,12 +236,11 @@ function legendBand(items, baseW, baseH) {
     }
     g.rows.forEach(({ a, i }) => {
       body.push(pin(cx + 11, cy, key(i), 10));
-      body.push(`<text x="${cx + 32}" y="${cy + 5}" font-size="14.5" fill="${INK}" font-weight="600">${a.label}</text>`);
+      body.push(`<text x="${textX}" y="${cy + 5}" font-size="14.5" fill="${INK}" font-weight="600">${a.label}</text>`);
       if (a.sub) {
-        const subX = cx + 16;
         wrapSub(a.sub, 60).forEach((line, li) => {
           cy += li === 0 ? 18 : 16;
-          body.push(`<text x="${subX}" y="${cy + 5}" font-size="12" fill="${MUTED}">${line}</text>`);
+          body.push(`<text x="${textX}" y="${cy + 5}" font-size="12" fill="${MUTED}">${line}</text>`);
         });
       }
       cy += 28;
@@ -226,6 +261,26 @@ function legendBand(items, baseW, baseH) {
 }
 
 const svg = readFileSync(base, "utf8");
+
+// Guard: the pins are literals tuned against ONE base render. If the base moved,
+// regenerating would draw them over different content — so stop, unless the
+// caller is explicitly in the re-tuning loop.
+const baseSha = createHash("sha256").update(svg).digest("hex");
+const retune = process.argv.includes("--retune");
+if (baseSha !== TUNED_AGAINST_BASE_SHA256) {
+  const detail =
+    `  tuned against ${TUNED_AGAINST_BASE_SHA256}\n` + `  base is now   ${baseSha}`;
+  if (!retune) {
+    throw new Error(
+      `${base} has changed since the anatomy pins were tuned, so they may no longer\n` +
+        `point at what they name.\n${detail}\n` +
+        "  Re-run with --retune, check every pin in the output PNG, then paste the new\n" +
+        "  hash into TUNED_AGAINST_BASE_SHA256 (and update docs/glossary.md §D if a pin moved).",
+    );
+  }
+  console.warn(`Base render moved — regenerating anyway (--retune).\n${detail}`);
+}
+
 const vb = svg.match(/viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/);
 if (!vb) throw new Error(`base SVG missing a numeric viewBox: ${base}`);
 const baseW = Number(vb[1]);
@@ -251,5 +306,11 @@ try {
   quantized = raw;
 }
 writeFileSync(outPng, losslessCompressPngSync(quantized, { strip: true }));
+if (retune) {
+  console.log(
+    `\nOnce every pin still points at what it names, set\n` +
+      `  TUNED_AGAINST_BASE_SHA256 = "${baseSha}"`,
+  );
+}
 
 console.log(`Wrote ${outSvg} + ${outPng}`);

@@ -49,10 +49,68 @@ A level is minted from a **capture**, not from a Claude Code release number:
 
 ## Levels
 
+### Level 2 — `agent()` gains `effort` (`cc-2.1.219`, captured 2026-07-24)
+
+Delta: **`agent(prompt, opts)` accepts `opts.effort`** — a per-agent reasoning-effort
+override (`'low' | 'medium' | 'high' | 'xhigh' | 'max'`; omitted ⇒ inherits the
+session effort). A new agent option, which is exactly the trigger named above, so it
+earns the level. The recognizer reads it as a string literal like `model`, and it
+**draws**: a muted badge to the left of the agent node, mirroring the ×N badge on the
+right. Like `model`, it is taken verbatim rather than checked against the five
+documented tiers — a workflow that writes an unknown tier gets its own word back.
+
+| Artifact | Bytes | sha256 |
+| --- | --- | --- |
+| `workflow-tool-description.txt` | 19581 | `212f59ac753f5c2fc4e9deb9ad7f31f08035928c5dc93d630b92e2e1370fdfb8` |
+| `workflow-input-schema.d.ts` | 3064 | `fe6f86e00a7f739fc606aa758a4cc04c17c85a12a5ca30c3d441a190558f44a2` |
+
+Snapshot: [`spec/upstream/2026-07-24-cc-2.1.219/`](../spec/upstream/2026-07-24-cc-2.1.219/).
+The input schema is **byte-identical to level 1** — `WorkflowInput`/`WorkflowOutput`
+did not move; `effort` is a script-level `agent()` option, documented only in the
+tool-description prose, so only that artifact's hash changed.
+
+The rest of the `cc-2.1.173` → `cc-2.1.219` prose diff was **not** grammar-relevant
+and is recorded here only so a future reader doesn't re-litigate it: minifier
+identifier renames inside the interpolations (`${w53}` → `${fj_}` and friends), "Use
+the Agent tool **(if available)**", the `agentType` example changing from `'Explore'`
+to `'general-purpose'`, and a new Resume-section sentence about reading
+`<transcriptDir>/journal.jsonl` before diagnosing an empty result.
+
+Corpus: [`examples/level-2/tier-the-effort.js`](../examples/level-2/tier-the-effort.js)
+— an effort-tiered triage pipeline (skim `low` → root-cause `max` → cross-examine
+`high` → digest `low`) — and [`examples/level-2/review-pr.js`](../examples/level-2/review-pr.js),
+**promoted** from level 1 for this level. The README hero always sits at the newest
+level, so minting one means teaching the hero its new construct and moving it, not
+just adding a sample beside it; that promotion is part of the ritual below.
+
+#### Re-captures (same level)
+
+| Capture | Bytes | sha256 (`workflow-tool-description.txt`) | Why it stays level 2 |
+| --- | --- | --- | --- |
+| [`cc-2.1.220`](../spec/upstream/2026-07-25-cc-2.1.220/) (2026-07-25) | 19581 | `54a255eba06f67ac…` | Four minifier identifier renames inside the prose's interpolations (`${fj_}`→`${bj_}`, `${uj_}`→`${gj_}`, `${dj_}`→`${_j_}`, `${pj_}`→`${yj_}`). Each is 3 characters, so the byte count is unchanged and only the hash moved. Normalize every `${…}` to a placeholder and the two captures are byte-identical; the input schema is untouched. No vocabulary change, so the recognizer is unaffected. |
+
+`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.220`), not the version the
+level was minted at (`2.1.219`) — the level is the primary key, the version is
+provenance.
+
+> **Known noise.** The gate hashes a *minified* artifact, so any release that
+> reshuffles those identifiers trips it with nothing to reconcile. Hashing a
+> normalized form (every `${identifier}` collapsed to one placeholder) would make the
+> check signal-only, at the cost of no longer detecting a change that is *purely* an
+> interpolation swap — which by construction carries no grammar meaning. Not done yet;
+> noted here so the next re-capture of this kind isn't re-diagnosed from scratch.
+
+*Not a grammar change, landed alongside:* the Claude 5 family added a fourth model,
+so `fable` joined `opus`/`sonnet`/`haiku` in the swatch table. Model names are not
+part of the captured grammar (`opts.model` is an unenumerated string in the prose;
+the `"sonnet" | "opus" | "haiku" | "fable"` enum lives in the **Agent** tool's
+`sdk-tools.d.ts` entry, not the Workflow tool's), so this earns no level — it is a
+rendering-fidelity fix, not a vocabulary change.
+
 ### Level 1 — baseline (`cc-2.1.173`, captured 2026-06-23)
 
-The first pinned grammar. Everything the recognizer understands today is, by
-definition, **level 1**.
+The first pinned grammar — everything the recognizer understood at the time this
+ledger opened is, by definition, **level 1**.
 
 | Artifact | Bytes | sha256 |
 | --- | --- | --- |
@@ -89,13 +147,29 @@ move with no signal to us. The reconciliation ritual is how we catch that.
        recognizer's level. After minting level N, add an `examples/level-N/` directory
        whose specimens showcase the new constructs (stamped `Grammar level: N`) — so the
        corpus becomes a versioned record of how the grammar, and its renders, change over
-       time, and the lock above stays green.
+       time, and the lock above stays green. Finally **promote the README hero**
+       (`review-pr.js`) to level N as well — the front page advertises the current
+       vocabulary, not a subset of it — which means teaching it the new construct,
+       `git mv`-ing it and its four renders, repointing the paths listed in `AGENTS.md`,
+       and re-tuning the anatomy pins against the moved base.
    - **Anchors moved** (the capture can't find the prose start/end or a named
      interface) → it fails loud with a "reconcile manually" message; the extraction
      itself needs attention before a hash comparison is even meaningful.
 
-This is a **local / dev-machine** ritual: it needs the installed `claude` binary to
+This is a **local / dev-machine** ritual: it needs the installed `claude` package to
 capture from, which a generic CI runner does not have.
+
+Finding that package is not always as simple as following `claude` on `PATH` —
+multiplexers and version managers shadow it with a wrapper script that lives
+elsewhere and re-execs the real CLI, and a wrapper's `realpath` is the wrapper, so
+walking up from it finds nothing. The capture script therefore tries three
+strategies in order: `CLAUDE_CODE_DIR` if set, then the walk-up from `PATH`, then
+`npm root -g`. A candidate only counts if it holds **both** capture artifacts, so a
+package directory that can't actually be captured from is reported as such instead of
+silently passing. (Layouts with no package scaffolding at all — the native
+installer's `~/.local/share/claude/versions/<ver>` is a self-contained binary — are
+rejected earlier, on the `package.json` test.) If all three miss, the error lists
+what was tried; set `CLAUDE_CODE_DIR` to the package root to settle it.
 
 > **Implemented.** `npm run check-grammar` (the `scripts/capture-grammar.mjs --check`
 > mode) re-captures from the installed package and compares each artifact's sha256

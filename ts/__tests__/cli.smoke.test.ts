@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import { extractMeta } from "../extract-meta.js";
+import { RECOGNIZER_LEVEL } from "../grammar.js";
 import { renderSvg } from "../render-svg.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -149,8 +150,10 @@ describe("cli smoke", () => {
     const res = runCli([summarizeExample, "--format", "json"]);
     expect(res.status).toBe(0);
     const parsed = JSON.parse(res.stdout);
+    // A level-1 file stays level-1 forever; the recognizer's level tracks the
+    // reconciled grammar, so it is read from the source of truth, not re-pinned.
     expect(parsed.topology.requiredLevel).toBe(1);
-    expect(parsed.topology.recognizerLevel).toBe(1);
+    expect(parsed.topology.recognizerLevel).toBe(RECOGNIZER_LEVEL);
   });
 
   it("infers json format from the -o extension and is deterministic", () => {

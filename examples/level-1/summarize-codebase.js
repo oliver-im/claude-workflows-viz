@@ -2,10 +2,10 @@
  * Sample dynamic workflow for claude-workflows-viz — pattern: Fanout-And-Synthesize.
  *
  * Render it (without ever running it):
- *   claude-workflows-viz examples/summarize-codebase.js --open
+ *   claude-workflows-viz examples/level-1/summarize-codebase.js --open
  *
- * Only the `meta` block below is drawn; the orchestration body beneath it is
- * never executed — it's here just so this reads like a real workflow.
+ * Both halves below are drawn: the `meta` block, and the orchestration body
+ * beneath it — which is recovered by static analysis and never executed.
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -32,7 +32,7 @@ export const meta = {
       title: "Synthesize the overview",
       detail:
         "Merge the per-module summaries into one architecture doc: a dependency sketch, the real entry points, and where a newcomer should start.",
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
     },
   ],
 };
