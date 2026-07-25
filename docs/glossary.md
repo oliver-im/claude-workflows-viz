@@ -192,7 +192,7 @@ table in §C maps one to the other.
 
 | You write (A) | Tree IR `Step` | Placed as (B) |
 | --- | --- | --- |
-| `agent(p, opts)` | `AgentStep` | **agent circle** (+ model swatch, + `×N` badge if fanned) |
+| `agent(p, opts)` | `AgentStep` | **agent circle** (+ model swatch, + `×N` badge if fanned, + **effort badge** if `opts.effort`) |
 | `workflow(name)` | `WorkflowStep` | **task box** |
 | *(unreadable orchestration)* | `OpaqueStep` | **task box**, label = source slice |
 | `parallel([f, g, …])` | `ParallelStep` `branches` | **hub → arms → barrier bar** |
