@@ -224,6 +224,11 @@ function legendBand(items, baseW, baseH) {
   let maxY = colTop;
   groups.forEach((g, gi) => {
     const cx = gi === 0 ? x + pad : rightColX;
+    // ONE text indent per column, past the pin — the bold term and the gray
+    // sub-line under it both read off this, so they cannot drift apart. They did
+    // when each carried its own literal: the sub sat half an indent left of the
+    // very term it qualifies, reading as a second column instead of a continuation.
+    const textX = cx + 32;
     let cy = colTop;
     if (GROUP_HEADER[g.group]) {
       body.push(`<text x="${cx}" y="${cy}" font-size="14" fill="${MUTED}" font-weight="600">${GROUP_HEADER[g.group]}</text>`);
@@ -231,12 +236,11 @@ function legendBand(items, baseW, baseH) {
     }
     g.rows.forEach(({ a, i }) => {
       body.push(pin(cx + 11, cy, key(i), 10));
-      body.push(`<text x="${cx + 32}" y="${cy + 5}" font-size="14.5" fill="${INK}" font-weight="600">${a.label}</text>`);
+      body.push(`<text x="${textX}" y="${cy + 5}" font-size="14.5" fill="${INK}" font-weight="600">${a.label}</text>`);
       if (a.sub) {
-        const subX = cx + 16;
         wrapSub(a.sub, 60).forEach((line, li) => {
           cy += li === 0 ? 18 : 16;
-          body.push(`<text x="${subX}" y="${cy + 5}" font-size="12" fill="${MUTED}">${line}</text>`);
+          body.push(`<text x="${textX}" y="${cy + 5}" font-size="12" fill="${MUTED}">${line}</text>`);
         });
       }
       cy += 28;
