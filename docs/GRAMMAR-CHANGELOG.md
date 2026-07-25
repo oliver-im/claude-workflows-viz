@@ -141,18 +141,34 @@ placeholder. Every variant is present; the conditions that select them are not. 
 name says so, because a file called `agent-tool-description.txt` would read as a
 rendered description, and it is not one.
 
-**Why one file and not 44.** Fragments have no stable identity upstream. Numbering
-them into separate files (`fragment-07.txt`) means one insertion renumbers every file
-after it — the same churn the in-file format avoids, but worse, because git sees 37
-rewritten files instead of one insertion hunk. Content-hashed names would be stable
-but would destroy source order, which is the only structure the artifact has. Naming
-them semantically would mean deciding which gate each belongs to and inventing a
-label for it — the enclosing variables are minified (`g`, `m`, `y`, `C`, `T`…), so
-any such name is a paraphrase, and this project does not paraphrase what it captures.
-The separator lines already give per-fragment diff hunks, which is the only thing
-splitting would have bought. Capturing the *assembled* variants instead — one file
-per flag combination — is not merely inconvenient: choosing a combination means
-evaluating those 10 gates, which is running the builder.
+**Why one file and not 44.** Fragments have no stable identity upstream, so any
+per-file layout has to invent one. Measured against the two edits upstream actually
+makes — rewording a fragment, and inserting one at position 22 of 44:
+
+| Layout | Reworded | Inserted |
+| --- | --- | --- |
+| one file | 1 file, +1/−1 | 1 file, +2 |
+| `fragment-07.txt` | 1 file, +1/−1 | **24 files, +54/−53** |
+| content-hashed name | 1 file, +1/−1 (rename-detected) | 1 file, +1 |
+
+Numbering is disqualified: an insertion renumbers everything after it, and git reports
+two dozen rewritten files instead of one insertion hunk. Content-hashing is *not* —
+it diffs as well as one file on both shapes, rename detection included. It loses on
+the other two counts. Source order is the only structure this artifact has, and a
+directory of hex-named files has none; recovering it needs an index file, which is
+the single file again plus 44 satellites. And the artifact exists to answer one
+question — did the prose surface move — for which one hash is the whole answer;
+44 manifest entries would make the gate reconcile set membership on top of content
+for no extra signal.
+
+Naming them semantically would sidestep the order problem, but means deciding which
+gate each fragment belongs to and inventing a label — the enclosing variables are
+minified (`g`, `m`, `y`, `C`, `T`…), so any such name is ours, not upstream's, and
+this project does not paraphrase what it captures.
+
+Capturing the *assembled* variants instead — one file per flag combination — is the
+one option that is not merely a trade: choosing a combination means evaluating those
+10 gates, which is running the builder.
 
 > **Known noise.** The Workflow prose is hashed *raw* and minified, so any release
 > that reshuffles the identifiers inside its `${…}` trips the gate with nothing to
