@@ -101,9 +101,12 @@ const annotations = [
   { group: "topo", x: 655, y: 485, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
   // The badge left of the LAST node, not the first: the first node's badge sits
   // inside H's box, and the bottom of the graph is the only place a left-side pin
-  // has clear canvas. Box stops at x=634 — the badge's own right edge — so it
-  // never bites into the circle that starts at 635.
-  { group: "topo", x: 610, y: 618, w: 24, h: 16, label: "effort", pinAt: "l", sub: "reasoning tier for this agent() call" },
+  // has clear canvas. The box hugs the glyphs (618.3–633.5 × 621.5–628, measured
+  // off the render) with ~3.5px on every side. It can overhang the badge's own
+  // right edge because the circle beside it is ROUND: at the box's bottom (y=632)
+  // the node has only reached x=637.75, so a right edge at 637 still clears it —
+  // which a box sized against the circle's bounding square could not.
+  { group: "topo", x: 615, y: 618, w: 22, h: 14, label: "effort", pinAt: "l", sub: "reasoning tier for this agent() call" },
 ];
 
 const PIN_NUDGE = 12; // clears the box without pushing left-side pins outside the canvas
