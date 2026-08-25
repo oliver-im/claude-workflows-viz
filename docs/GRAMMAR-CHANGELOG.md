@@ -88,8 +88,9 @@ just adding a sample beside it; that promotion is part of the ritual below.
 | Capture | Bytes | sha256 (`workflow-tool-description.txt`) | Why it stays level 2 |
 | --- | --- | --- | --- |
 | [`cc-2.1.220`](../spec/upstream/2026-07-25-cc-2.1.220/) (2026-07-25) | 19581 | `54a255eba06f67ac…` | Four minifier identifier renames inside the prose's interpolations (`${fj_}`→`${bj_}`, `${uj_}`→`${gj_}`, `${dj_}`→`${_j_}`, `${pj_}`→`${yj_}`). Each is 3 characters, so the byte count is unchanged and only the hash moved. Normalize every `${…}` to a placeholder and the two captures are byte-identical; the input schema is untouched. No vocabulary change, so the recognizer is unaffected. |
+| [`cc-2.1.245`](../spec/upstream/2026-08-25-cc-2.1.245/) (2026-08-25) | 19586 | `ab5baa85c288622b…` | Six more minifier identifier renames (`${Go}`→`${Rn}`, `${bj_}`→`${hns}`, `${gj_}`→`${pns}`, `${_j_}`→`${fns}`, `${yj_}`→`${mns}`, `${ERt}`→`${s4}`), plus two prose edits that carry no vocabulary: the concurrency-cap sentence reworded `cpu cores - 2` → `available CPUs - 2`, and the per-call item cap's literal `4096` became an interpolation (`${ZU}`) — the cap itself is unchanged, it is just no longer a constant in the prose. The +5 bytes account exactly: −1 (`${ERt}`→`${s4}`) +5 (the reword) +1 (`4096`→`${ZU}`). The input schema is untouched. Nothing new to recognize — no orchestration call, `meta` field, or `agent()` option moved — so it stays level 2. |
 
-`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.220`), not the version the
+`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.245`), not the version the
 level was minted at (`2.1.219`) — the level is the primary key, the version is
 provenance.
 
