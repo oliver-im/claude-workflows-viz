@@ -1,3 +1,4 @@
+import * as acorn from "acorn";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -18,15 +19,17 @@ import { fileURLToPath } from "node:url";
  * content-hashed and dated. Two artifacts define the grammar:
  *
  *   - the Workflow tool *description* prose (the `meta`/`agent`/`parallel`/
- *     `pipeline`/`phase` authoring contract), embedded as a plaintext template
- *     literal inside the compiled `bin/claude.exe`; and
+ *     `pipeline`/`phase` authoring contract), embedded as template-literal
+ *     source inside the compiled `bin/claude.exe` — since cc-2.1.267 as two
+ *     literals the binary composes at runtime (see `PROSE_START` below), captured
+ *     here in that composed long form; and
  *   - the Workflow *input schema* (`WorkflowInput`/`WorkflowOutput`), shipped as
  *     declarations in `sdk-tools.d.ts`.
  *
- * Nothing is executed: the binary is scanned for a known string range and the
- * `.d.ts` is sliced as text. Anchors are matched strictly: a missing anchor
- * throws ("the grammar's shape moved; reconcile manually") rather than capturing
- * garbage.
+ * Nothing is executed: each prose literal is located by an anchor sentence and
+ * parsed — not evaluated — off the binary with acorn, and the `.d.ts` is sliced
+ * as text. Anchors are matched strictly: a missing anchor throws ("the grammar's
+ * shape moved; reconcile manually") rather than capturing garbage.
  *
  * Two modes:
  *   - default — write the capture to `spec/upstream/<YYYY-MM-DD>-cc-<version>/`
@@ -42,12 +45,35 @@ import { fileURLToPath } from "node:url";
  *     scheduled local agent — not a generic CI runner.
  */
 
-// The Workflow tool description is one template literal. It starts at this exact
-// sentence and ends at the literal's closing delimiter — a backtick immediately
-// followed by `})`. That order never collides with inline code in the prose
-// (which closes spans as `…})` + backtick, i.e. the reverse).
+// The Workflow grammar prose is template-literal source inside the compiled
+// binary. Since cc-2.1.267 it is TWO literals in one module, composed at runtime
+// into the tool description: a short head (the opt-in rule, the `meta` contract,
+// the canonical pipeline example) and a "Workflow authoring reference" body (the
+// script-body hooks, patterns, resume) that the same release also exposes as the
+// `workflow-authoring` skill — the description carries the full reference only
+// when that skill is unavailable, and a one-line pointer to it otherwise. The
+// grammar is the union, so the capture is the composed long form: head, a blank
+// line, body — exactly how the binary joins them. (Through cc-2.1.245 it was one
+// literal, closed by a backtick immediately followed by `})`; that delimiter no
+// longer exists, which is what forced this shape-aware capture.)
+//
+// Each literal starts at the exact sentence below (its opening backtick is the
+// byte before) and is read by parsing that one template literal with acorn — the
+// same parser the tool runs on workflow files, and parsing is not executing. A
+// naive scan for the closing backtick would stop early: the body's `${…}`
+// interpolations hold string literals with raw backticks inside
+// (`${e?"":" Add `model` to …"}`), and only a real template-literal parser knows
+// those don't close anything.
 const PROSE_START = "Execute a workflow script that orchestrates multiple subagents deterministically.";
-const PROSE_END = "`})";
+const REFERENCE_START = "# Workflow authoring reference";
+// The body literal sits a few dozen bytes after the head's close, in the same
+// module. Searching only a bounded window past the head keeps the capture from
+// pairing the head with a same-anchored literal somewhere else in the binary.
+const REFERENCE_WINDOW = 64 * 1024;
+// Ceiling on one literal's length — a window handed to the parser, not a slice
+// length, so a literal that outgrows it fails as unterminated instead of being
+// silently truncated.
+const LITERAL_WINDOW = 4 * 1024 * 1024;
 
 const ARTIFACT_PROSE = "workflow-tool-description.txt";
 const ARTIFACT_SCHEMA = "workflow-input-schema.d.ts";
@@ -185,27 +211,60 @@ function locateClaudeCode() {
   );
 }
 
-/** Extract the Workflow tool description prose from the compiled binary. */
+/**
+ * Read the template literal whose text opens with the anchor at byte `anchorAt`
+ * (so its opening backtick is the byte before) out of the binary. Returns the
+ * literal's raw source — `${…}` interpolations verbatim, escapes unresolved, the
+ * same convention every baseline has used — and the byte offset just past its
+ * closing backtick. `label` names the literal in failure messages.
+ */
+function readTemplateLiteral(buf, anchorAt, label) {
+  const open = anchorAt - 1;
+  if (buf[open] !== 0x60 /* backtick */) {
+    throw new Error(
+      `${label} anchor is not at the start of a template literal — the grammar's shape moved; reconcile manually`,
+    );
+  }
+  // Decode a bounded window as latin1 so string index == byte offset, then let
+  // acorn parse exactly one expression from the backtick: it stops at the
+  // literal's real close and never runs anything. The prose is ASCII (its
+  // non-ASCII is source-escaped as \uXXXX), so the byte range decodes exactly.
+  const window = buf.subarray(open, open + LITERAL_WINDOW).toString("latin1");
+  let node;
+  try {
+    node = acorn.parseExpressionAt(window, 0, { ecmaVersion: "latest" });
+  } catch (err) {
+    throw new Error(`${label} literal did not parse (${err.message}) — reconcile manually`);
+  }
+  if (node.type !== "TemplateLiteral") {
+    throw new Error(`${label} anchor sits in a ${node.type}, not a template literal — reconcile manually`);
+  }
+  return {
+    raw: buf.subarray(open + 1, open + node.end - 1).toString("utf8"),
+    end: open + node.end,
+  };
+}
+
+/** Extract the Workflow grammar prose — description head + authoring reference — from the compiled binary. */
 function captureProse(ccDir) {
   const binPath = join(ccDir, "bin", "claude.exe");
   const buf = readFileSync(binPath);
-  const start = buf.indexOf(PROSE_START);
-  if (start < 0) {
+  const headAt = buf.indexOf(PROSE_START);
+  if (headAt < 0) {
     throw new Error(
       `Workflow description anchor not found in ${binPath} — the grammar's wording moved; reconcile manually`,
     );
   }
-  // Slice [start, the closing delimiter) straight from the buffer: no fixed
-  // window (so a longer future description can't be silently truncated) and no
-  // decoding of the arbitrary binary past the close. The description is ASCII
-  // (non-ASCII is source-escaped as \uXXXX), so the byte range decodes exactly.
-  const end = buf.indexOf(PROSE_END, start + PROSE_START.length);
-  if (end < 0) {
+  const head = readTemplateLiteral(buf, headAt, "Workflow description");
+  const refOffset = buf.subarray(head.end, head.end + REFERENCE_WINDOW).indexOf(REFERENCE_START);
+  if (refOffset < 0) {
     throw new Error(
-      `Workflow description close delimiter (${PROSE_END}) not found after the anchor — reconcile manually`,
+      `Workflow authoring reference anchor not found within ${REFERENCE_WINDOW}B after the description literal — the grammar's shape moved; reconcile manually`,
     );
   }
-  return buf.subarray(start, end).toString("utf8");
+  const reference = readTemplateLiteral(buf, head.end + refOffset, "Workflow authoring reference");
+  // Joined exactly as the binary composes the long-form description.
+  return `${head.raw}\n\n${reference.raw}`;
 }
 
 /** Slice one top-level `export interface <name> { ... }` block out of the .d.ts. */

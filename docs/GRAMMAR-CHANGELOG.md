@@ -27,7 +27,11 @@ A level is minted from a **capture**, not from a Claude Code release number:
    locally installed package — nothing is executed:
    - **`workflow-tool-description.txt`** — the Workflow tool description prose (the
      authoring contract for `meta` / `agent` / `parallel` / `pipeline` / `phase`),
-     extracted as text from the compiled `bin/claude.exe`.
+     extracted as text from the compiled `bin/claude.exe`. Since `cc-2.1.267` the
+     binary holds it as two template literals composed at runtime — a short
+     description head and a "Workflow authoring reference" body (also shipped as the
+     `workflow-authoring` skill); the capture is that composed long form, head +
+     blank line + body, so the artifact stays one file with one hash lineage.
    - **`workflow-input-schema.d.ts`** — the `WorkflowInput` / `WorkflowOutput`
      declarations sliced from the shipped `sdk-tools.d.ts`.
 
@@ -89,8 +93,9 @@ just adding a sample beside it; that promotion is part of the ritual below.
 | --- | --- | --- | --- |
 | [`cc-2.1.220`](../spec/upstream/2026-07-25-cc-2.1.220/) (2026-07-25) | 19581 | `54a255eba06f67ac…` | Four minifier identifier renames inside the prose's interpolations (`${fj_}`→`${bj_}`, `${uj_}`→`${gj_}`, `${dj_}`→`${_j_}`, `${pj_}`→`${yj_}`). Each is 3 characters, so the byte count is unchanged and only the hash moved. Normalize every `${…}` to a placeholder and the two captures are byte-identical; the input schema is untouched. No vocabulary change, so the recognizer is unaffected. |
 | [`cc-2.1.245`](../spec/upstream/2026-08-25-cc-2.1.245/) (2026-08-25) | 19586 | `ab5baa85c288622b…` | Six more minifier identifier renames (`${Go}`→`${Rn}`, `${bj_}`→`${hns}`, `${gj_}`→`${pns}`, `${_j_}`→`${fns}`, `${yj_}`→`${mns}`, `${ERt}`→`${s4}`), plus two prose edits that carry no vocabulary: the concurrency-cap sentence reworded `cpu cores - 2` → `available CPUs - 2`, and the per-call item cap's literal `4096` became an interpolation (`${ZU}`) — the cap itself is unchanged, it is just no longer a constant in the prose. The +5 bytes account exactly: −1 (`${ERt}`→`${s4}`) +5 (the reword) +1 (`4096`→`${ZU}`). The input schema is untouched. Nothing new to recognize — no orchestration call, `meta` field, or `agent()` option moved — so it stays level 2. |
+| [`cc-2.1.267`](../spec/upstream/2026-09-10-cc-2.1.267/) (2026-09-10) | 20606 | `e70e9bfcadc20f0b…` | **A shape change, not a grammar change.** Upstream split the one description literal into two, composed at runtime: a short *head* (the opt-in rule, a compact `meta` contract, and the canonical `review-changes` pipeline example, moved up from the body) and a *"Workflow authoring reference"* body (script-body hooks, patterns, resume) that the same release also ships as the `workflow-authoring` skill — the tool description is now either head + a one-line "load the skill" pointer, or head + the full body. The old `` `}) `` close delimiter is gone, so `capture-grammar.mjs` now parses each literal with acorn and captures the composed long form (head, blank line, body — as the binary joins them), which keeps this artifact one file with one hash lineage. Net +1020 bytes, all prose: the new head paragraph (which also adds "do not also set the tool's `name` input" and "plain JavaScript, not TypeScript"), the example's move and the opening "A workflow structures work…" paragraph moving the other way, cross-references reworded for the split ("see **Ultracode** below" → "in the workflow authoring reference", "(example below)" → "(the review-changes example)"), two new sentences (schemas need `{type: 'object', properties}` at root; subagents already get `CLAUDE.md`), and three sentences that became `${e?"":"…"}` conditionals — the `model` phase-entry note, the `model?: string` slot in the `agent()` signature, and the `opts.model` paragraph are now emitted only when `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` is unset. Plus the usual minifier renames (`${Rn}`→`${mt}`, `${hns}`→`${o}`, `${pns}`→`${s}`, `${fns}`→`${r}`, `${mns}`→`${n}`, `${s4}`→`${PP}`, `${ZU}`→`${dC}`; the one-letter ones are now hoisted module variables — `r` holds `'worktree'`, the rest are empty strings in this build). The input schema is untouched. Every hook, `meta` field, and `agent()` option is still the level-2 set — `model` is conditionally *documented*, not removed — so there is nothing new to recognize and it stays level 2. |
 
-`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.245`), not the version the
+`RECOGNIZER_LEVEL_CC` tracks the newest baseline (`2.1.267`), not the version the
 level was minted at (`2.1.219`) — the level is the primary key, the version is
 provenance.
 
@@ -100,6 +105,9 @@ provenance.
 > check signal-only, at the cost of no longer detecting a change that is *purely* an
 > interpolation swap — which by construction carries no grammar meaning. Not done yet;
 > noted here so the next re-capture of this kind isn't re-diagnosed from scratch.
+> Since `cc-2.1.267` there is a catch: three `model` sentences live *inside*
+> `${e?"":"…"}` conditionals, so a normalizer that collapses every `${…}` would also
+> hide a real wording change there — collapse bare-identifier interpolations only.
 
 *Not a grammar change, landed alongside:* the Claude 5 family added a fourth model,
 so `fable` joined `opus`/`sonnet`/`haiku` in the swatch table. Model names are not
