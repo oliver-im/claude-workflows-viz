@@ -59,6 +59,8 @@ describe("cli smoke", () => {
     expect(res.stdout.trimEnd().endsWith("</svg>")).toBe(true);
   });
 
+  // The first PNG in a worker pays the native rasterizer's cold load, which
+  // has run past vitest's 5s default on a slow CI runner.
   it("rasterizes a real PNG with --format png -o", () => {
     const out = join(workDir, "out.png");
     const res = runCli([fixture, "--format", "png", "-o", out]);
@@ -69,7 +71,7 @@ describe("cli smoke", () => {
     expect(png.subarray(12, 16).toString("ascii")).toBe("IHDR");
     expect(png.readUInt32BE(16)).toBeGreaterThan(0); // width
     expect(png.readUInt32BE(20)).toBeGreaterThan(0); // height
-  });
+  }, 30_000);
 
   it("infers PNG format from the -o extension", () => {
     const out = join(workDir, "inferred.png");

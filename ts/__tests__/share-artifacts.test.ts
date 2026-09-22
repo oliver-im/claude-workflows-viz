@@ -44,6 +44,8 @@ describe("buildShareArtifacts", () => {
     expect(artifacts.source).toBe(source);
   });
 
+  // The first PNG in a worker pays the native rasterizer's cold load, which
+  // has run past vitest's 5s default on a slow CI runner.
   it("builds a PNG when the share format is png", () => {
     const artifacts = buildShareArtifacts({
       meta,
@@ -59,5 +61,5 @@ describe("buildShareArtifacts", () => {
     expect((artifacts.image.data as Buffer).subarray(0, 8)).toEqual(
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     );
-  });
+  }, 30_000);
 });
