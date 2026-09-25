@@ -3,8 +3,8 @@
  * color swatches, and the page geometry constants — extracted verbatim from
  * `render-svg.ts` so the phase-card renderer (v1) and the topology renderer
  * (v2) draw from one toolbox. Also home to the generic path helpers
- * (stroked paths, rounded elbows, arrowheads) the topology renderer routes
- * edges and loop arcs with.
+ * (stroked paths, arrowheads) the topology renderer routes edges and loop
+ * arcs with.
  *
  * Styling note: ALL paint and geometry constants live here or in the
  * renderer-specific constant blocks — never inlined at point of use — so a
@@ -220,7 +220,6 @@ export function wrapToWidth(
 export interface StrokeOpts {
   width?: number;
   fill?: string;
-  dasharray?: string;
   linecap?: string;
 }
 
@@ -231,62 +230,8 @@ export function strokePath(d: string, stroke: string, o: StrokeOpts = {}): strin
     `stroke="${stroke}"`,
     `stroke-width="${o.width ?? 1}"`,
   ];
-  if (o.dasharray) attrs.push(`stroke-dasharray="${o.dasharray}"`);
   if (o.linecap) attrs.push(`stroke-linecap="${o.linecap}"`);
   return `<path ${attrs.join(" ")}/>`;
-}
-
-export type Point = readonly [number, number];
-
-/**
- * A polyline whose every segment is axis-aligned (horizontal or vertical),
- * drawn with quarter-arc corners of radius `r` — the loop-arc/gutter routing
- * shape. The radius is clamped per corner to half of each adjacent segment so
- * short runs degrade to tighter corners instead of overshooting. Non-axis-
- * aligned input is a programming error; the helper falls back to sharp
- * corners for such a pair rather than emitting a wrong arc.
- */
-export function roundedElbowPath(
-  pts: readonly Point[],
-  r: number,
-  stroke: string,
-  width?: number,
-  dasharray?: string,
-): string {
-  if (pts.length < 2) return "";
-  const d: string[] = [`M ${round(pts[0][0])} ${round(pts[0][1])}`];
-  for (let i = 1; i < pts.length - 1; i++) {
-    const [px, py] = pts[i - 1];
-    const [cx, cy] = pts[i];
-    const [nx, ny] = pts[i + 1];
-    const inDx = Math.sign(cx - px);
-    const inDy = Math.sign(cy - py);
-    const outDx = Math.sign(nx - cx);
-    const outDy = Math.sign(ny - cy);
-    const axisAligned =
-      (inDx === 0) !== (inDy === 0) && (outDx === 0) !== (outDy === 0);
-    const isTurn = axisAligned && (inDx === 0) !== (outDx === 0);
-    if (!isTurn) {
-      // Straight-through or degenerate vertex: no arc to draw.
-      d.push(`L ${round(cx)} ${round(cy)}`);
-      continue;
-    }
-    const inLen = Math.abs(cx - px) + Math.abs(cy - py);
-    const outLen = Math.abs(nx - cx) + Math.abs(ny - cy);
-    const cr = Math.min(r, inLen / 2, outLen / 2);
-    const ax = cx - inDx * cr;
-    const ay = cy - inDy * cr;
-    const bx = cx + outDx * cr;
-    const by = cy + outDy * cr;
-    // Sweep = 1 for a clockwise turn (in screen coords, y-down): the cross
-    // product of the incoming and outgoing directions decides.
-    const sweep = inDx * outDy - inDy * outDx > 0 ? 1 : 0;
-    d.push(`L ${round(ax)} ${round(ay)}`);
-    d.push(`A ${round(cr)} ${round(cr)} 0 0 ${sweep} ${round(bx)} ${round(by)}`);
-  }
-  const [lx, ly] = pts[pts.length - 1];
-  d.push(`L ${round(lx)} ${round(ly)}`);
-  return strokePath(d.join(" "), stroke, { width, dasharray });
 }
 
 const ARROW_LEN = 7;

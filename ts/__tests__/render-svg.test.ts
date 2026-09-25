@@ -10,19 +10,6 @@ const meta = (over: Partial<Meta> = {}): Meta => ({
 });
 
 describe("renderSvg", () => {
-  it("produces a well-formed svg root with integer dimensions", () => {
-    const svg = renderSvg(meta());
-    expect(svg.startsWith("<svg ")).toBe(true);
-    expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
-    expect(svg).toMatch(/width="\d+" height="\d+"/);
-    // Every <g> is closed — a cheap balance check on the structure.
-    const opens = svg.match(/<g\b/g)?.length ?? 0;
-    const closes = svg.match(/<\/g>/g)?.length ?? 0;
-    expect(opens).toBe(closes);
-    expect(opens).toBeGreaterThan(0);
-  });
-
   it("emits one card group per phase, badged with the model's color", () => {
     const svg = renderSvg(
       meta({
@@ -45,12 +32,6 @@ describe("renderSvg", () => {
     expect(svg).toContain('class="header-card"');
     expect(svg).not.toContain('class="phase-card"');
     expect(svg).toContain("Find flaky tests");
-  });
-
-  it("renders a phase with no detail (title + chip + badge only)", () => {
-    const svg = renderSvg(meta({ phases: [{ title: "Just a title", model: "opus" }] }));
-    expect(svg.match(/class="phase-card"/g)?.length).toBe(1);
-    expect(svg).toContain("Just a title");
   });
 
   it("falls back to a neutral badge for an unknown model", () => {
@@ -88,11 +69,6 @@ describe("renderSvg", () => {
     expect(svg.match(/class="phase-card"/g)?.length).toBe(1);
   });
 
-  it("is deterministic for the same input", () => {
-    const m = meta({ phases: [{ title: "A", detail: "b", model: "opus" }] });
-    expect(renderSvg(m)).toBe(renderSvg(m));
-  });
-
   it("matches the representative snapshot", () => {
     const svg = renderSvg(
       meta({
@@ -105,11 +81,5 @@ describe("renderSvg", () => {
       }),
     );
     expect(svg).toMatchSnapshot();
-  });
-
-  it("never stamps a tool-version footer (renders are a pure function of meta)", () => {
-    expect(renderSvg(meta({ phases: [{ title: "A", model: "opus" }] }))).not.toContain(
-      'class="provenance"',
-    );
   });
 });

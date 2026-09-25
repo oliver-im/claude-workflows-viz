@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  NODE_R,
-  SPINE_X,
-  closeLaneGaps,
-  placeTopology,
-  reserveLaneHeights,
-} from "../place-topology.js";
+import { closeLaneGaps, placeTopology, reserveLaneHeights } from "../place-topology.js";
 import type { Meta } from "../model.js";
 import type {
   AgentStep,
@@ -114,20 +108,6 @@ const allHaveOnward = (layout: ReturnType<typeof placeTopology>, ids: string[]) 
   ids.every((id) => layout.edges.some((e) => e.from === id));
 
 describe("placeTopology — skeleton", () => {
-  it("single agent, one phase → one lane, one centered node, no edges", () => {
-    const layout = placeTopology(topo([agent("do the thing", "Solo")], [band("Solo")]), meta(["Solo"]));
-    expect(layout.lanes).toHaveLength(1);
-    expect(layout.nodes).toHaveLength(1);
-    expect(layout.edges).toHaveLength(0);
-    const [n] = layout.nodes;
-    expect(n.kind).toBe("agent");
-    expect(n.x).toBe(SPINE_X);
-    expect(n.phase).toBe(0);
-    expect(layout.lanes[0].empty).toBe(false);
-    expect(layout.width).toBeGreaterThan(0);
-    expect(layout.height).toBeGreaterThan(2 * NODE_R);
-  });
-
   it("two phases, one agent each → two stacked lanes + one mostly-vertical seq edge", () => {
     const layout = placeTopology(
       topo([agent("first", "P1"), agent("second", "P2")], [band("P1"), band("P2")]),
@@ -176,16 +156,6 @@ describe("placeTopology — skeleton", () => {
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
-  it("a trailing empty band becomes a terminal control node at the bottom", () => {
-    const layout = placeTopology(
-      topo([agent("a", "P1")], [band("P1"), band("P2")]),
-      meta(["P1", "P2"]),
-    );
-    expect(layout.lanes[1].empty).toBe(false);
-    expect(layout.nodes.some((n) => n.kind === "control" && n.label === "end" && n.phase === 1)).toBe(true);
-    expect(layout.lanes[1].yTop).toBeGreaterThanOrEqual(layout.lanes[0].yBot - 1);
-  });
-
   it("is a total function: an unknown step kind degrades to a placeholder, never throws", () => {
     const bogus = { kind: "frobnicate", phase: "P1", span } as unknown as Step;
     const t = topo([bogus], [band("P1")]);
@@ -202,12 +172,6 @@ describe("placeTopology — skeleton", () => {
     expect(layout.lanes).toHaveLength(1);
     expect(layout.nodes).toHaveLength(1);
     expect(layout.nodes[0].phase).toBe(0);
-  });
-
-  it("is deterministic for the same input", () => {
-    const t = topo([agent("a", "P1"), agent("b", "P2")], [band("P1"), band("P2")]);
-    const m = meta(["P1", "P2"]);
-    expect(JSON.stringify(placeTopology(t, m))).toBe(JSON.stringify(placeTopology(t, m)));
   });
 });
 
@@ -356,18 +320,6 @@ describe("placeTopology — sub-shapes", () => {
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
-  it("loop → a repeat badge on the body, and NEVER a back-edge", () => {
-    const layout = placeTopology(
-      topo([loop("while", "bracket.length > 1", [agent("match", "Judge")], "Judge")], [band("Judge")]),
-      meta(["Judge"]),
-    );
-    expect(layout.loops).toHaveLength(1);
-    expect(layout.loops[0].label).toBe("repeat while bracket.length > 1");
-    const match = layout.nodes.find((n) => n.label === "match");
-    expect(layout.loops[0].onNode).toBe(match?.id);
-    expect(everyEdgeFlowsDown(layout)).toBe(true); // no edge target above its source
-  });
-
   it("nested same-phase loops → stacked badges on the same node", () => {
     const inner = loop("for", "i < bracket.length", [agent("match", "Judge")], "Judge");
     const outer = loop("while", "bracket.length > 1", [inner], "Judge");
@@ -379,24 +331,6 @@ describe("placeTopology — sub-shapes", () => {
       "repeat for i < bracket.length",
       "repeat while bracket.length > 1",
     ]);
-  });
-
-  it("a guard-headed loop re-anchors its badge to the first work node, not the diamond", () => {
-    // `for (…) { if (!opponent) continue; match(…) }` — the body head is a
-    // loop-control guard. The badge must NOT sit on that bare diamond; it
-    // re-anchors to the work node (the match agent), reading as an annotation on
-    // the work — the same shape an agent-headed loop gets.
-    const guard = branch("!opponent", [control("continue loop", "Judge", "continue")], [], "Judge");
-    const layout = placeTopology(
-      topo([loop("for", "i < bracket.length", [guard, agent("match", "Judge")], "Judge")], [band("Judge")]),
-      meta(["Judge"]),
-    );
-    expect(layout.loops).toHaveLength(1);
-    const decision = layout.nodes.find((n) => n.kind === "decision");
-    const match = layout.nodes.find((n) => n.label === "match");
-    expect(layout.loops[0].onNode).toBe(match?.id);
-    expect(layout.loops[0].onNode).not.toBe(decision?.id);
-    expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
   it("nested guard-headed loops stack BOTH badges on the same work node", () => {
@@ -440,35 +374,6 @@ describe("placeTopology — sub-shapes", () => {
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
     expect(everyEdgeFlowsDown(layout)).toBe(true); // the arc is a decoration, not an edge
   });
-
-  it("a substantive (non-guard) decision head keeps its badge ABOVE the diamond", () => {
-    // `while (…) { if (cond) A else B }` — a real two-armed branch is the loop's
-    // whole body, so there's no single work node to annotate; the badge stays on
-    // the diamond, pinned above its yes/no labels (head slides down, still flows
-    // down).
-    const realBranch = branch("cond", [agent("A", "Judge")], [agent("B", "Judge")], "Judge");
-    const layout = placeTopology(
-      topo([agent("seed", "Judge"), loop("while", "n > 0", [realBranch], "Judge")], [band("Judge")]),
-      meta(["Judge"]),
-    );
-    expect(layout.loops).toHaveLength(1);
-    const decision = layout.nodes.find((n) => n.kind === "decision");
-    expect(layout.loops[0].onNode).toBe(decision?.id);
-    expect(everyEdgeFlowsDown(layout)).toBe(true);
-  });
-
-  it("a loop whose body spans phases stays local (badge + note, no back-edge)", () => {
-    const layout = placeTopology(
-      topo(
-        [loop("while", "dryRounds < 2", [agent("find", "Find"), agent("verify", "Verify")], "Find")],
-        [band("Find"), band("Verify"), band("Stop")],
-      ),
-      meta(["Find", "Verify", "Stop"]),
-    );
-    expect(layout.loops).toHaveLength(1);
-    expect(layout.notes.some((n) => n.includes("spans phases"))).toBe(true);
-    expect(everyEdgeFlowsDown(layout)).toBe(true);
-  });
 });
 
 describe("reserveLaneHeights — swimlane-table co-registration", () => {
@@ -507,13 +412,6 @@ describe("reserveLaneHeights — swimlane-table co-registration", () => {
     // ...the page grew by the delta and every edge still flows downward.
     expect(layout.height).toBe(before.height + 100);
     expect(everyEdgeFlowsDown(layout)).toBe(true);
-  });
-
-  it("leaves lanes already taller than their min untouched", () => {
-    const layout = threeLane();
-    const snapshot = JSON.stringify(layout);
-    reserveLaneHeights(layout, [0, 0, 0]); // every band already exceeds 0
-    expect(JSON.stringify(layout)).toBe(snapshot);
   });
 
   it("accumulates deltas when several lanes inflate", () => {

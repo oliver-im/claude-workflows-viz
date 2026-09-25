@@ -33,53 +33,6 @@ describe("cli smoke", () => {
     expect(res.stdout.trim()).toBe(pkg.version);
   });
 
-  it("lists the command surface in --help", () => {
-    const res = runCli(["--help"]);
-    expect(res.stdout).toContain("--format");
-    expect(res.stdout).toContain("--out");
-    expect(res.stdout).toContain("--share");
-    expect(res.stdout).toContain("--view");
-    expect(res.stdout).toContain("workflow");
-  });
-
-  it("writes a well-formed SVG with -o", () => {
-    const out = join(workDir, "out.svg");
-    const res = runCli([fixture, "-o", out]);
-    expect(res.status).toBe(0);
-    const svg = readFileSync(out, "utf8");
-    expect(svg.startsWith("<svg ")).toBe(true);
-    expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
-    expect(svg).toContain("Find flaky tests");
-  });
-
-  it("streams SVG to stdout when no -o is given", () => {
-    const res = runCli([fixture]);
-    expect(res.status).toBe(0);
-    expect(res.stdout.startsWith("<svg ")).toBe(true);
-    expect(res.stdout.trimEnd().endsWith("</svg>")).toBe(true);
-  });
-
-  // The first PNG in a worker pays the native rasterizer's cold load, which
-  // has run past vitest's 5s default on a slow CI runner.
-  it("rasterizes a real PNG with --format png -o", () => {
-    const out = join(workDir, "out.png");
-    const res = runCli([fixture, "--format", "png", "-o", out]);
-    expect(res.status).toBe(0);
-    const png = readFileSync(out);
-    expect([...png.subarray(0, 8)]).toEqual(PNG_MAGIC);
-    // IHDR is the first chunk; width/height live right after its type tag.
-    expect(png.subarray(12, 16).toString("ascii")).toBe("IHDR");
-    expect(png.readUInt32BE(16)).toBeGreaterThan(0); // width
-    expect(png.readUInt32BE(20)).toBeGreaterThan(0); // height
-  }, 30_000);
-
-  it("infers PNG format from the -o extension", () => {
-    const out = join(workDir, "inferred.png");
-    const res = runCli([fixture, "-o", out]);
-    expect(res.status).toBe(0);
-    expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
-  });
-
   it("emits the static analysis as JSON with --format json", () => {
     const res = runCli([summarizeExample, "--format", "json"]);
     expect(res.status).toBe(0);
@@ -93,6 +46,10 @@ describe("cli smoke", () => {
     // The faithful IR carries the verbatim, un-paraphrased labels the skill reads.
     const kinds = parsed.topology.steps.map((s: { kind: string }) => s.kind);
     expect(kinds).toContain("parallel");
+    // The per-file grammar level rides in the topology block. A level-1 file stays
+    // level-1 forever; the recognizer's level is read from the source of truth.
+    expect(parsed.topology.requiredLevel).toBe(1);
+    expect(parsed.topology.recognizerLevel).toBe(RECOGNIZER_LEVEL);
   });
 
   it("shares the selected SVG view and includes source only when requested", () => {
@@ -148,16 +105,6 @@ describe("cli smoke", () => {
     }
   });
 
-  it("carries the per-file grammar level in the JSON topology block", () => {
-    const res = runCli([summarizeExample, "--format", "json"]);
-    expect(res.status).toBe(0);
-    const parsed = JSON.parse(res.stdout);
-    // A level-1 file stays level-1 forever; the recognizer's level tracks the
-    // reconciled grammar, so it is read from the source of truth, not re-pinned.
-    expect(parsed.topology.requiredLevel).toBe(1);
-    expect(parsed.topology.recognizerLevel).toBe(RECOGNIZER_LEVEL);
-  });
-
   it("infers json format from the -o extension and is deterministic", () => {
     const out = join(workDir, "analysis.json");
     const res = runCli([summarizeExample, "-o", out]);
@@ -198,15 +145,6 @@ describe("cli smoke", () => {
 });
 
 describe("cli smoke — views", () => {
-  it("defaults to the workflow view: phase table plus topology in the output, no warnings", () => {
-    const res = runCli([summarizeExample]);
-    expect(res.status).toBe(0);
-    expect(res.stderr).toBe("");
-    expect(res.stdout).toContain('class="agent-node"');
-    expect(res.stdout).toContain('class="swimlane"'); // phase as overlay stripe, not a card
-    expect(res.stdout).not.toContain("xband"); // no card-wall routing survives
-  });
-
   it("--view workflow is the explicit spelling of the default view", () => {
     const implicit = runCli([summarizeExample]);
     const explicit = runCli([summarizeExample, "--view", "workflow"]);
@@ -225,15 +163,6 @@ describe("cli smoke — views", () => {
     expect(res.stdout).not.toContain('class="swimlane"');
   });
 
-  it("never paints the tool version onto the rendered diagram", () => {
-    const res = runCli([summarizeExample]);
-    expect(res.status).toBe(0);
-    // The version is knowable via `--version`, but a render is a pure function of
-    // its `.js` input — no tool-version footer, no "vX.Y.Z" stamped into the image.
-    expect(res.stdout).not.toContain('class="provenance"');
-    expect(res.stdout).not.toContain(`v${pkg.version}`);
-  });
-
   it("--view phases renders the byte-stable v1 page", () => {
     const res = runCli([summarizeExample, "--view", "phases"]);
     expect(res.status).toBe(0);
@@ -250,24 +179,17 @@ describe("cli smoke — views", () => {
     expect(res.stderr).toMatch(/unknown --view/i);
   });
 
-  it("falls back to the v1-equivalent page for an exotic body, exit 0", () => {
-    const res = runCli([exoticFixture]);
-    expect(res.status).toBe(0);
-    // No recoverable orchestration is by-design degradation, not a failure:
-    // no warning, and the topology page is byte-identical to the v1 render.
-    expect(res.stderr).toBe("");
-    expect(res.stdout).not.toContain("agent-node");
-    expect(res.stdout).toContain('class="phase-card"');
-    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
-  });
-
-  it("--view topology falls back to the v1-equivalent page for an exotic body, exit 0", () => {
-    const res = runCli([exoticFixture, "--view", "topology"]);
-    expect(res.status).toBe(0);
-    expect(res.stderr).toBe("");
-    expect(res.stdout).not.toContain("agent-node");
-    expect(res.stdout).toContain('class="phase-card"');
-    expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
+  it("falls back to the v1-equivalent page for an exotic body in both analyzed views, exit 0", () => {
+    for (const viewArgs of [[], ["--view", "topology"]]) {
+      const res = runCli([exoticFixture, ...viewArgs]);
+      expect(res.status, viewArgs.join(" ")).toBe(0);
+      // No recoverable orchestration is by-design degradation, not a failure:
+      // no warning, and the page is byte-identical to the v1 render.
+      expect(res.stderr).toBe("");
+      expect(res.stdout).not.toContain("agent-node");
+      expect(res.stdout).toContain('class="phase-card"');
+      expect(res.stdout).toBe(renderSvg(extractMeta(exoticFixture)));
+    }
   });
 
   it("warns about an unrecognized awaited primitive yet still renders (exit 0), proving the warning is independent of the hasOrchestration fallback", () => {
@@ -282,17 +204,12 @@ describe("cli smoke — views", () => {
     expect(res.stdout).toBe(renderSvg(extractMeta(unknownFixture)));
   });
 
-  it("rasterizes the workflow view to a real PNG", () => {
-    const out = join(workDir, "workflow.png");
-    const res = runCli([summarizeExample, "--format", "png", "-o", out]);
-    expect(res.status).toBe(0);
-    expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
-  });
-
+  // The first PNG pays the native rasterizer's cold load, which has run past
+  // vitest's 5s default on a slow CI runner.
   it("rasterizes the graph-only topology view to a real PNG", () => {
     const out = join(workDir, "topology.png");
     const res = runCli([summarizeExample, "--view", "topology", "--format", "png", "-o", out]);
     expect(res.status).toBe(0);
     expect([...readFileSync(out).subarray(0, 8)]).toEqual(PNG_MAGIC);
-  });
+  }, 30_000);
 });

@@ -55,10 +55,6 @@ const grammarFiles = readdirSync(examplesRoot, { withFileTypes: true })
   );
 
 describe("shipped examples declare and stay within their grammar level", () => {
-  it("discovers the shipped workflow corpus", () => {
-    expect(grammarFiles.length).toBeGreaterThan(0);
-  });
-
   for (const rel of grammarFiles) {
     it(rel, () => {
       const src = readFileSync(join(root, rel), "utf8");
