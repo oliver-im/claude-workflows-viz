@@ -8,6 +8,10 @@ stamp, and what the file actually uses all agree, so a sample can't silently
 drift past the recognizer; `npm run regen-examples` rebuilds the committed
 SVG/PNG renders.
 
+`npm test` also runs the built CLI on every workflow and compares its default SVG
+output byte for byte with the committed render. Review any differences before
+using `npm run regen-examples` to update the expected outputs.
+
 A sample lives at the level of the **newest construct it uses**, so the level-1
 directory is not legacy — it is the set of workflows expressible in the baseline
 vocabulary, and most workflows still are.
