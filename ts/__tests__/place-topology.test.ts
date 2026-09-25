@@ -347,7 +347,12 @@ describe("placeTopology — sub-shapes", () => {
     expect(decision.label).toBe("confidence < 0.5");
     const outgoing = layout.edges.filter((e) => e.from === decision.id);
     expect(outgoing).toHaveLength(2); // both arms shown
-    expect(outgoing.map((e) => e.label).sort()).toEqual(["no", "yes"]);
+    const targetFor = (outcome: string) =>
+      layout.nodes.find((n) => n.id === outgoing.find((e) => e.label === outcome)?.to);
+    // Low confidence takes the empty then-arm; only the no-arm reaches the fix.
+    // Checking just the set of labels lets a yes/no swap reverse the meaning.
+    expect(targetFor("yes")).toMatchObject({ kind: "hub", label: "" });
+    expect(targetFor("no")).toMatchObject({ kind: "agent", label: "fix:${area}" });
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
