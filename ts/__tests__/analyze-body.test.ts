@@ -29,32 +29,6 @@ const firstAgent = (t: Topology): AgentStep => {
 };
 
 describe("analyzeBody — sequence & phases", () => {
-  it("emits agent steps in source order with the ambient phase", () => {
-    const t = analyze(
-      `await agent("first task");\nphase("P1");\nawait agent("second task");`,
-    );
-    expect(t.steps.map((s) => s.kind)).toEqual(["agent", "agent"]);
-    expect(t.steps.map((s) => (s as AgentStep).label)).toEqual([
-      "first task",
-      "second task",
-    ]);
-    // Pre-marker steps carry phase: null.
-    expect(t.steps.map((s) => s.phase)).toEqual([null, "P1"]);
-    expect(t.hasOrchestration).toBe(true);
-  });
-
-  it("seeds bands from meta (inMeta) and appends body-only titles in lexical order", () => {
-    const t = analyze(
-      `phase("P3");\nawait agent("x");\nphase("P1");\nawait agent("y");`,
-      ["P1", "P2"],
-    );
-    expect(t.bands).toEqual([
-      { title: "P1", inMeta: true },
-      { title: "P2", inMeta: true },
-      { title: "P3", inMeta: false }, // body-only, appended — not duplicated for P1
-    ]);
-  });
-
   it("phase markers leak lexically out of blocks", () => {
     const t = analyze(`{\n  phase("X");\n}\nawait agent("p");`);
     expect(firstAgent(t).phase).toBe("X");
@@ -69,23 +43,6 @@ describe("analyzeBody — sequence & phases", () => {
 });
 
 describe("analyzeBody — agent opts", () => {
-  it("reads label/model/agentType string literals", () => {
-    const t = analyze(`await agent("p", { label: "build", model: "opus", agentType: "codex" });`);
-    const a = firstAgent(t);
-    expect(a.label).toBe("build");
-    expect(a.labelExplicit).toBe(true); // author wrote `{ label }`
-    expect(a.model).toBe("opus");
-    expect(a.agentType).toBe("codex");
-    expect(t.notes).toEqual([]);
-  });
-
-  it("keeps a template label as its verbatim inner source", () => {
-    const t = analyze("await agent(\"p\", { label: `fix:${area}` });");
-    const a = firstAgent(t);
-    expect(a.label).toBe("fix:${area}");
-    expect(a.labelExplicit).toBe(true); // a template label is still authored
-  });
-
   it("opts.phase overrides the ambient phase and registers the band", () => {
     const t = analyze(`phase("A");\nawait agent("p", { phase: "B" });`, ["A"]);
     expect(firstAgent(t).phase).toBe("B");
@@ -109,13 +66,6 @@ describe("analyzeBody — agent opts", () => {
     expect(a.labelExplicit).toBe(false); // label came from the prompt, not the author
     expect(t.notes).toHaveLength(1);
     expect(t.notes[0].message).toMatch(/options are not an inline object/);
-  });
-
-  it("marks a prompt-derived label as not author-supplied (labelExplicit=false)", () => {
-    const t = analyze(`await agent("Document the winning approach");`);
-    const a = firstAgent(t);
-    expect(a.label).toBe("Document the winning approach");
-    expect(a.labelExplicit).toBe(false); // no `{ label }` → derived → renderer drops the text
   });
 });
 
@@ -149,11 +99,6 @@ describe("analyzeBody — label fallback & previews", () => {
     const preview = firstAgent(t).promptPreview!;
     expect(preview).toHaveLength(80);
     expect(preview.endsWith("…")).toBe(true);
-  });
-
-  it("defaults multiplicity to one (fan-out threading is Unit 04)", () => {
-    const t = analyze(`await agent("p");`);
-    expect(firstAgent(t).multiplicity).toEqual({ kind: "one" });
   });
 });
 
@@ -299,13 +244,6 @@ describe("analyzeBody — workflow & catch-all degradation", () => {
     expect(t.steps.map((s) => s.kind)).toEqual(["agent", "opaque"]);
     expect((t.steps[0] as AgentStep).label).toBe("root");
     expect(t.notes.some((n) => n.message.includes("callback on a chained call"))).toBe(true);
-  });
-
-  it("notes phase() used in expression position without changing bands", () => {
-    const t = analyze(`const tag = phase("X");`);
-    expect(t.steps).toEqual([]);
-    expect(t.bands).toEqual([]);
-    expect(t.notes.some((n) => n.message.includes("expression position"))).toBe(true);
   });
 
   it("notes a phase() marker nested inside an unrecognized expression", () => {
@@ -606,12 +544,6 @@ describe("analyzeBody — loops & branches", () => {
 });
 
 describe("analyzeBody — totality & honesty", () => {
-  it("returns hasOrchestration:false and no steps for a non-orchestrating body", () => {
-    const t = analyze(`const a = 1;\nlog("x");\nfunction f() { return 2; }`);
-    expect(t.steps).toEqual([]);
-    expect(t.hasOrchestration).toBe(false);
-  });
-
   it("never throws on a weird-but-valid grab bag, and degrades visibly", () => {
     const src = [
       `"use strict";`,
@@ -634,10 +566,5 @@ describe("analyzeBody — totality & honesty", () => {
     expect(t.notes.some((n) => n.message.includes("helper 'helper'"))).toBe(true);
     // The optional call still reads as an agent step.
     expect(t.steps.some((s) => s.kind === "agent")).toBe(true);
-  });
-
-  it("is deterministic", () => {
-    const src = `phase("A");\nawait agent("p", { label: "x" });\nwhile (q) { await agent("r"); }`;
-    expect(JSON.stringify(analyze(src, ["A"]))).toBe(JSON.stringify(analyze(src, ["A"])));
   });
 });

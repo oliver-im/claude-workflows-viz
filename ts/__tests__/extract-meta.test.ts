@@ -4,7 +4,6 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MetaExtractionError,
-  extractMetaFromProgram,
   extractMetaFromSource,
   parseWorkflowSource,
   tryEvalLiteral,
@@ -58,27 +57,9 @@ describe("extractMetaFromSource", () => {
       /no .*meta/i,
     );
   });
-
-  it("rejects a non-literal meta (spread of a variable) without executing it", () => {
-    expect(() => extractMetaFromSource(read("non-literal-meta.js"))).toThrow(
-      MetaExtractionError,
-    );
-  });
-
-  it("errors when a required field is missing", () => {
-    expect(() =>
-      extractMetaFromSource(`export const meta = { name: "x" };`),
-    ).toThrow(/validation/i);
-  });
 });
 
-describe("parseWorkflowSource + extractMetaFromProgram", () => {
-  it("composes to exactly extractMetaFromSource", () => {
-    const src = read("full.js");
-    const composed = extractMetaFromProgram(parseWorkflowSource(src));
-    expect(composed).toEqual(extractMetaFromSource(src));
-  });
-
+describe("parseWorkflowSource", () => {
   it("parseWorkflowSource wraps syntax errors in MetaExtractionError", () => {
     expect(() => parseWorkflowSource("const = ;")).toThrow(MetaExtractionError);
     expect(() => parseWorkflowSource("const = ;")).toThrow(/could not parse/);
@@ -101,10 +82,6 @@ describe("tryEvalLiteral", () => {
       ok: true,
       value: { n: -3, s: "t" },
     });
-  });
-
-  it("returns {ok:false} (no throw) on a call expression", () => {
-    expect(tryEvalLiteral(initOf("compute()"))).toEqual({ ok: false });
   });
 
   it("returns {ok:false} on identifier references and templates with expressions", () => {

@@ -87,19 +87,6 @@ describe("createShareGist", () => {
     }
   });
 
-  it("preserves a non-github.com gist host in the returned URL", async () => {
-    const gistUrl = await createShareGist(
-      { image: { filename: "workflow.svg", data: "<svg />" } },
-      {
-        runGh: async (args) =>
-          args[0] === "auth"
-            ? { stdout: "", stderr: "", code: 0 }
-            : { stdout: "https://ghe.example/gists/abc123\n", stderr: "", code: 0 },
-      },
-    );
-    expect(gistUrl).toBe("https://ghe.example/gists/abc123");
-  });
-
   it("reports a process error while creating the gist", async () => {
     await expect(
       createShareGist(

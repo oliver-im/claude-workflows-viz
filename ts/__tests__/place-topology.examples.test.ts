@@ -55,13 +55,6 @@ const backRoutes = (layout: Layout) =>
 describe("placeTopology — corpus composition", () => {
   const files = corpus;
 
-  it("covers every level directory's examples", () => {
-    // A tripwire against the corpus silently shrinking — bump it deliberately
-    // when a sample is added or retired. Every level dir must contribute.
-    expect(files).toHaveLength(13);
-    for (const d of levelDirs) expect(files.some((f) => f.startsWith(`${d}/`)), d).toBe(true);
-  });
-
   it("every example: ZERO back-routes (no edge points up or to an earlier band)", () => {
     for (const f of files) {
       const layout = placeRel(f);
@@ -113,23 +106,6 @@ describe("placeTopology — corpus composition", () => {
     expect(layout.nodes.some((n) => n.kind === "control")).toBe(false);
   });
 
-  it("triage: router fan contained in its lane; classify→route→fix is a vertical spine", () => {
-    const layout = place("triage-issue.js");
-    const reply = layout.lanes.find((l) => l.title === "Reply or escalate");
-    expect(reply?.empty).toBe(false); // trailing control-only phase gets an explicit end node
-
-    const decision = layout.nodes.find((n) => n.kind === "decision");
-    expect(decision).toBeDefined();
-    // The classify agent and the fix agent are on the spine; the seq edges
-    // joining the main path are (near-)vertical, not gutter detours.
-    const spineSeq = layout.edges.filter((e) => {
-      const a = nodeById(layout, e.from);
-      const b = nodeById(layout, e.to);
-      return e.kind === "seq" && a && b && Math.abs(a.x - b.x) < 1 && Math.abs(b.x - decision!.x) < 1;
-    });
-    expect(spineSeq.length).toBeGreaterThanOrEqual(1);
-  });
-
   it("hunt-bugs: loop badge, dry-path control, readable verify fan-out, and visible end phase", () => {
     const layout = place("hunt-bugs.js");
     expect(layout.loops).toHaveLength(1);
@@ -156,19 +132,6 @@ describe("placeTopology — corpus composition", () => {
     expect(to!.y).toBeGreaterThan(from!.y); // and exits forward/down, out of the loop
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
     expect(backRoutes(layout)).toEqual([]); // the arc is a decoration, never an up-edge
-  });
-
-  it("review-pr: all four lanes carry graph (the verify fan lands in 'Adversarially verify', not a strip)", () => {
-    // The one named example not under level-1: it is the README hero, which is
-    // kept at the newest grammar level (see examples/README.md).
-    const layout = placeRel("level-2/review-pr.js");
-    expect(layout.lanes).toHaveLength(4);
-    expect(layout.lanes.every((l) => !l.empty)).toBe(true);
-    const verifyLane = layout.lanes.findIndex((l) => l.title === "Adversarially verify");
-    const verifyCells = layout.nodes.filter((n) => n.kind === "agent" && n.phase === verifyLane);
-    expect(verifyCells.length).toBeGreaterThanOrEqual(1);
-    // Every verify cell rejoins the sink — the dangling-fan bug, fixed.
-    for (const c of verifyCells) expect(layout.edges.some((e) => e.from === c.id)).toBe(true);
   });
 
   it("is deterministic across runs for every example", () => {

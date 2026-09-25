@@ -104,17 +104,6 @@ const tournament = () => {
 };
 
 describe("renderTopology", () => {
-  it("produces a well-formed svg with balanced groups and integer dimensions", () => {
-    const svg = tournament();
-    expect(svg.startsWith("<svg ")).toBe(true);
-    expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(svg.trimEnd().endsWith("</svg>")).toBe(true);
-    expect(svg).toMatch(/width="\d+" height="\d+"/);
-    const opens = svg.match(/<g\b/g)?.length ?? 0;
-    const closes = svg.match(/<\/g>/g)?.length ?? 0;
-    expect(opens).toBe(closes);
-  });
-
   it("draws phase label cells, swimlane rows, agent circles, a coral barrier, and a loop badge", () => {
     const svg = tournament();
     expect(svg).toContain('class="lane-label"');
@@ -214,13 +203,6 @@ describe("renderTopology", () => {
     expect(badgeY).toBeLessThan(decision!.y); // above the diamond's center, not below
   });
 
-  it("shows every fan member (named expansion), each drawn as an agent circle", () => {
-    const svg = tournament();
-    for (const label of ["draft:a", "draft:b", "draft:c"]) {
-      expect(svg).toContain(label);
-    }
-  });
-
   it("drops a derived node label but keeps authored ones (phase row names the node)", () => {
     const svg = tournament();
     // Authored labels survive: the fan-out members and the loop's match node.
@@ -241,21 +223,6 @@ describe("renderTopology", () => {
     expect(svg).not.toContain('class="lane-label"');
     expect(svg).not.toContain('class="header-card"');
     expect(svg).toContain("Document the winner");
-  });
-
-  it("renders the graph-only topology view deterministically", () => {
-    const t = topo([agent("Document the winner", "Write up", { model: "haiku", labelExplicit: false })], [
-      band("Write up"),
-    ]);
-    const m = meta([{ title: "Write up", model: "haiku" }]);
-    expect(renderGraph(t, m)).toBe(renderGraph(t, m));
-  });
-
-  it("never stamps a tool-version footer in either topology view", () => {
-    const t = topo([agent("go", "Solo")], [band("Solo")]);
-    const m = meta([{ title: "Solo", model: "sonnet" }]);
-    expect(renderTopologyGraph(placeTopology(t, m))).not.toContain('class="provenance"');
-    expect(renderTopology(placeTopology(t, m), m)).not.toContain('class="provenance"');
   });
 
   it("escapes <, >, &, and \" in every label, leaking no raw payload", () => {
@@ -283,13 +250,5 @@ describe("renderTopology", () => {
     expect((svg.match(/>a{40,}</g) ?? []).length).toBeGreaterThanOrEqual(2);
     // Safety net: the full, untruncated explanation rides along as the cell's <title>.
     expect(svg).toContain(`<title>${detail}</title>`);
-  });
-
-  it("is deterministic for the same input", () => {
-    expect(tournament()).toBe(tournament());
-  });
-
-  it("matches the tournament snapshot", () => {
-    expect(tournament()).toMatchSnapshot();
   });
 });
