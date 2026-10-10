@@ -26,6 +26,10 @@ table in §C maps one to the other.
 
 ## A. The workflow JS grammar (input)
 
+The terms below are the ones this tool reads. The whole language — `log()`,
+`args`, `budget`, limits, resume — is quoted from the upstream capture in
+[`spec/README.md`](../spec/README.md).
+
 ### The file
 - **dynamic workflow** — a `.js` file that begins with `export const meta = {…}`
   and then orchestrates subagents in an imperative body. We render its *static*

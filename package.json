@@ -22,7 +22,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "pretest": "npm run build",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "spec": "node scripts/spec.mjs",
+    "spec:site": "node scripts/spec.mjs --site"
   },
   "engines": {
     "node": ">=20"
@@ -53,6 +55,7 @@
   "devDependencies": {
     "@types/node": "^25.9.9",
     "esbuild": "^0.28.2",
+    "marked": "^18.0.14",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   }
