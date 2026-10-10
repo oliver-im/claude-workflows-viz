@@ -4,6 +4,7 @@ import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
 import { describe, expect, it } from "vitest";
+import { levelAt } from "../grammar.js";
 import { type Capture, listCaptures, parseProse, quotableText } from "../spec/capture.js";
 import { diffCaptures, diffSequence } from "../spec/diff.js";
 import { classifyProseDrift, generateSpec } from "../spec/index.js";
@@ -93,6 +94,14 @@ describe("spec/README.md only quotes the newest capture", () => {
   it("has quotes to check", () => {
     expect(quotes.length).toBeGreaterThan(40);
     expect(quotedBlocks.length).toBeGreaterThan(5);
+  });
+
+  it("names the capture it quotes", () => {
+    // A re-capture can leave every quote valid and the header still pointing back.
+    const { ccVersion, capturedOn, id } = newest;
+    const header = `The quotes come from **cc-${ccVersion}**, captured on ${capturedOn}, at grammar **level ${levelAt(ccVersion)}**`;
+    expect(readme.replace(/\s+/g, " ")).toContain(header);
+    expect(readme).toContain(`(upstream/${id}/workflow-input-schema.d.ts)`);
   });
 
   it.each([...quotes, ...quotedBlocks].map((q) => [q.length > 70 ? `${q.slice(0, 67)}…` : q, q]))(

@@ -265,8 +265,9 @@ move with no signal to us. The reconciliation ritual is how we catch that.
      `cc-2.1.280` lands here.)
    - **Anything else differs** → the upstream grammar moved, and the check prints
      each changed passage. Run `npm run capture-grammar`, which writes the new
-     snapshot and regenerates the readable pages, then read the new
-     `CHANGES.md`:
+     snapshot and regenerates the readable pages, and point the header of
+     [`spec/README.md`](../spec/README.md) at the new capture (`npm test` checks
+     that it names the newest). Then read the new `CHANGES.md`:
      - *Incidental wording only* → commit the new snapshot and its pages, and note
        above that it stays on the current level.
      - *Grammar-relevant change* → teach the recognizer (per
@@ -276,7 +277,8 @@ move with no signal to us. The reconciliation ritual is how we catch that.
        `RECOGNIZER_LEVEL_CC`); then run `npm run spec` again, since the pages label
        each capture with its level. Re-read the quotes in
        [`spec/README.md`](../spec/README.md) — `npm test` fails on any that no
-       longer match — and add the new construct there. Then **grow the example
+       longer match — raise the level its header names, and add the new
+       construct there. Then **grow the example
        corpus**: the shipped workflows are versioned by level under
        `examples/level-N/`, and each file also declares its level in-file (a
        `* Grammar level: N` header line). `ts/__tests__/examples.grammar.test.ts`
