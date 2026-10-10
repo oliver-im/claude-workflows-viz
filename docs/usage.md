@@ -111,25 +111,37 @@ committed corpus renders), and `npm run check-grammar` (the upstream-drift check
 
 ## Releasing
 
-Published to npm on tag push by
+Published to npm by
 [`.github/workflows/release.yml`](../.github/workflows/release.yml), via npm
 [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC — no stored
 token) with [provenance](https://docs.npmjs.com/generating-provenance-statements).
-Cut a release:
+The workflow runs only when dispatched, from the Actions tab (*release* → *Run
+workflow*) or with:
 
 ```sh
-npm version patch        # or minor / major / an explicit 0.1.1 — bumps package.json, commits, tags
-git push origin main     # land the bump commit
-git push origin v0.1.1   # push the tag → CI guards the version, runs the gate, publishes, opens a Release
+gh workflow run release.yml -f version=patch   # or minor / major / an explicit 0.2.2
 ```
 
-**One-time bootstrap** (Trusted Publishing can't perform the very first publish of
-a new name):
+The runner does the whole release from the head of `main`: it bumps `package.json`
+and `package-lock.json`, runs `npm test` on that exact tree (which rebuilds
+`dist/cli.js` with the new version baked in), commits `release: vX.Y.Z` with an
+annotated tag, pushes both to `main`, publishes, and opens a GitHub Release with
+generated notes. So merge everything the release should carry first, and don't
+bump or tag locally. If a run fails after its push (at the publish, say), dispatch
+it again with the exact version it was cutting (`-f version=0.2.2`; `patch` would
+count past it) before anything else lands on `main`: the runner finds the tag and
+finishes that release instead of cutting a new one.
+
+**One-time setup** (Trusted Publishing can't perform the very first publish of a
+new name, and `main` is protected):
 
 1. `npm publish --access public` locally to create `claude-workflows-viz` on npm.
    (No `--provenance` here — it requires a CI runner with OIDC; the workflow adds
    it to every release after this one.)
 2. On npmjs.com → the package → *Settings → Trusted Publisher* → GitHub Actions,
    repo `oliver-im/claude-workflows-viz`, workflow `release.yml`.
+3. Store the private half of a write-access deploy key as the `DEPLOY_KEY`
+   Actions secret, and register its public key as a bypass actor on the
+   `Protect main` ruleset; the runner pushes the release commit and tag with it.
 
-After that, the tag-push flow above is fully hands-off.
+After that, a release is one dispatch.
