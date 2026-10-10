@@ -6,6 +6,7 @@
 | [Workflow JS structure](workflow-js-structure.md) | Both | The **input** file's shape — the `meta` block and the body constructs the tool reads, with a maintenance edit-map |
 | [Readable diagrams](readable-diagrams.md) | Authors | The prose-authoring pass — how each caption is derived, so you edit the right string to make a cryptic diagram read clearly |
 | [Glossary](glossary.md) | Both | The two vocabularies (workflow grammar vs. tool internals) and the JS → tree IR → geometry → pixels bridge |
+| [The workflow language](../spec/README.md) | Both | The language itself — every hook, option, and limit, quoted from the newest upstream capture, with every capture's readable text and changes |
 | [Grammar changelog](GRAMMAR-CHANGELOG.md) | Both | The grammar-level ledger and the upstream-drift reconciliation ritual |
 | [Design context](design-context.md) | Both | The *why* — decisions, rejected alternatives, prior art, roadmap, and the render evolution |
 

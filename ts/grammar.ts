@@ -121,6 +121,27 @@ export const RECOGNIZER_LEVEL: GrammarLevel = 2;
 export const RECOGNIZER_LEVEL_CC = "2.1.280";
 
 /**
+ * The ledger's levels in machine-readable form: each grammar level and the
+ * Claude Code release it was minted at. A capture sits at the last level minted
+ * at or before its own release — which is how the readable `spec/` pages label
+ * each capture. The prose for each entry is in `docs/GRAMMAR-CHANGELOG.md`;
+ * `ts/__tests__/grammar.test.ts` holds the last entry to `RECOGNIZER_LEVEL`.
+ */
+export const LEVEL_HISTORY: ReadonlyArray<{ level: GrammarLevel; mintedAt: string }> = [
+  { level: 1, mintedAt: "2.1.173" },
+  { level: 2, mintedAt: "2.1.219" },
+];
+
+/** The grammar level a Claude Code release's capture sits at (per `LEVEL_HISTORY`). */
+export function levelAt(ccVersion: string): GrammarLevel {
+  let level = LEVEL_HISTORY[0].level;
+  for (const entry of LEVEL_HISTORY) {
+    if (entry.mintedAt.localeCompare(ccVersion, undefined, { numeric: true }) <= 0) level = entry.level;
+  }
+  return level;
+}
+
+/**
  * Map every **wired** token to the grammar level that introduced it — the lookup
  * feature-detection uses to turn "tokens this file uses" into a required-minimum
  * level. Descriptive tokens have no round-tripped identifier and are excluded.
