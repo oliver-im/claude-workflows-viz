@@ -60,9 +60,9 @@ export const LEXICON: readonly LexiconEntry[] = [
 
   // ── wired · agent() options (the agentStep options switch) ──
   { token: "label", kind: "agent-option", wired: true, sinceLevel: 1, note: "node caption — string or template literal" },
-  { token: "model", kind: "agent-option", wired: true, sinceLevel: 1, note: "colors the agent circle — string literal only" },
-  { token: "effort", kind: "agent-option", wired: true, sinceLevel: 2, note: "reasoning-effort badge on the agent node — string literal only" },
-  { token: "agentType", kind: "agent-option", wired: true, sinceLevel: 1, note: "recorded — string literal only" },
+  { token: "model", kind: "agent-option", wired: true, sinceLevel: 1, note: "fills the agent card with the model's color — string literal only" },
+  { token: "effort", kind: "agent-option", wired: true, sinceLevel: 2, note: "reasoning effort, named on the agent card with a five-step meter — string literal only" },
+  { token: "agentType", kind: "agent-option", wired: true, sinceLevel: 1, note: "named on the agent card when no model is set — string literal only" },
   { token: "phase", kind: "agent-option", wired: true, sinceLevel: 1, note: "overrides the ambient phase for this node — string literal only" },
   { token: "schema", kind: "agent-option", wired: true, sinceLevel: 1, note: "recognized as an option, but carries no visual meaning" },
   { token: "isolation", kind: "agent-option", wired: true, sinceLevel: 1, note: "'worktree' runs the agent in a fresh worktree — recognized, but carries no visual meaning" },

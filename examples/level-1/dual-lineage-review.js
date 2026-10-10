@@ -7,8 +7,9 @@
  * Both halves below are drawn: the `meta` block, and the orchestration body
  * beneath it — which is recovered by static analysis and never executed.
  *
- * (The "External review" phase names a non-Claude model, so it renders with
- * the neutral fallback badge instead of an opus/sonnet/haiku color.)
+ * (The external reviewer runs as `agentType: "codex"`, which brings its own
+ * non-Claude model — so its card names the agent type, in a neutral color
+ * rather than a Claude model's.)
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -53,6 +54,7 @@ export const meta = {
 
 phase("Scope the diff");
 const targets = await agent("Compute the diff vs main and split it into focus targets.", {
+  model: "haiku",
   schema: { type: "object", properties: { targets: { type: "array" } } },
 });
 
@@ -61,6 +63,7 @@ const [claudeFindings, externalFindings] = await parallel([
     agent(`Review these targets for correctness, security, conventions:\n${JSON.stringify(targets.targets)}`, {
       label: "review:claude",
       phase: "Claude review",
+      model: "claude-opus-5",
     }),
   () =>
     // A workflow can hand the same diff to a non-Claude reviewer via agentType.
@@ -74,5 +77,6 @@ const [claudeFindings, externalFindings] = await parallel([
 phase("Merge the verdicts");
 const merged = await agent(
   `Keep what both reviews agree on, flag the disagreements:\n${claudeFindings}\n---\n${externalFindings}`,
+  { model: "sonnet" },
 );
 log(merged);

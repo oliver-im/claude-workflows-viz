@@ -51,7 +51,7 @@ phase("Draft from every source");
 const sections = (
   await parallel(
     SOURCES.map((src) => () =>
-      agent(`Draft reference sections for ${args.pkg} from ${src}.`, { label: `draft:${src}` }),
+      agent(`Draft reference sections for ${args.pkg} from ${src}.`, { label: `draft:${src}`, model: "sonnet" }),
     ),
   )
 ).filter(Boolean);
@@ -61,13 +61,19 @@ let rounds = 0;
 while (rounds < 3) {
   const audit = await agent(
     `What's missing from this reference — endpoints, params, error cases, examples?\n${JSON.stringify(sections)}`,
-    { label: "critic: what's missing?", schema: { type: "object", properties: { gaps: { type: "array" } } } },
+    {
+      label: "critic: what's missing?",
+      model: "claude-opus-5",
+      schema: { type: "object", properties: { gaps: { type: "array" } } },
+    },
   );
   if (audit.gaps.length === 0) break;
   rounds += 1;
   const filled = (
     await parallel(
-      audit.gaps.map((gap) => () => agent(`Write the missing section: ${gap}`, { label: `fill:${gap}` })),
+      audit.gaps.map((gap) => () =>
+        agent(`Write the missing section: ${gap}`, { label: `fill:${gap}`, model: "claude-opus-5" }),
+      ),
     )
   ).filter(Boolean);
   sections.push(...filled);
@@ -75,5 +81,7 @@ while (rounds < 3) {
 }
 
 phase("Assemble the reference");
-const reference = await agent(`Assemble the final ordered reference from:\n${JSON.stringify(sections)}`);
+const reference = await agent(`Assemble the final ordered reference from:\n${JSON.stringify(sections)}`, {
+  model: "haiku",
+});
 log(reference);

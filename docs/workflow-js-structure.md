@@ -76,14 +76,16 @@ key — the object is built with a null prototype so it can't pollute validation
 | `name` | string | ✓ | header title |
 | `description` | string | ✓ | paragraph under the title |
 | `whenToUse` | string | — | italic "When to use —" line |
-| `phases` | array | — (→ `[]`) | the lanes / phase cards |
-| `phases[].title` | string | ✓ | lane label + numbered chip |
-| `phases[].detail` | string | — | phase blurb (in `phases` view) |
-| `phases[].model` | string | — | color swatch; omit ⇒ no badge |
+| `phases` | array | — (→ `[]`) | the rows / phase cards |
+| `phases[].title` | string | ✓ | row title + numbered chip |
+| `phases[].detail` | string | — | phase blurb |
+| `phases[].model` | string | — | the row's declared-model line; omit ⇒ none |
 
 Unknown keys are ignored. A missing `phases` normalizes to `[]`. `model` is
 free-form: `opus`/`sonnet`/`haiku`/`fable` are matched for color **even inside a
-full id** (`claude-opus-5`); anything else gets a neutral badge.
+full id** (`claude-opus-5`); anything else is neutral. A phase `model` is a
+declaration — what colors a card is the `agent()` call's own `opts.model`, and a
+row whose declaration no call backs says *declared only*.
 
 ---
 
@@ -135,7 +137,7 @@ the CLI falls back to the `phases` view wholesale.
 
 | Source | Becomes | Notes |
 | --- | --- | --- |
-| `agent(prompt, opts?)` | `AgentStep` | label = `opts.label` → prompt literal/template-head → `"agent"`. `model`/`effort`/`agentType`/`phase` read from opts (literals only). `effort` (grammar level 2) draws as a muted badge left of the node — the mirror of the ×N badge on the right — and is taken verbatim, not checked against the documented tiers. |
+| `agent(prompt, opts?)` | `AgentStep` | label = `opts.label` → prompt literal/template-head → `"agent"`. `model`/`effort`/`agentType`/`phase` read from opts (literals only); an option that may be set but can't be read — a non-literal value, or every option not literally set when the options are a spread, carry a computed key, or aren't an inline object — is recorded in `unread`, and its card says *model unread* / *effort unread* instead of claiming an inherited value. `effort` (grammar level 2) is named on the card with a five-step meter, taken verbatim, not checked against the documented tiers. |
 | `workflow(name)` | `WorkflowStep` | label from string-literal name, else source slice. |
 | `parallel([f, g])` | `ParallelStep` `branches` | each element must be an inline thunk; non-thunks → opaque. |
 | `parallel(XS.map(cb))` | `ParallelStep` `fanout` | width = `XS`'s multiplicity (§3.4); `(x)=>()=>…` double-arrow unwraps. |
@@ -192,16 +194,16 @@ Mapping the body to what gets drawn (render: `examples/level-1/choose-approach.p
 
 | Body | Tree IR | Render |
 | --- | --- | --- |
-| `phase("Draft the contenders")` | sets band 0 | green lane "1 Draft the contenders", `sonnet` badge (from `meta`) |
-| `parallel(PRIORITIES.map(p => () => agent(`draft:${p}`)))` | `parallel` `fanout`, `named` ×4 | hub → 4 agent circles `draft:simplest…fastest to ship` → coral **barrier** |
-| `phase("Judge pairwise")` | sets band 1 | purple lane, `claude-opus-5` badge |
-| `while (bracket.length > 1) { for (…) { agent("…", {label:"match:…"}) } }` | `loop`(while) ▷ `loop`(for) ▷ `AgentStep` | one `match:${i / 2}` node + **two stacked ↻ badges** (`for i < bracket.length`, `while bracket.length > 1`) |
-| `log(…)` only; *no* `phase("Advance the bracket")` in the body | — (band 2 is `meta`-only, no orchestration) | **slim empty strip** "3 Advance the bracket", *control only*, no badge; the spine edge passes straight through it |
-| `phase("Write up the winner")` + `agent("Document…")` | sets band 3 + `AgentStep` | blue lane, `haiku` badge, one `Document the winning approach:…` node |
+| `phase("Draft the contenders")` | sets band 0 | row "1 Draft the contenders", `model: sonnet` line (from `meta`) |
+| `parallel(PRIORITIES.map(p => () => agent(`draft:${p}`, { model: "sonnet" })))` | `parallel` `fanout`, `named` ×4 | a start node, a fork rail → 4 green cards `draft:simplest…fastest to ship` → a **join** |
+| `phase("Judge pairwise")` | sets band 1 | row 2, `model: claude-opus-5` line |
+| `while (bracket.length > 1) { for (…) { if (!opponent) continue; agent("…", {label:"match:…"}) } }` | `loop`(while) ▷ `loop`(for) ▷ guard + `AgentStep` | one purple `match:${i / 2}` card inside **two nested loop frames** (`while bracket.length > 1`, `for i < bracket.length`); the guard's `continue` loops back to itself |
+| `log(…)` only; *no* `phase("Advance the bracket")` in the body | — (band 2 is `meta`-only, no orchestration) | **slim empty strip** "3 Advance the bracket", *control only*, no model line; the spine edge passes straight through it |
+| `phase("Write up the winner")` + `agent("Document…", { model: "haiku" })` | sets band 3 + `AgentStep` | row 4, one blue `haiku` card (the prompt-sliced label stays off; the row names it) |
 
 The label stays raw `match:${i / 2}` (not expanded) because `i / 2` is not the
-bare fan parameter — honest, per §3.5. The L1→L3 edge crossing the empty lane as
-one short vertical is the phase-as-overlay payoff: no card wall to route around.
+bare fan parameter — honest, per §3.5. The L1→L3 edge crossing the empty row as
+one short vertical is the phase-as-row payoff: no card wall to route around.
 
 ---
 
@@ -227,14 +229,15 @@ probe for the new token both land — you cannot grow the vocabulary halfway.
 - **A new agent option**: add a `LEXICON` entry, read it in `agentStep`, and add an
   `OPTION_DISPATCH` probe. If it also **draws**, it has to be threaded the whole way
   down: a field on `AgentStep` (`topology.ts`) → `GNode` (`topo-geometry.ts`) → every
-  site in `place-topology.ts` that builds an agent node (the spine node, the fan-out's
-  collapsed *and* row members, and both pipeline-cell shapes — miss one and the badge
-  silently vanishes in that layout) → `renderAgent` **and** `graphContentBounds` in
-  `render-topology.ts`, since a badge outside the bounds math gets clipped when the
-  page packs to content. Update §3.3/glossary.
-- **A new model family**: one entry in `MODEL_SWATCHES` (`svg-primitives.ts`) — both
-  `swatchFor` and `shortModel` key off that table. Not a grammar change: model names
-  are not part of the captured grammar.
+  site in `place-topology.ts` that builds an agent card (all go through `cardInput`
+  / `addCard`, so thread it there) → the card layout in `node-card.ts` (it decides
+  widths, so placement and rendering agree) → `renderCard` in `render-topology.ts`,
+  plus the legend if it introduces a glyph. Update §3.3/glossary.
+- **A new model family**: one entry in `MODEL_FAMILIES` and one swatch per theme in
+  `theme.ts` (the card fill, the swatch dot, and the legend all key off it). The
+  phases view keeps its own `MODEL_SWATCHES` (`svg-primitives.ts`, byte-identical
+  gate) — add it there too only if the phases view should color it. Not a grammar
+  change: model names are not part of the captured grammar.
 
 Regression guardrails that should stay green through any such change:
 `--view phases` byte-identical (snapshot), **0 cross-card edges** across

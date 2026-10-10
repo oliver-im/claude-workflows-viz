@@ -68,6 +68,13 @@ export interface AgentStep extends StepBase {
    */
   effort?: string;
   agentType?: string;
+  /**
+   * Options that may be set but could not be read statically: a non-literal
+   * value, or — when the options are a spread, carry a computed key, or are not
+   * an inline object — every option not literally set. The renderer then draws
+   * no claim (no "session model") for them. Absent ⇒ everything was read.
+   */
+  unread?: Array<"model" | "effort" | "agentType">;
   promptPreview?: string;
 }
 

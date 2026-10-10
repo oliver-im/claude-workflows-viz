@@ -7,10 +7,10 @@
  * Both halves below are drawn: the `meta` block, and the orchestration body
  * beneath it — which is recovered by static analysis and never executed.
  *
- * (The level-2 sample: every `agent()` sets `opts.effort`, which draws as a
- * muted badge to the LEFT of each node — the mirror of the ×N badge on the
- * right. The last phase names `claude-fable-5`, so it renders in the fable
- * swatch rather than the neutral fallback.)
+ * (The level-2 sample: every `agent()` sets `opts.effort`, which each card
+ * names beside its model with a five-step meter. The last phase names
+ * `claude-fable-5`, so its card wears the fable color rather than the neutral
+ * one.)
  *
  * Grammar level: 2 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */

@@ -26,7 +26,6 @@ export const meta = {
       title: "Route to a specialist",
       detail:
         "Dispatch only to the matching agent — frontend & backend, infra, or docs — so the three branches that don't apply are never spawned.",
-      model: "sonnet",
     },
     {
       title: "Draft a fix",
@@ -38,7 +37,6 @@ export const meta = {
       title: "Reply or escalate",
       detail:
         "Post the plan back on the issue with a severity label and an owner, or escalate to a human when the classifier's confidence was low.",
-      model: "haiku",
     },
   ],
 };
@@ -57,7 +55,7 @@ const LABEL = {
 phase("Classify the report");
 const { area, confidence } = await agent(
   `Classify this issue into one of ${SPECIALISTS.join(", ")}:\n${args.issueBody}`,
-  { schema: LABEL },
+  { model: "haiku", schema: LABEL },
 );
 
 phase("Route to a specialist");
@@ -67,6 +65,7 @@ const plan =
     : await agent(`As the ${area} specialist, draft a fix plan for:\n${args.issueBody}`, {
         label: `fix:${area}`,
         phase: "Draft a fix",
+        model: "sonnet",
       });
 
 phase("Reply or escalate");

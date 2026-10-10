@@ -8,7 +8,7 @@
  * beneath it — which is recovered by static analysis and never executed.
  *
  * (The "Advance the bracket" phase deliberately omits `model` — pure control
- * flow — so it renders with no model badge.)
+ * flow, with no agent of its own — so its row shows no model line.)
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -55,7 +55,7 @@ const PRIORITIES = ["simplest", "most scalable", "least risky", "fastest to ship
 let bracket = (
   await parallel(
     PRIORITIES.map((p) => () =>
-      agent(`Design the ${p} approach to: ${args.problem}`, { label: `draft:${p}` }),
+      agent(`Design the ${p} approach to: ${args.problem}`, { label: `draft:${p}`, model: "sonnet" }),
     ),
   )
 ).filter(Boolean);
@@ -73,6 +73,7 @@ while (bracket.length > 1) {
     const match = await agent(`Pick the stronger approach and say why:\nA: ${a}\nB: ${opponent}`, {
       label: `match:${i / 2}`,
       phase: "Judge pairwise",
+      model: "claude-opus-5",
       schema: { type: "object", properties: { winner: { type: "string" } } },
     });
     next.push(match.winner);
@@ -82,5 +83,5 @@ while (bracket.length > 1) {
 }
 
 phase("Write up the winner");
-const writeup = await agent(`Document the winning approach: ${bracket[0]}`);
+const writeup = await agent(`Document the winning approach: ${bracket[0]}`, { model: "haiku" });
 log(writeup);

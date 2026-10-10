@@ -568,3 +568,22 @@ describe("analyzeBody — totality & honesty", () => {
     expect(t.steps.some((s) => s.kind === "agent")).toBe(true);
   });
 });
+
+describe("analyzeBody — options it cannot read", () => {
+  it("records which agent() options may be set but were not read statically", () => {
+    const src = [
+      'export const meta = { name: "n", description: "d" };',
+      'await agent("a", OPTS);',
+      'await agent("b", { ...COMMON, label: "b", effort: "low" });',
+      'await agent("c", { model: MODEL });',
+      'await agent("d", { model: "sonnet" });',
+    ].join("\n");
+    const steps = analyzeBody(parseWorkflowSource(src), src, []).steps as Array<{ unread?: string[] }>;
+    expect(steps.map((s) => s.unread)).toEqual([
+      ["model", "effort", "agentType"],
+      ["model", "agentType"],
+      ["model"],
+      undefined,
+    ]);
+  });
+});

@@ -44,6 +44,7 @@ export const meta = {
 
 phase("List the modules");
 const modules = await agent("List top-level modules with a one-line guess at each one's job.", {
+  model: "haiku",
   schema: { type: "object", properties: { modules: { type: "array" } } },
 });
 
@@ -53,6 +54,7 @@ const summaries = (
     modules.modules.map((m) => () =>
       agent(`Summarize the ${m} module: purpose, public API, key dependencies.`, {
         label: `read:${m}`,
+        model: "sonnet",
       }),
     ),
   )
@@ -61,5 +63,6 @@ const summaries = (
 phase("Synthesize the overview");
 const overview = await agent(
   `Write one architecture overview from these module summaries:\n${JSON.stringify(summaries)}`,
+  { model: "claude-opus-5" },
 );
 log(overview);

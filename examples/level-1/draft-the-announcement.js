@@ -52,7 +52,7 @@ phase("Draft from each angle");
 const drafts = (
   await parallel(
     ANGLES.map((angle) => () =>
-      agent(`Draft the announcement, ${angle}: ${args.brief}`, { label: `draft:${angle}` }),
+      agent(`Draft the announcement, ${angle}: ${args.brief}`, { label: `draft:${angle}`, model: "sonnet" }),
     ),
   )
 ).filter(Boolean);
@@ -63,6 +63,7 @@ const ballots = (
     RUBRIC.map((lens) => () =>
       agent(`Rank every draft by ${lens}:\n${JSON.stringify(drafts)}`, {
         label: `judge:${lens}`,
+        model: "claude-opus-5",
         schema: { type: "object", properties: { ranking: { type: "array" } } },
       }),
     ),
@@ -72,5 +73,6 @@ const ballots = (
 phase("Synthesize the winner");
 const announcement = await agent(
   `Take the panel's top draft and graft in the best lines from the runners-up:\n${JSON.stringify(ballots)}`,
+  { model: "sonnet" },
 );
 log(announcement);

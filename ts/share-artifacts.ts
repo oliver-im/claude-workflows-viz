@@ -3,6 +3,7 @@ import type { Meta } from "./model.js";
 import { DEFAULT_PNG_SCALE, svgToPng } from "./render-png.js";
 import { renderSvg } from "./render-svg.js";
 import { renderAnalyzedView } from "./render-view.js";
+import type { Theme } from "./theme.js";
 
 export interface ShareArtifactInput {
   meta: Meta;
@@ -12,6 +13,7 @@ export interface ShareArtifactInput {
   scale?: number;
   includeSource: boolean;
   view: "workflow" | "topology" | "phases";
+  theme?: Theme;
 }
 
 export interface ShareArtifactOutput {
@@ -27,7 +29,7 @@ export function buildShareArtifacts(input: ShareArtifactInput): ShareArtifactOut
   const svg =
     input.view === "phases"
       ? renderSvg(input.meta)
-      : renderAnalyzedView(input.meta, input.program, input.src, input.view);
+      : renderAnalyzedView(input.meta, input.program, input.src, input.view, input.theme);
   return {
     image:
       input.format === "svg"

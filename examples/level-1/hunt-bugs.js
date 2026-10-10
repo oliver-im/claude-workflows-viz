@@ -7,7 +7,8 @@
  * Both halves below are drawn: the `meta` block, and the orchestration body
  * beneath it — which is recovered by static analysis and never executed.
  *
- * (The final phase deliberately has a title but no `detail`.)
+ * (The final phase deliberately has a title but no `detail` — and no `model`,
+ * since no agent runs in it.)
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -32,7 +33,6 @@ export const meta = {
     },
     {
       title: "Stop when the well runs dry",
-      model: "haiku",
     },
   ],
 };
@@ -49,6 +49,7 @@ let dryRounds = 0;
 phase("Find a round of bugs");
 while (dryRounds < 2 && (!budget.total || budget.remaining() > 50_000)) {
   const found = await agent("Find bugs in the codebase.", {
+    model: "sonnet",
     schema: { type: "object", properties: { bugs: { type: "array" } } },
   });
   const fresh = found.bugs.filter((b) => !seen.has(b.id));
@@ -65,6 +66,7 @@ while (dryRounds < 2 && (!budget.total || budget.remaining() > 50_000)) {
       fresh.map((b) => () =>
         agent(`Does this bug actually reproduce? ${b.title}`, {
           label: `verify:${b.id}`,
+          model: "claude-opus-5",
           schema: { type: "object", properties: { real: { type: "boolean" } } },
         }).then((v) => (v?.real ? b : null)),
       ),

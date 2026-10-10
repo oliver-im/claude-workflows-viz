@@ -38,7 +38,6 @@ export const meta = {
       title: "Ship or bounce",
       detail:
         "Ship only if a majority of skeptics fail to refute; otherwise bounce the patch back with their strongest counter-example attached.",
-      model: "sonnet",
     },
   ],
 };
@@ -55,10 +54,12 @@ const VERDICT = {
 };
 
 phase("Reproduce the failure");
-const failing = await agent("Reproduce the bug from a clean checkout; quote the failing assertion.");
+const failing = await agent("Reproduce the bug from a clean checkout; quote the failing assertion.", {
+  model: "haiku",
+});
 
 phase("Propose a minimal patch");
-const patch = await agent(`Write the smallest patch that fixes:\n${failing}`);
+const patch = await agent(`Write the smallest patch that fixes:\n${failing}`, { model: "sonnet" });
 
 phase("Refute in parallel");
 const verdicts = (
@@ -66,6 +67,7 @@ const verdicts = (
     LENSES.map((lens) => () =>
       agent(`Through the ${lens} lens, try to refute this patch (default: refuted):\n${patch}`, {
         label: `refute:${lens}`,
+        model: "claude-opus-5",
         schema: VERDICT,
       }),
     ),

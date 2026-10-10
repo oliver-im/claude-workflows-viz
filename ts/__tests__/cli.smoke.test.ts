@@ -173,6 +173,22 @@ describe("cli smoke — views", () => {
     expect(res.stdout).toBe(renderSvg(extractMeta(summarizeExample)));
   });
 
+  it("--theme dark repaints the analyzed views; the phases view keeps its fixed palette", () => {
+    const light = runCli([summarizeExample]);
+    const dark = runCli([summarizeExample, "--theme", "dark"]);
+    expect(dark.status).toBe(0);
+    expect(dark.stdout).not.toBe(light.stdout);
+    expect(dark.stdout).toContain('fill="#0d1117"');
+    const phases = runCli([summarizeExample, "--view", "phases", "--theme", "dark"]);
+    expect(phases.stdout).toBe(renderSvg(extractMeta(summarizeExample)));
+  });
+
+  it("exits non-zero with a clear message for a bad --theme", () => {
+    const res = runCli([fixture, "--theme", "sepia"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/unknown --theme/i);
+  });
+
   it("exits non-zero with a clear message for a bad --view", () => {
     const res = runCli([fixture, "--view", "mermaid"]);
     expect(res.status).not.toBe(0);

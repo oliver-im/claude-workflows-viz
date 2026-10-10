@@ -1,5 +1,18 @@
 import { W } from "./svg-primitives.js";
 import type { Meta } from "./model.js";
+import {
+  CARD_PAD_X,
+  type CardInput,
+  type CardSpec,
+  DECK_DEPTH,
+  DECK_STEP,
+  agentCard,
+  cardAtWidth,
+  equalizeHeights,
+  rowCardWidth,
+} from "./node-card.js";
+import { textWidth } from "./text-metrics.js";
+import { modelFamily } from "./theme.js";
 import type {
   AgentStep,
   BranchStep,
@@ -11,24 +24,34 @@ import type {
   Step,
   Topology,
 } from "./topology.js";
-import type { ControlArc, GEdge, GEdgeKind, GLane, GLoop, GNode, LaneMember, Layout } from "./topo-geometry.js";
+import type { ControlArc, GEdge, GEdgeKind, GFrame, GLane, GNode, LaneMember, Layout } from "./topo-geometry.js";
 
 /**
  * The focused swimlane placement: an analyzer `Topology` tree (+ `Meta` for
  * phase models) → a positioned `Layout`. ONE graph laid out as a whole, flowed
- * top→down; phases become painted lane stripes derived from where each shape's
- * nodes land — not containers the flow has to break out of. Because the hard
- * parts of general DAG layout exist to solve generality, and workflows are
- * phase-ordered + small + a known sub-shape vocabulary, placement is driven by
- * phase order + per-shape templates (Unit 03) — no cycle-break, ranking, or
- * crossing-minimisation, and zero new deps.
+ * top→down; phases become rows derived from where each shape's nodes land — not
+ * containers the flow has to break out of. Because the hard parts of general DAG
+ * layout exist to solve generality, and workflows are phase-ordered + small + a
+ * known sub-shape vocabulary, placement is driven by phase order + per-shape
+ * templates — no cycle-break, ranking, or crossing-minimisation, and zero new deps.
+ *
+ * Nodes are measured cards (see `node-card.ts`), and every edge is orthogonal:
+ * each template knows exactly where its rails, drops, and joins run, so routing
+ * needs no general edge router either.
  *
  * Total function by contract: it never throws on a weird-but-valid tree — an
  * unhandled shape degrades to an honest "task" placeholder node, and a body
- * with no phases still gets one lane. Determinism: nodes/edges/loops are
+ * with no phases still gets one lane. Determinism: nodes/edges/frames are
  * emitted in tree order; ids are a stable counter.
  */
-export function placeTopology(topology: Topology, meta: Meta): Layout {
+export interface PlaceOptions {
+  /** Show prompt-sliced (derived) agent labels on cards. The workflow view
+   *  leaves them off — the phase row beside each node names it — while the
+   *  graph-only topology view, which has no rows, shows them. */
+  derivedLabels?: boolean;
+}
+
+export function placeTopology(topology: Topology, meta: Meta, opts: PlaceOptions = {}): Layout {
   const { lanes, titleToLane } = buildLanes(topology, meta);
   const laneOf = (phase: string | null): number =>
     phase !== null && titleToLane.has(phase) ? (titleToLane.get(phase) as number) : 0;
@@ -36,12 +59,14 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   const ctx: Ctx = {
     nodes: [],
     edges: [],
-    loops: [],
+    frames: [],
     controlArcs: [],
     claimedGuards: new Set(),
+    guardFrame: new Map(),
     notes: [],
     idSeq: 0,
     laneOf,
+    derivedLabels: opts.derivedLabels === true,
   };
 
   // Flow top-level steps top→down. Empty bands between consecutive shapes (and
@@ -49,12 +74,7 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
   // body calls phase() in order, top-level step bands are non-decreasing, so a
   // band strictly between the last-covered band and the next shape's band is
   // genuinely empty — no later shape can reach back up to fill it. Entering a
-  // new lane leaves chrome room; continuing one keeps a tight gap.
-  // Start the first node one LANE_HEADER_H down (its lane's yTop is derived as
-  // nodeTop − LANE_HEADER_H, so this lands the first lane's card top flush at the
-  // content origin — no dead space above it). No extra LANE_PAD here: that only
-  // pushed the whole graph down, leaving an empty band between the header card and
-  // the table below it.
+  // new lane leaves room above its first node; continuing one keeps a tight gap.
   let y = LANE_HEADER_H;
   let prevExits: string[] = [];
   let prevBreaks: string[] = [];
@@ -97,16 +117,25 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
     placedAny = true;
   }
 
-  deriveLaneRanges(lanes, ctx.nodes);
+  // A break with nowhere left to go — its loop ends the workflow — still exits:
+  // to a final node, so the jump is never silently dropped.
+  if (prevBreaks.length > 0) {
+    const terminal = placeTerminal(ctx, y + STACK_GAP, Math.max(0, prevBand), "The workflow ends here.");
+    for (const exit of prevExits) connect(ctx, exit, terminal.entry, "seq");
+    wireBreaks(ctx, prevBreaks, terminal.entry);
+  }
+
+  placeFrameHeaders(ctx);
+  deriveLaneRanges(lanes, ctx.nodes, ctx.frames);
   fixupUnsetLanes(lanes);
-  const height = pageHeight(lanes, ctx.nodes);
+  const height = pageHeight(lanes, ctx.nodes, ctx.frames);
   return {
     width: W,
     height,
     lanes,
     nodes: ctx.nodes,
     edges: ctx.edges,
-    loops: ctx.loops,
+    frames: ctx.frames,
     controlArcs: ctx.controlArcs,
     notes: ctx.notes,
   };
@@ -117,65 +146,69 @@ export function placeTopology(topology: Topology, meta: Meta): Layout {
 // logic surgery; tests key off these names rather than literals.
 // ---------------------------------------------------------------------------
 
-/** The vertical centerline the graph flows down (left-of-center leaves room
- *  for node labels set to the right). */
+/** The vertical centerline the graph flows down. */
 export const SPINE_X = Math.round(W * 0.4);
-/** Agent circle radius. */
-export const NODE_R = 13;
-/** Tiny fork/merge dot radius. */
-export const HUB_R = 3.5;
+/** A hub is a bare junction point: the fork a fan-out rail leaves from, or the
+ *  stand-in for an empty branch arm. It has no drawn extent. */
+export const HUB_R = 0;
 /** Decision diamond half-diagonal. */
-export const DIAMOND_HALF = 11;
-/** Coral barrier bar width. */
-export const BARRIER_W = 30;
-/** Task/opaque box height and minimum width. */
+export const DIAMOND_HALF = 10;
+/** Task/opaque box height and minimum width; a sub-workflow card is two lines. */
 export const TASK_H = 30;
+export const SUBFLOW_H = 40;
 export const TASK_MIN_W = 96;
-/** Chrome row (chip + title + model chip) reserved above a lane's first node —
- *  large enough that the title clears the node circles beneath it. */
-export const LANE_HEADER_H = 38;
-/** Padding between a lane's node bbox and its painted stripe edge. */
-export const LANE_PAD = 12;
+/** Room above a lane's first element, below the row's top edge. */
+export const LANE_HEADER_H = 20;
+/** Room below a lane's last element, above the row's bottom edge. */
+export const LANE_PAD = 16;
 /** Gap between stacked top-level shapes in the SAME lane. */
-export const STACK_GAP = 26;
-/** Gap when the flow crosses into a NEW lane (leaves room for its chrome). */
+export const STACK_GAP = 24;
+/** Gap when the flow crosses into a NEW lane. */
 export const LANE_GAP_CROSS = LANE_HEADER_H + LANE_PAD + 4;
 /** Slim height of an empty / control-only phase strip. */
 export const STRIP_H = 30;
-/** Vertical gap between a fork/barrier/sink and the row it brackets. */
-export const FAN_GAP = 16;
-/** Tighter gap from a member ROW's labels down to the join bar they merge into.
- *  The label sits between the circle and the bar; a full `FAN_GAP` here leaves a
- *  long connector stub below the (knocked-out) label that reads as a detached
- *  line. This smaller gap nestles the label just above the bar so the connector
- *  is short and the label reads as its caption. */
-export const ROW_BAR_GAP = 8;
+/** Drop from a fork's rail down to the cards it fans to, and from a join bar
+ *  down to whatever follows. */
+export const FAN_GAP = 20;
+/** Gap from a row's card bottoms down to the join bar they drop onto. */
+export const JOIN_GAP = 16;
 /** Vertical gap between sequential steps inside a chain (arm / loop body). */
-export const INNER_GAP = 20;
-/** Height of one "↻ repeat …" badge row reserved below a loop head so the
- *  badge never paints over the body content beneath it. Must match the
- *  renderer's per-badge step (`LOOP_FONT + 3`). */
-export const LOOP_BADGE_ROW = 14;
+export const INNER_GAP = 22;
 /** Vertical gap between pipeline stage rows. */
-export const STAGE_GAP = 26;
-/** Coral barrier (join bar) thickness. */
-export const BARRIER_H = 7;
-/** Label typography for fan-out members / pipeline cells set below the node. */
-export const MEMBER_FONT = 11;
-export const MEMBER_LABEL_H = 14;
-export const LABEL_GAP = 7;
-/** Min / max horizontal cell a member or pipeline column occupies. */
-export const MIN_CELL = 2 * NODE_R + 16;
-export const MAX_CELL = 150;
+export const STAGE_GAP = 28;
+/** Join bar thickness, and how far it reaches past the outer lanes. */
+export const BARRIER_H = 4;
+export const JOIN_OVERHANG = 12;
+/** Horizontal gap between cards in a row. */
+export const ROW_GAP = 16;
 /** A row of members/columns must fit this width or it collapses to ×N. */
-export const MAX_ROW_W = W - 2 * 24;
+export const MAX_ROW_W = 600;
 /** Horizontal separation between stacked branch / parallel arms (off the spine,
  *  so a connector to a lower arm never passes through an upper one). */
-export const ARM_DX = 130;
-/** A literal-count fan-out wider than this draws as ×N rather than N circles. */
+export const ARM_DX = 150;
+/** A literal-count fan-out wider than this draws as ×N rather than N cards. */
 export const ROW_CAP = 6;
-/** Full height of a single-node row/grid cell (circle + label below). */
-const CELL_H = 2 * NODE_R + LABEL_GAP + MEMBER_LABEL_H;
+/** A loop frame's header band (the verbatim condition) above its body, the
+ *  frame's inner padding, the extra left lane a continue/break arc runs in, and
+ *  the row a continue arc re-enters its body through. */
+export const FRAME_HEAD = 30;
+export const FRAME_PAD = 14;
+export const ARC_LANE = 22;
+export const ARC_ROW = 18;
+/** How far a guard's self-loop (`continue` back to itself) swings left of the diamond. */
+export const SELF_LOOP_DX = 20;
+/** Final node (◉) radius — the workflow ends here. */
+export const TERMINAL_R = 9;
+/** Where an orthogonal connector turns: this far above the node it enters. */
+export const ELBOW = 14;
+/** Mono condition text set beside a decision diamond, and its gap from it. */
+export const COND_FONT = { size: 11, mono: true } as const;
+export const COND_GAP = 8;
+/** Loop frame header typography (keyword sans-bold, condition mono). */
+export const FRAME_KEYWORD_FONT = { size: 11, weight: 700 } as const;
+export const FRAME_COND_FONT = { size: 11, mono: true } as const;
+/** Width of the loop glyph + gap drawn before a frame's keyword. */
+export const FRAME_ICON_W = 16;
 
 // ---------------------------------------------------------------------------
 // Placement context + node/edge helpers
@@ -184,14 +217,18 @@ const CELL_H = 2 * NODE_R + LABEL_GAP + MEMBER_LABEL_H;
 interface Ctx {
   nodes: GNode[];
   edges: GEdge[];
-  loops: GLoop[];
+  frames: GFrame[];
   controlArcs: ControlArc[];
   /** Guard diamonds already wired to a control arc — so a loop nested inside
    *  another doesn't let the outer loop re-claim a guard the inner already owns. */
   claimedGuards: Set<string>;
+  /** The frame of the loop each claimed `break` guard belongs to — its arc is
+   *  wired later, by the chain that places the loop's successor. */
+  guardFrame: Map<string, string>;
   notes: string[];
   idSeq: number;
   laneOf: (phase: string | null) => number;
+  derivedLabels: boolean;
 }
 
 /** Record an honest placement-time degradation once (deduped). */
@@ -230,48 +267,63 @@ function byId(ctx: Ctx, id: string): GNode {
   return n;
 }
 
-/** Half the drawn height of a node — the distance from center to top/bottom
- *  anchor an edge clips to. */
+/** Half a node's layout height — center to the top/bottom anchor an edge attaches to. */
 function halfHeight(n: GNode): number {
   switch (n.kind) {
-    case "task":
-    case "control":
-    case "barrier":
-      return (n.h ?? 2 * n.r) / 2;
+    case "hub":
+      return 0;
     case "decision":
       return DIAMOND_HALF;
     default:
-      return n.r;
+      return (n.h ?? 2 * n.r) / 2;
   }
 }
 
-/** A downward sequential connector from one node's bottom anchor to another's
- *  top anchor (a straight vertical when they share x, a short diagonal else). */
+/** A fork junction (rail source) or a stub (an empty arm's pass-through point). */
+function addHub(ctx: Ctx, x: number, y: number, band: number, fork: boolean): GNode {
+  return addNode(ctx, { kind: "hub", x, y, r: HUB_R, label: "", phase: band, ...(fork ? { fork: true } : {}) });
+}
+
+/**
+ * The orthogonal route of a downward connector between two placed nodes:
+ *   - onto a join bar: a straight drop at the source's own x;
+ *   - same x: a straight vertical;
+ *   - out of a fork: along the rail first, then down into the target;
+ *   - into a hub: down first, then across into the junction;
+ *   - otherwise: down, across just above the target (`ELBOW`), then down.
+ */
+function route(a: GNode, b: GNode): Array<{ x: number; y: number }> {
+  const ay = a.y + halfHeight(a);
+  const by = b.y - halfHeight(b);
+  if (b.kind === "barrier") return [{ x: a.x, y: ay }, { x: a.x, y: by }];
+  if (Math.abs(a.x - b.x) < 0.5) return [{ x: a.x, y: ay }, { x: a.x, y: by }];
+  if (a.kind === "hub" && a.fork === true) return [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: by }];
+  if (b.kind === "hub") return [{ x: a.x, y: ay }, { x: a.x, y: b.y }, { x: b.x, y: b.y }];
+  const ym = Math.max(ay + (by - ay) / 2, by - ELBOW);
+  return [{ x: a.x, y: ay }, { x: a.x, y: ym }, { x: b.x, y: ym }, { x: b.x, y: by }];
+}
+
+/** A downward sequential connector from one node's bottom anchor to another's top. */
 function connect(ctx: Ctx, fromId: string, toId: string, kind: GEdgeKind, label?: string): void {
-  const a = byId(ctx, fromId);
-  const b = byId(ctx, toId);
   ctx.edges.push({
     from: fromId,
     to: toId,
-    points: [
-      { x: a.x, y: a.y + halfHeight(a) },
-      { x: b.x, y: b.y - halfHeight(b) },
-    ],
+    points: route(byId(ctx, fromId), byId(ctx, toId)),
     kind,
     ...(label !== undefined ? { label } : {}),
   });
 }
 
-/** An edge with explicit points — for drops onto a barrier bar at the member's
- *  own x (not converging on the bar center). */
+/** An edge with explicit points (a branch arm leaving a diamond's side vertex). */
 function pushEdge(
   ctx: Ctx,
   fromId: string,
   toId: string,
   points: Array<{ x: number; y: number }>,
   kind: GEdgeKind,
+  label?: string,
 ): void {
-  ctx.edges.push({ from: fromId, to: toId, points, kind });
+  ctx.edges.push({ from: fromId, to: toId, points, kind, ...(label !== undefined ? { label } : {}) });
 }
 
 /** Resolve pending `break` guards onto the loop's successor `toId` — a forward
@@ -280,53 +332,131 @@ function pushEdge(
 function wireBreaks(ctx: Ctx, gateIds: string[], toId: string): void {
   for (const id of gateIds) {
     const gate = byId(ctx, id);
-    ctx.controlArcs.push({ fromId: id, toId, flow: "break", outcome: gate.guardOutcome ?? "yes" });
+    const frame = ctx.guardFrame.get(id);
+    ctx.controlArcs.push({
+      fromId: id,
+      toId,
+      flow: "break",
+      outcome: gate.guardOutcome ?? "yes",
+      ...(frame !== undefined ? { frame } : {}),
+    });
   }
 }
 
-/**
- * Place a sub-graph, then shift everything it created horizontally by `dx` — so
- * a parallel/branch arm can sit off the spine without threading an x parameter
- * through every template. Nodes and the points of edges created during the call
- * move together; loop badges key off ids, so they ride along untouched. The
- * surrounding fork/decision/barrier edges are made AFTER, against the shifted
- * positions, so they connect cleanly.
- */
-function placeTranslated(ctx: Ctx, dx: number, place: () => Placed): Placed {
-  const n0 = ctx.nodes.length;
-  const e0 = ctx.edges.length;
-  const placed = place();
-  if (dx === 0) return placed;
-  let bottom = placed.bottom;
-  for (let i = n0; i < ctx.nodes.length; i++) {
-    const n = ctx.nodes[i];
-    n.x += dx;
-    // Off the spine now → its label belongs below, not to the right (where a
-    // sibling arm or the spine would sit). Keeps placement and renderer in
-    // agreement, and grows the reported bottom so the label's footprint is
-    // spaced for.
-    if (n.kind === "agent" && n.label !== "") {
-      n.labelBelow = true;
-      bottom = Math.max(bottom, n.y + n.r + LABEL_GAP + MEMBER_LABEL_H);
-    }
-  }
-  for (let i = e0; i < ctx.edges.length; i++) {
+/** Where the context's arrays stood before a sub-graph was placed. */
+interface Marks {
+  n: number;
+  e: number;
+  f: number;
+}
+
+function marks(ctx: Ctx): Marks {
+  return { n: ctx.nodes.length, e: ctx.edges.length, f: ctx.frames.length };
+}
+
+/** Shift what was created between two marks horizontally by `dx`. */
+function shiftRange(ctx: Ctx, from: Marks, to: Marks, dx: number): void {
+  if (dx === 0) return;
+  for (let i = from.n; i < to.n; i++) ctx.nodes[i].x += dx;
+  for (let i = from.e; i < to.e; i++) {
     for (const p of ctx.edges[i].points) (p as { x: number }).x += dx;
   }
-  return { ...placed, bottom };
+  for (let i = from.f; i < to.f; i++) {
+    const f = ctx.frames[i];
+    f.x0 += dx;
+    f.x1 += dx;
+    f.headerX += dx;
+  }
 }
 
-/** Symmetric horizontal offsets for n arms spread around the spine. */
-function symmetricOffsets(n: number, step: number): number[] {
-  return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * step);
+/** Slide everything created since the given marks down by `dy`. */
+function shiftDown(ctx: Ctx, n0: number, e0: number, f0: number, dy: number): void {
+  for (let i = n0; i < ctx.nodes.length; i++) ctx.nodes[i].y += dy;
+  for (let i = e0; i < ctx.edges.length; i++) {
+    for (const p of ctx.edges[i].points) (p as { y: number }).y += dy;
+  }
+  for (let i = f0; i < ctx.frames.length; i++) {
+    ctx.frames[i].y0 += dy;
+    ctx.frames[i].y1 += dy;
+  }
 }
 
-/** The label of an arm's first step, when it's an agent — used to size the
- *  side-by-side column so a wide arm label doesn't collide with its neighbor. */
-function firstChainLabel(arm: Step[]): string | undefined {
-  const head = arm[0];
-  return head?.kind === "agent" ? (head as AgentStep).label : undefined;
+// ---------------------------------------------------------------------------
+// Cards
+// ---------------------------------------------------------------------------
+
+/** The card input for one agent call — the label shown only when authored (or
+ *  when the view shows derived labels), the model's short family name. */
+type CardAgent = Pick<AgentStep, "label" | "labelExplicit" | "model" | "effort" | "agentType" | "unread">;
+
+function cardInput(
+  ctx: Ctx,
+  a: CardAgent,
+  over: { label?: string; mult?: string; hint?: string } = {},
+): CardInput {
+  const label = over.label ?? a.label;
+  const family = a.model !== undefined ? modelFamily(a.model) : undefined;
+  return {
+    ...(a.labelExplicit || ctx.derivedLabels ? { label } : {}),
+    derived: !a.labelExplicit,
+    ...(a.model !== undefined ? { model: a.model } : {}),
+    ...(family !== undefined ? { modelShort: family } : {}),
+    ...(a.agentType !== undefined ? { agentType: a.agentType } : {}),
+    ...(a.effort !== undefined ? { effort: a.effort } : {}),
+    ...(a.unread !== undefined ? { unread: a.unread } : {}),
+    ...(over.mult !== undefined ? { mult: over.mult } : {}),
+    ...(over.hint !== undefined ? { hint: over.hint } : {}),
+  };
 }
+
+/** Place an agent card with its top edge at `top`. */
+function addCard(
+  ctx: Ctx,
+  x: number,
+  top: number,
+  card: CardSpec,
+  a: CardAgent,
+  band: number,
+  extra: Partial<GNode> = {},
+): GNode {
+  return addNode(ctx, {
+    kind: "agent",
+    x,
+    y: top + card.h / 2,
+    r: card.h / 2,
+    w: card.w,
+    h: card.h,
+    card,
+    label: a.label,
+    labelExplicit: a.labelExplicit,
+    phase: band,
+    ...(a.model !== undefined ? { model: a.model } : {}),
+    ...(a.effort !== undefined ? { effort: a.effort } : {}),
+    ...(a.agentType !== undefined ? { agentType: a.agentType } : {}),
+    ...(a.unread !== undefined ? { unread: a.unread } : {}),
+    ...(card.mult !== undefined ? { mult: card.mult } : {}),
+    ...extra,
+  });
+}
+
+/** A join bar across `xs` (at least `minW` wide) with its top edge at `top`. */
+function addJoin(ctx: Ctx, xs: number[], top: number, band: number, minW = 0): GNode {
+  const at = xs.length > 0 ? xs : [SPINE_X];
+  const lo = Math.min(...at);
+  const hi = Math.max(...at);
+  const w = Math.max(hi - lo + 2 * JOIN_OVERHANG, minW);
+  return addNode(ctx, {
+    kind: "barrier",
+    x: (lo + hi) / 2,
+    y: top + BARRIER_H / 2,
+    r: BARRIER_H / 2,
+    w,
+    h: BARRIER_H,
+    label: "",
+    phase: band,
+  });
+}
+
 
 // ---------------------------------------------------------------------------
 // Per-step placement: one compact, self-contained template per analyzer shape,
@@ -339,8 +469,9 @@ function placeStep(step: Step, ctx: Ctx, topY: number): Placed {
     case "agent":
       return placeAgent(step, ctx, topY);
     case "workflow":
+      return placeTask(step.label, ctx, topY, ctx.laneOf(step.phase), "workflow", multBadge(step.multiplicity));
     case "opaque":
-      return placeTask(step.label, ctx, topY, ctx.laneOf(step.phase));
+      return placeTask(step.label, ctx, topY, ctx.laneOf(step.phase), "opaque");
     case "control":
       return placeControl(step, ctx, topY);
     case "parallel":
@@ -355,7 +486,7 @@ function placeStep(step: Step, ctx: Ctx, topY: number): Placed {
       return placeLoop(step, ctx, topY);
     default:
       // Unknown-but-valid shape: an honest blob in its own lane (totality).
-      return placeTask(`[${(step as Step).kind}]`, ctx, topY, ctx.laneOf((step as Step).phase));
+      return placeTask(`[${(step as Step).kind}]`, ctx, topY, ctx.laneOf((step as Step).phase), "opaque");
   }
 }
 
@@ -407,147 +538,115 @@ function placeChain(steps: Step[], ctx: Ctx, topY: number): Placed | null {
 // ---------------------------------------------------------------------------
 
 /**
- * A `.map` fan-out: a fork hub, a centered row of N member circles, a coral
- * join barrier every member drops onto, and a sink hub the flow leaves from —
- * so EVERY member has an onward edge (no dangling fan, the review-pr bug).
- * Width-bounded: a row that would overflow, or an unknown/over-cap count,
- * collapses to a single ×N member (logged), never silently truncated.
+ * A `.map` fan-out: a fork whose rail drops into a centered row of N member
+ * cards, then a join bar every member drops onto — `parallel()` is a barrier, so
+ * the flow leaves from the bar, and EVERY member has an onward edge (no dangling
+ * fan). Width-bounded: a row that cannot fit even with two-line labels, or an
+ * unknown/over-cap count, collapses to a single ×N stack (logged), never
+ * silently truncated. The lone stack still waits at a join bar.
  */
 function placeFanout(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: number): Placed {
   const band = cellBand(step, ctx);
   const single = step.body.length === 1 && step.body[0].kind === "agent" ? (step.body[0] as AgentStep) : null;
-  const model = single?.model;
-  const effort = single?.effort;
-  const members = fanMembers(step, single, ctx);
+  if (single === null) return placeFanoutBody(step, ctx, topY);
+  const base = single;
+  let members = fanMembers(step, single);
 
-  // One effective member (unknown width, collapse, or non-agent body) → a lone
-  // badged circle; no fork/join scaffolding to draw around a single node.
-  if (members.labels.length === 1) {
-    const cy = topY + NODE_R;
-    const n = addNode(ctx, {
-      kind: "agent",
-      x: SPINE_X,
-      y: cy,
-      r: NODE_R,
-      label: members.labels[0],
-      phase: band,
-      ...(single ? { labelExplicit: single.labelExplicit } : {}),
-      ...(model !== undefined ? { model } : {}),
-      ...(effort !== undefined ? { effort } : {}),
-      ...(members.badge !== undefined ? { mult: members.badge } : {}),
-    });
-    return { entry: n.id, exits: [n.id], top: cy - NODE_R, bottom: cy + NODE_R, minBand: band, maxBand: band };
+  let rowW: number | undefined;
+  if (members.labels.length > 1) {
+    const inputs = members.labels.map((label) => cardInput(ctx, base, { label }));
+    rowW = rowCardWidth(inputs, inputs.length, MAX_ROW_W, ROW_GAP);
+    if (rowW === undefined) {
+      const badge = fanBadge(step.multiplicity);
+      note(ctx, `fan-out of ${members.labels.length} drawn as ${badge} (row exceeds width)`);
+      members = { labels: [base.label], badge };
+    }
   }
 
-  const cellW = rowCellWidth(members.labels);
-  const xs = rowCenters(members.labels.length, cellW, SPINE_X);
+  if (members.labels.length === 1) {
+    const card = agentCard(
+      cardInput(ctx, base, { label: members.labels[0], mult: members.badge, hint: members.hint }),
+    );
+    const n = addCard(ctx, SPINE_X, topY, card, base, band, { label: members.labels[0] });
+    if (members.badge === undefined) {
+      return { entry: n.id, exits: [n.id], top: topY, bottom: topY + card.h, minBand: band, maxBand: band };
+    }
+    const join = addJoin(ctx, [SPINE_X], topY + card.h + JOIN_GAP, band, card.w + 2 * JOIN_OVERHANG);
+    connect(ctx, n.id, join.id, "merge");
+    return { entry: n.id, exits: [join.id], top: topY, bottom: join.y + BARRIER_H / 2, minBand: band, maxBand: band };
+  }
 
-  const source = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: band });
-  const rowCy = source.y + HUB_R + FAN_GAP + NODE_R;
+  const w = rowW as number;
+  const xs = rowCenters(members.labels.length, w + ROW_GAP, SPINE_X);
+  const fork = addHub(ctx, SPINE_X, topY, band, true);
+  const rowTop = topY + FAN_GAP;
+  let rowBottom = rowTop;
+  const cards = equalizeHeights(members.labels.map((label) => cardAtWidth(cardInput(ctx, base, { label }), w)));
   const memberIds = members.labels.map((label, i) => {
-    const n = addNode(ctx, {
-      kind: "agent",
-      x: xs[i],
-      y: rowCy,
-      r: NODE_R,
-      label,
-      labelBelow: true,
-      phase: band,
-      ...(single ? { labelExplicit: single.labelExplicit } : {}),
-      ...(model !== undefined ? { model } : {}),
-      ...(effort !== undefined ? { effort } : {}),
-    });
-    connect(ctx, source.id, n.id, "fan");
+    const card = cards[i];
+    const n = addCard(ctx, xs[i], rowTop, card, base, band, { label });
+    rowBottom = Math.max(rowBottom, rowTop + card.h);
+    connect(ctx, fork.id, n.id, "fan");
     return n.id;
   });
+  const join = addJoin(ctx, xs, rowBottom + JOIN_GAP, band);
+  for (const id of memberIds) connect(ctx, id, join.id, "merge");
+  return { entry: fork.id, exits: [join.id], top: topY, bottom: join.y + BARRIER_H / 2, minBand: band, maxBand: band };
+}
 
-  const rowBottom = rowCy + NODE_R + LABEL_GAP + MEMBER_LABEL_H;
-  const barrierY = rowBottom + ROW_BAR_GAP;
-  const span = xs[xs.length - 1] - xs[0] + 2 * NODE_R;
-  const barrier = addNode(ctx, {
-    kind: "barrier",
-    x: SPINE_X,
-    y: barrierY,
-    r: BARRIER_H / 2,
-    w: span,
-    h: BARRIER_H,
-    label: "",
-    phase: band,
-  });
-  for (let i = 0; i < memberIds.length; i++) {
-    pushEdge(
-      ctx,
-      memberIds[i],
-      barrier.id,
-      [
-        { x: xs[i], y: rowCy + NODE_R },
-        { x: xs[i], y: barrierY - BARRIER_H / 2 },
-      ],
-      "merge",
-    );
-  }
-
-  const sink = addNode(ctx, {
-    kind: "hub",
-    x: SPINE_X,
-    y: barrierY + BARRIER_H / 2 + FAN_GAP + HUB_R,
-    r: HUB_R,
-    label: "",
-    phase: band,
-  });
-  connect(ctx, barrier.id, sink.id, "seq");
+/**
+ * A fan-out whose body is not one agent call — several steps, a sub-workflow, a
+ * loop — draws its body ONCE, as its own chain: the analyzer marks every step in
+ * it with the fan-out's multiplicity, so each card is a stack. Then the join, as
+ * for any `parallel()`. Never a stand-in card that names an agent the body
+ * doesn't have.
+ */
+function placeFanoutBody(step: ParallelStep & { form: "fanout" }, ctx: Ctx, topY: number): Placed {
+  const band = cellBand(step, ctx);
+  const from = marks(ctx);
+  const body = placeChain(step.body, ctx, topY) ?? placeTask("(empty fan-out body)", ctx, topY, band, "opaque");
+  if (step.body.length > 1) note(ctx, `fan-out body of ${step.body.length} steps drawn once, each card a stack`);
+  const box = contentBox(ctx, from);
+  const join = addJoin(
+    ctx,
+    body.exits.map((id) => byId(ctx, id).x),
+    body.bottom + JOIN_GAP,
+    body.maxBand,
+    Math.min(box.maxX - box.minX, MAX_ROW_W),
+  );
+  for (const exit of body.exits) connect(ctx, exit, join.id, "merge");
   return {
-    entry: source.id,
-    exits: [sink.id],
-    top: source.y - HUB_R,
-    bottom: sink.y + HUB_R,
-    minBand: band,
-    maxBand: band,
+    entry: body.entry,
+    exits: [join.id],
+    top: topY,
+    bottom: join.y + BARRIER_H / 2,
+    minBand: body.minBand,
+    maxBand: body.maxBand,
+    ...(body.pendingBreaks ? { pendingBreaks: body.pendingBreaks } : {}),
   };
 }
 
 interface FanMembers {
   labels: string[];
   badge?: string;
+  hint?: string;
 }
 
 /** Resolve a fan-out's drawn members from its literal multiplicity (honest
- *  counts only); collapse unknown/over-cap/over-wide to a single ×N rep. */
-function fanMembers(
-  step: ParallelStep & { form: "fanout" },
-  single: AgentStep | null,
-  ctx: Ctx,
-): FanMembers {
-  const baseLabel = single?.label ?? "task";
+ *  counts only); unknown/over-cap counts become a single ×N representative. */
+function fanMembers(step: ParallelStep & { form: "fanout" }, single: AgentStep): FanMembers {
+  const baseLabel = single.label;
   const m = step.multiplicity;
-  let labels: string[];
-  if (m.kind === "named") {
-    labels = single?.expandedLabels ?? m.names.map((n) => `${baseLabel}:${n}`);
-  } else if (m.kind === "exact" && m.count <= ROW_CAP) {
-    labels = Array.from({ length: Math.max(1, m.count) }, () => baseLabel);
-  } else {
-    // unknown, or a literal count past the cap → one representative ×N circle.
-    return { labels: [representativeFanLabel(baseLabel, m)], badge: fanBadge(m) };
+  if (m.kind === "named") return { labels: single.expandedLabels ?? m.names.map((n) => `${baseLabel}:${n}`) };
+  if (m.kind === "exact" && m.count <= ROW_CAP) {
+    return { labels: Array.from({ length: Math.max(1, m.count) }, () => baseLabel) };
   }
-  // Width guard: a row that would overflow collapses to ×N as well.
-  if (labels.length * rowCellWidth(labels) > MAX_ROW_W) {
-    note(ctx, `fan-out of ${labels.length} drawn as ${fanBadge(m)} (row exceeds width)`);
-    return { labels: [representativeFanLabel(baseLabel, m)], badge: fanBadge(m) };
-  }
-  return { labels };
-}
-
-function representativeFanLabel(baseLabel: string, m: Multiplicity): string {
-  if (m.kind !== "unknown" || !m.hint) return baseLabel;
-  const action = /^[A-Za-z][\w -]{1,24}:/.test(baseLabel)
-    ? baseLabel.slice(0, baseLabel.indexOf(":"))
-    : baseLabel;
-  return `${action} each ${m.hint}`;
+  return { labels: [baseLabel], badge: fanBadge(m), ...(m.kind === "unknown" && m.hint ? { hint: m.hint } : {}) };
 }
 
 /**
- * Parallel branches (k distinct thunks): a fork hub fans to each arm, every arm
- * rejoins a shared barrier → sink. Two layouts:
+ * Parallel branches (k distinct thunks): a fork whose rail drops to each arm;
+ * every arm rejoins a shared join bar. Two layouts:
  *
  *  - SIDE BY SIDE (`placeBranchesRow`) when every arm is a single step landing
  *    in ONE shared lane (the common case — incl. a multi-phase parallel whose
@@ -558,12 +657,64 @@ function representativeFanLabel(baseLabel: string, m: Multiplicity): string {
  *    by the fork/join edges — the honest fallback when columns can't co-register.
  */
 function placeBranches(step: ParallelStep & { form: "branches" }, ctx: Ctx, topY: number): Placed {
+  if (step.branches.length === 0) {
+    note(ctx, "parallel() with no branches drawn as a pass-through");
+    return placeChainStub(ctx, topY, ctx.laneOf(step.phase));
+  }
   const armBands = step.branches.map((arm) => (arm.length > 0 ? ctx.laneOf(arm[0].phase) : ctx.laneOf(step.phase)));
   const oneLane = armBands.every((b) => b === armBands[0]);
   const simpleArms = step.branches.every((arm) => arm.length <= 1);
   return oneLane && simpleArms
     ? placeBranchesRow(step, ctx, topY, armBands[0] ?? ctx.laneOf(step.phase))
     : placeBranchesStacked(step, ctx, topY, armBands);
+}
+
+/** One placed arm: its connection surface and the range of the context it drew. */
+interface PlacedArm {
+  placed: Placed;
+  from: Marks;
+  to: Marks;
+}
+
+/**
+ * Spread placed arms into columns that clear each other: each column is as wide
+ * as the widest arm ACTUALLY drew (a branch's side column, a loop frame, a row of
+ * cards — not just its head), and each arm is centered in its own.
+ */
+function packArms(ctx: Ctx, arms: PlacedArm[]): void {
+  const boxes = arms.map((a) => contentBox(ctx, a.from, a.to));
+  const colW = Math.max(ARM_DX, ...boxes.map((b) => b.maxX - b.minX + ROW_GAP));
+  const centers = rowCenters(arms.length, colW, SPINE_X);
+  arms.forEach((a, i) => shiftRange(ctx, a.from, a.to, Math.round(centers[i] - (boxes[i].minX + boxes[i].maxX) / 2)));
+}
+
+/** The fork's fan edges, the join under every arm exit, and the shared surface. */
+function joinArms(
+  ctx: Ctx,
+  fork: GNode,
+  arms: PlacedArm[],
+  top: number,
+  band: number,
+  bands: { minBand: number; maxBand: number },
+): Placed {
+  const exits = arms.flatMap((a) => a.placed.exits);
+  for (const a of arms) connect(ctx, fork.id, a.placed.entry, "fan");
+  const join = addJoin(
+    ctx,
+    [...arms.map((a) => byId(ctx, a.placed.entry).x), ...exits.map((id) => byId(ctx, id).x)],
+    top,
+    band,
+  );
+  for (const exit of exits) connect(ctx, exit, join.id, "merge");
+  const breaks = arms.flatMap((a) => a.placed.pendingBreaks ?? []);
+  return {
+    entry: fork.id,
+    exits: [join.id],
+    top: fork.y,
+    bottom: join.y + BARRIER_H / 2,
+    ...bands,
+    ...(breaks.length > 0 ? { pendingBreaks: breaks } : {}),
+  };
 }
 
 /** Arms as side-by-side columns in one shared lane (see `placeBranches`). */
@@ -573,114 +724,54 @@ function placeBranchesRow(
   topY: number,
   band: number,
 ): Placed {
-  const source = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: band });
-  const armTopY = source.y + HUB_R + FAN_GAP;
-  const armExits: string[] = [];
-  let minBand = band;
-  let maxBand = band;
-  const firstLabels = step.branches.map((arm) => firstChainLabel(arm) ?? "");
-  const cellW = Math.max(ARM_DX, rowCellWidth(firstLabels));
-  const xs = rowCenters(step.branches.length, cellW, SPINE_X);
-  let bottom = armTopY;
-  step.branches.forEach((arm, i) => {
-    const placed = placeTranslated(ctx, xs[i] - SPINE_X, () =>
-      placeChain(arm, ctx, armTopY) ?? placeChainStub(ctx, armTopY, band),
-    );
-    connect(ctx, source.id, placed.entry, "fan");
-    armExits.push(...placed.exits);
-    bottom = Math.max(bottom, placed.bottom);
-    minBand = Math.min(minBand, placed.minBand);
-    maxBand = Math.max(maxBand, placed.maxBand);
+  const fork = addHub(ctx, SPINE_X, topY, band, true);
+  const armTopY = topY + FAN_GAP;
+  const arms: PlacedArm[] = step.branches.map((arm) => {
+    const from = marks(ctx);
+    const placed = placeChain(arm, ctx, armTopY) ?? placeChainStub(ctx, armTopY, band);
+    return { placed, from, to: marks(ctx) };
   });
-
-  const span = xs[xs.length - 1] - xs[0] + 2 * NODE_R;
-  const barrier = addNode(ctx, {
-    kind: "barrier",
-    x: SPINE_X,
-    y: bottom + ROW_BAR_GAP + BARRIER_H / 2,
-    r: BARRIER_H / 2,
-    w: span,
-    h: BARRIER_H,
-    label: "",
-    phase: band,
+  packArms(ctx, arms);
+  const bottom = arms.reduce((m, a) => Math.max(m, a.placed.bottom), armTopY);
+  return joinArms(ctx, fork, arms, bottom + JOIN_GAP, band, {
+    minBand: Math.min(band, ...arms.map((a) => a.placed.minBand)),
+    maxBand: Math.max(band, ...arms.map((a) => a.placed.maxBand)),
   });
-  for (const exit of armExits) connect(ctx, exit, barrier.id, "merge");
-  const sink = addNode(ctx, {
-    kind: "hub",
-    x: SPINE_X,
-    y: barrier.y + BARRIER_H / 2 + FAN_GAP + HUB_R,
-    r: HUB_R,
-    label: "",
-    phase: band,
-  });
-  connect(ctx, barrier.id, sink.id, "seq");
-  return { entry: source.id, exits: [sink.id], top: source.y - HUB_R, bottom: sink.y + HUB_R, minBand, maxBand };
 }
 
-/** Arms stacked down their own lanes (see `placeBranches`). */
+/** Arms stacked down their own lanes, each in its own column (see `placeBranches`). */
 function placeBranchesStacked(
   step: ParallelStep & { form: "branches" },
   ctx: Ctx,
   topY: number,
   armBands: number[],
 ): Placed {
-  const headBand = armBands.length > 0 ? Math.min(...armBands) : ctx.laneOf(step.phase);
-  const tailBand = armBands.length > 0 ? Math.max(...armBands) : ctx.laneOf(step.phase);
-
-  const source = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: headBand });
-  let y = source.y + HUB_R + FAN_GAP;
-  const armExits: string[] = [];
-  let minBand = headBand;
-  let maxBand = tailBand;
-  const offsets = symmetricOffsets(step.branches.length, ARM_DX);
+  const headBand = Math.min(...armBands);
+  const fork = addHub(ctx, SPINE_X, topY, headBand, true);
+  let y = topY + FAN_GAP;
   let prevEndBand = -1;
-  step.branches.forEach((arm, i) => {
+  const arms: PlacedArm[] = step.branches.map((arm, i) => {
     if (prevEndBand !== -1 && armBands[i] !== prevEndBand) y += LANE_HEADER_H;
-    const placed = placeTranslated(ctx, offsets[i], () =>
-      placeChain(arm, ctx, y) ?? placeChainStub(ctx, y, ctx.laneOf(step.phase)),
-    );
-    connect(ctx, source.id, placed.entry, "fan");
-    armExits.push(...placed.exits);
+    const from = marks(ctx);
+    const placed = placeChain(arm, ctx, y) ?? placeChainStub(ctx, y, armBands[i]);
     y = placed.bottom + INNER_GAP;
     prevEndBand = placed.maxBand;
-    minBand = Math.min(minBand, placed.minBand);
-    maxBand = Math.max(maxBand, placed.maxBand);
+    return { placed, from, to: marks(ctx) };
   });
-
-  const barrier = addNode(ctx, {
-    kind: "barrier",
-    x: SPINE_X,
-    y: y + BARRIER_H / 2,
-    r: BARRIER_H / 2,
-    w: 2 * NODE_R + 8,
-    h: BARRIER_H,
-    label: "",
-    phase: tailBand,
-  });
-  for (const exit of armExits) connect(ctx, exit, barrier.id, "merge");
-  const sink = addNode(ctx, {
-    kind: "hub",
-    x: SPINE_X,
-    y: barrier.y + BARRIER_H / 2 + FAN_GAP + HUB_R,
-    r: HUB_R,
-    label: "",
-    phase: tailBand,
-  });
-  connect(ctx, barrier.id, sink.id, "seq");
-  return {
-    entry: source.id,
-    exits: [sink.id],
-    top: source.y - HUB_R,
-    bottom: sink.y + HUB_R,
-    minBand,
+  packArms(ctx, arms);
+  // The join sits under the last arm, in the lowest lane any arm reached.
+  const maxBand = Math.max(...arms.map((a) => a.placed.maxBand));
+  return joinArms(ctx, fork, arms, y - INNER_GAP + JOIN_GAP, maxBand, {
+    minBand: Math.min(headBand, ...arms.map((a) => a.placed.minBand)),
     maxBand,
-  };
+  });
 }
 
-/** A tiny terminal hub for an empty branch/parallel arm — the labeled stub. */
+/** A bare junction standing in for an empty branch/parallel arm: edges pass
+ *  straight through it, so the arm reads as a skip around its sibling. */
 function placeChainStub(ctx: Ctx, topY: number, band: number): Placed {
-  const n = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: band });
-  return { entry: n.id, exits: [n.id], top: n.y - HUB_R, bottom: n.y + HUB_R, minBand: band, maxBand: band };
+  const n = addHub(ctx, SPINE_X, topY, band, false);
+  return { entry: n.id, exits: [n.id], top: n.y, bottom: n.y, minBand: band, maxBand: band };
 }
 
 // ---------------------------------------------------------------------------
@@ -689,59 +780,61 @@ function placeChainStub(ctx: Ctx, topY: number, band: number): Placed {
 
 /**
  * `pipeline(items, ...stages)`: each item threads independently through every
- * stage (no barrier between stages). Drawn as a grid — one column per item,
- * one row per stage — with a fork hub fanning to each column's first cell and a
- * sink hub the last cells rejoin. Stage rows sit in their own phase lanes, so a
- * `stage` edge that crosses phases is just a short vertical here. Columns
- * collapse to a single ×N representative when unknown / over-cap / over-wide.
+ * stage (no barrier between stages). Drawn as a grid — one column per item, one
+ * row per stage — with a fork rail dropping into each column's first cell, and a
+ * join bar the last cells drop onto: `await pipeline(…)` resolves once every item
+ * is done. Stage rows sit in their own phase lanes, so a `stage` edge that
+ * crosses phases is just a short vertical here. Columns collapse to a single ×N
+ * column when unknown / over-cap / over-wide; every cell in it is a ×N stack.
  */
 function placePipeline(step: PipelineStep, ctx: Ctx, topY: number): Placed {
+  if (step.stages.length === 0) {
+    note(ctx, "pipeline() with no stages drawn as an opaque step");
+    return placeTask("pipeline(…)", ctx, topY, ctx.laneOf(step.phase), "opaque");
+  }
   const stageBands = step.stages.map((stage) => (stage.length > 0 ? cellBand(stage[0], ctx) : ctx.laneOf(step.phase)));
   const headBand = stageBands.length > 0 ? stageBands[0] : ctx.laneOf(step.phase);
   const cols = pipelineColumns(step, ctx);
+  const specs = step.stages.map((stage, s) =>
+    equalizeCells(Array.from({ length: cols.count }, (_, c) => stageCellSpec(stage, ctx, c, s, cols))),
+  );
 
-  const source = addNode(ctx, { kind: "hub", x: SPINE_X, y: topY + HUB_R, r: HUB_R, label: "", phase: headBand });
-  const xs = rowCenters(cols.count, pipelineCellWidth(step), SPINE_X);
+  const fork = addHub(ctx, SPINE_X, topY, headBand, true);
+  const xs = rowCenters(cols.count, cols.w + ROW_GAP, SPINE_X);
 
-  // Pre-compute each stage row's top y, with headroom where a row changes lane.
+  // Each stage row's top y, with headroom where a row changes lane.
   const rowTops: number[] = [];
-  let rowY = source.y + HUB_R + FAN_GAP;
+  let rowY = topY + FAN_GAP;
   for (let s = 0; s < step.stages.length; s++) {
     if (s > 0 && stageBands[s] !== stageBands[s - 1]) rowY += LANE_HEADER_H;
     rowTops.push(rowY);
-    rowY += CELL_H + STAGE_GAP;
+    rowY += specs[s].reduce((m, cell) => Math.max(m, cell.h), 0) + STAGE_GAP;
   }
 
   const colExits: string[] = [];
+  let lastBottom = topY + FAN_GAP;
   for (let c = 0; c < cols.count; c++) {
     let prevExit: string | null = null;
     let colEntry: string | null = null;
     for (let s = 0; s < step.stages.length; s++) {
-      const badge = c === 0 && cols.badge !== undefined && s === 0 ? cols.badge : undefined;
-      const cell = placeStageCell(step.stages[s], ctx, xs[c], rowTops[s], c, badge);
+      const cell = placeStageCell(ctx, xs[c], rowTops[s], specs[s][c]);
       if (colEntry === null) colEntry = cell.id;
       if (prevExit !== null) connect(ctx, prevExit, cell.id, "stage");
       prevExit = cell.id;
+      lastBottom = Math.max(lastBottom, cell.y + halfHeight(cell));
     }
-    connect(ctx, source.id, colEntry as string, "fan");
+    connect(ctx, fork.id, colEntry as string, "fan");
     colExits.push(prevExit as string);
   }
 
   const tailBand = stageBands.length > 0 ? stageBands[stageBands.length - 1] : headBand;
-  const sink = addNode(ctx, {
-    kind: "hub",
-    x: SPINE_X,
-    y: rowY - STAGE_GAP + FAN_GAP + HUB_R,
-    r: HUB_R,
-    label: "",
-    phase: tailBand,
-  });
-  for (const exit of colExits) connect(ctx, exit, sink.id, "merge");
+  const join = addJoin(ctx, xs, lastBottom + JOIN_GAP, tailBand, cols.count === 1 ? cols.w + 2 * JOIN_OVERHANG : 0);
+  for (const exit of colExits) connect(ctx, exit, join.id, "merge");
   return {
-    entry: source.id,
-    exits: [sink.id],
-    top: source.y - HUB_R,
-    bottom: sink.y + HUB_R,
+    entry: fork.id,
+    exits: [join.id],
+    top: topY,
+    bottom: join.y + BARRIER_H / 2,
     minBand: Math.min(headBand, ...stageBands),
     maxBand: Math.max(headBand, ...stageBands),
   };
@@ -749,82 +842,136 @@ function placePipeline(step: PipelineStep, ctx: Ctx, topY: number): Placed {
 
 interface PipelineCols {
   count: number;
+  /** Uniform card width of every cell. */
+  w: number;
   badge?: string;
+  hint?: string;
+}
+
+/** The card a pipeline cell draws (for an agent or nested fan-out stage). */
+interface StageCell {
+  kind: "agent" | "hub" | "task";
+  h: number;
+  card?: CardSpec;
+  agent?: CardAgent;
+  band: number;
+  label: string;
+}
+
+/** The card input of stage `s`'s cell in column `c` (before a width is chosen). */
+function stageCellInput(stage: Step[], ctx: Ctx, c: number, s: number, cols: Omit<PipelineCols, "w">): CardInput | null {
+  const head = stage[0];
+  if (head?.kind === "agent") {
+    const own = multBadge(head.multiplicity);
+    const ownHint = head.multiplicity.kind === "unknown" ? head.multiplicity.hint : undefined;
+    const mult = own ?? cols.badge;
+    const hint = own !== undefined ? ownHint : s === 0 ? cols.hint : undefined;
+    return cardInput(ctx, head, {
+      label: head.expandedLabels?.[c] ?? head.label,
+      ...(mult !== undefined ? { mult } : {}),
+      ...(hint !== undefined ? { hint } : {}),
+    });
+  }
+  const inner =
+    head?.kind === "parallel" && head.form === "fanout" && head.body.length === 1 && head.body[0].kind === "agent"
+      ? (head.body[0] as AgentStep)
+      : null;
+  if (head?.kind === "parallel" && head.form === "fanout" && inner) {
+    const m = head.multiplicity;
+    return cardInput(ctx, inner, {
+      mult: fanBadge(m),
+      ...(m.kind === "unknown" && m.hint ? { hint: m.hint } : {}),
+    });
+  }
+  return null;
 }
 
 /** Column count from the items multiplicity (literal-only); collapse unknown/
  *  over-cap/over-wide to one ×N representative column. */
 function pipelineColumns(step: PipelineStep, ctx: Ctx): PipelineCols {
   const m = step.items;
+  const collapsed = (): PipelineCols => {
+    const badge = fanBadge(m);
+    const hint = m.kind === "unknown" ? m.hint : undefined;
+    const inputs = step.stages
+      .map((stage, s) => stageCellInput(stage, ctx, 0, s, { count: 1, badge, ...(hint ? { hint } : {}) }))
+      .filter((x): x is CardInput => x !== null);
+    const w = inputs.reduce((mw, input) => Math.max(mw, agentCard(input).w), 0);
+    return { count: 1, w: Math.max(w, TASK_MIN_W), badge, ...(hint ? { hint } : {}) };
+  };
   let count: number;
   if (m.kind === "named") count = m.names.length;
   else if (m.kind === "exact" && m.count <= ROW_CAP) count = Math.max(1, m.count);
-  else return { count: 1, badge: fanBadge(m) };
+  else return collapsed();
 
-  if (count * pipelineCellWidth(step) > MAX_ROW_W) {
+  const inputs = step.stages.flatMap((stage, s) =>
+    Array.from({ length: count }, (_, c) => stageCellInput(stage, ctx, c, s, { count })).filter(
+      (x): x is CardInput => x !== null,
+    ),
+  );
+  const cardW = inputs.length > 0 ? rowCardWidth(inputs, count, MAX_ROW_W, ROW_GAP) : TASK_MIN_W;
+  // A task cell (a stage shape no card can stand for) needs its own width too.
+  const taskW = step.stages.reduce((m, stage) => {
+    const head = stage[0];
+    if (head === undefined || stageCellInput(stage, ctx, 0, 0, { count }) !== null) return m;
+    return Math.max(m, taskWidth("label" in head ? (head as { label: string }).label : `[${head.kind}]`, "opaque"));
+  }, 0);
+  const w = cardW === undefined ? undefined : Math.max(cardW, taskW);
+  if (w === undefined || count * w + (count - 1) * ROW_GAP > MAX_ROW_W) {
     note(ctx, `pipeline of ${count} items drawn as ${fanBadge(m)} (row exceeds width)`);
-    return { count: 1, badge: fanBadge(m) };
+    return collapsed();
   }
-  return { count };
+  return { count, w };
+}
+
+/** Equal drawn heights across one stage row's agent cards. */
+function equalizeCells(cells: StageCell[]): StageCell[] {
+  const cards = cells.filter((c) => c.card !== undefined).map((c) => c.card as CardSpec);
+  if (cards.length < 2) return cells;
+  const even = equalizeHeights(cards);
+  let k = 0;
+  return cells.map((c) => (c.card === undefined ? c : { ...c, card: even[k], h: even[k++].h }));
+}
+
+/** Lay out one pipeline cell at the columns' shared width. */
+function stageCellSpec(stage: Step[], ctx: Ctx, c: number, s: number, cols: PipelineCols): StageCell {
+  if (stage.length > 1) note(ctx, "pipeline stage with multiple steps drawn as its head");
+  const head = stage[0];
+  if (head === undefined) return { kind: "hub", h: 0, band: 0, label: "" };
+  const band = cellBand(head, ctx);
+  const input = stageCellInput(stage, ctx, c, s, cols);
+  if (input !== null) {
+    const card = cardAtWidth(input, cols.w);
+    const agent = head.kind === "agent" ? head : ((head as ParallelStep & { form: "fanout" }).body[0] as AgentStep);
+    return { kind: "agent", h: card.h, card, agent, band, label: input.label ?? agent.label };
+  }
+  // Any other nested shape in a stage cell → an honest task blob + a note.
+  note(ctx, `pipeline stage shape '${head.kind}' drawn as a task node`);
+  const label = "label" in head ? (head as { label: string }).label : `[${head.kind}]`;
+  return { kind: "task", h: TASK_H, band, label };
 }
 
 /** Place one pipeline cell (a stage's representative node) at (x, top). Corpus
  *  stages are single steps; a multi-step stage is summarized to its head + a
- *  note, and a nested fan-out collapses to a ×N circle in the cell. */
-function placeStageCell(
-  stage: Step[],
-  ctx: Ctx,
-  x: number,
-  top: number,
-  colIdx: number,
-  colBadge: string | undefined,
-): GNode {
-  if (stage.length > 1) note(ctx, "pipeline stage with multiple steps drawn as its head");
-  const s = stage[0];
-  if (s === undefined) {
-    return addNode(ctx, { kind: "hub", x, y: top + HUB_R, r: HUB_R, label: "", phase: 0 });
+ *  note, and a nested fan-out collapses to a ×N stack in the cell. */
+function placeStageCell(ctx: Ctx, x: number, top: number, cell: StageCell): GNode {
+  if (cell.kind === "hub") return addHub(ctx, x, top, 0, false);
+  if (cell.kind === "agent" && cell.card && cell.agent) {
+    // A cell's label is the per-column expansion, not the template.
+    return addCard(ctx, x, top, cell.card, cell.agent, cell.band, { label: cell.label });
   }
-  const band = cellBand(s, ctx);
-  if (s.kind === "agent") {
-    const label = s.expandedLabels?.[colIdx] ?? s.label;
-    const own = multBadge(s.multiplicity);
-    const badge = colBadge ?? own;
-    return addNode(ctx, {
-      kind: "agent",
-      x,
-      y: top + NODE_R,
-      r: NODE_R,
-      label,
-      labelExplicit: s.labelExplicit,
-      labelBelow: true,
-      phase: band,
-      ...(s.model !== undefined ? { model: s.model } : {}),
-      ...(s.effort !== undefined ? { effort: s.effort } : {}),
-      ...(badge !== undefined ? { mult: badge } : {}),
-    });
-  }
-  if (s.kind === "parallel" && s.form === "fanout") {
-    const inner = s.body.length === 1 && s.body[0].kind === "agent" ? (s.body[0] as AgentStep) : null;
-    const badge = colBadge ?? fanBadge(s.multiplicity);
-    return addNode(ctx, {
-      kind: "agent",
-      x,
-      y: top + NODE_R,
-      r: NODE_R,
-      label: inner?.label ?? "task",
-      labelBelow: true,
-      phase: band,
-      ...(inner ? { labelExplicit: inner.labelExplicit } : {}),
-      ...(inner?.model !== undefined ? { model: inner.model } : {}),
-      ...(inner?.effort !== undefined ? { effort: inner.effort } : {}),
-      mult: badge,
-    });
-  }
-  // Any other nested shape in a stage cell → an honest task blob + a note.
-  note(ctx, `pipeline stage shape '${s.kind}' drawn as a task node`);
-  const label = "label" in s ? (s as { label: string }).label : `[${s.kind}]`;
-  const w = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.round(label.length * 7) + 24));
-  return addNode(ctx, { kind: "task", x, y: top + TASK_H / 2, r: TASK_H / 2, w, h: TASK_H, label, phase: band });
+  const w = Math.min(MAX_ROW_W, taskWidth(cell.label, "opaque"));
+  return addNode(ctx, {
+    kind: "task",
+    task: "opaque",
+    x,
+    y: top + TASK_H / 2,
+    r: TASK_H / 2,
+    w,
+    h: TASK_H,
+    label: cell.label,
+    phase: cell.band,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -834,8 +981,7 @@ function placeStageCell(
 /**
  * A loop-control GUARD: `if (cond) continue;` / `break;` / `return;` — one arm is
  * purely abrupt-flow control, the other empty. The diamond is real, but it's
- * plumbing for the surrounding loop, not its purpose; a loop headed by one pins
- * its repeat badge to the body's first work node rather than the bare diamond.
+ * plumbing for the surrounding loop, not its purpose.
  */
 function isControlGuard(step: BranchStep): boolean {
   const abrupt = new Set(["continue", "break", "return", "throw"]);
@@ -850,8 +996,8 @@ function isControlGuard(step: BranchStep): boolean {
 /**
  * If `step` is a guard whose taken arm is exactly a `continue`/`break` (the other
  * arm empty), reports that flow, the triggering outcome, and the straight-through
- * arm. Such a guard draws its abrupt jump as a coral ARC — `continue` loops back
- * to the loop head (wired in `placeLoop`), `break` exits forward to the loop's
+ * arm. Such a guard draws its abrupt jump as a coral ARC — `continue` back to the
+ * top of the loop body (wired in `placeLoop`), `break` out to the loop's
  * successor (wired by the enclosing chain) — instead of a box, so `placeBranch`
  * short-circuits to a lone gate whose one real exit flows on.
  */
@@ -874,14 +1020,17 @@ function controlGuardArm(
 }
 
 /**
- * An `if`/ternary: a small decision diamond (the verbatim condition rides as
- * its label/tooltip), then both arms placed below it on the spine — the
- * condition-true ("yes") arm first, the "no" arm next, each flowing into its
- * own lane. An empty arm becomes a tiny labeled stub. No barrier: a branch is
- * an exclusive choice, so both arms' tails are the shape's exits.
+ * An `if`/ternary: a small decision diamond (the verbatim condition rides beside
+ * it), then every arm. The primary (first non-empty) arm continues straight down
+ * from the bottom vertex; any other arm leaves the right vertex and drops into
+ * its own column, `ARM_DX` off the spine, so its connector passes the primary
+ * arm cleanly. An empty arm is a bare junction, so it reads as a skip edge
+ * around its sibling. No join: a branch is an exclusive choice, so every arm's
+ * tail is an exit. The condition sits on the side no arm leaves from.
  */
 function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
   const band = ctx.laneOf(step.phase);
+  const cg = controlGuardArm(step);
   const decision = addNode(ctx, {
     kind: "decision",
     x: SPINE_X,
@@ -889,18 +1038,20 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
     r: DIAMOND_HALF,
     label: step.conditionLabel,
     phase: band,
+    labelSide: cg ? "right" : "left",
     ...(isControlGuard(step) ? { isGuard: true } : {}),
   });
 
   // A `continue`/`break` guard: the abrupt arm is drawn as a coral arc (wired in
   // placeLoop / by the enclosing chain), not a box. The diamond becomes a lone
   // gate whose one real exit — the straight-through arm — flows on down the spine.
-  const cg = controlGuardArm(step);
   if (cg) {
     decision.guardFlow = cg.flow;
     decision.guardOutcome = cg.outcome;
     if (cg.otherSteps.length > 0) {
-      const other = placeChain(cg.otherSteps, ctx, decision.y + DIAMOND_HALF + INNER_GAP) as Placed;
+      // Crossing into a new lane under the diamond leaves that lane its headroom.
+      const cross = ctx.laneOf(cg.otherSteps[0].phase) !== band ? LANE_HEADER_H : 0;
+      const other = placeChain(cg.otherSteps, ctx, decision.y + DIAMOND_HALF + INNER_GAP + cross) as Placed;
       connect(ctx, decision.id, other.entry, "seq", cg.otherOutcome);
       return {
         entry: decision.id,
@@ -909,6 +1060,7 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
         bottom: other.bottom,
         minBand: Math.min(band, other.minBand),
         maxBand: Math.max(band, other.maxBand),
+        ...(other.pendingBreaks ? { pendingBreaks: other.pendingBreaks } : {}),
       };
     }
     // Empty straight-through arm: the gate itself is the exit, flowing directly
@@ -924,169 +1076,250 @@ function placeBranch(step: BranchStep, ctx: Ctx, topY: number): Placed {
   }
 
   let y = decision.y + DIAMOND_HALF + INNER_GAP;
-  const exits: string[] = [];
-  let minBand = band;
-  let maxBand = band;
   const arms: Array<{ steps: Step[]; outcome: string }> = [
     { steps: step.thenSteps, outcome: "yes" },
     { steps: step.elseSteps, outcome: "no" },
   ];
-  // The primary (first non-empty) arm continues straight down the spine — the
-  // main flow stays a vertical; the other arm(s) stack below and fan off to the
-  // side so the spine connector passes them cleanly. No barrier: exclusive
-  // choice, so every arm tail is an exit.
   const primary = Math.max(0, arms.findIndex((a) => a.steps.length > 0));
   const armBands = arms.map((a) => (a.steps.length > 0 ? ctx.laneOf(a.steps[0].phase) : band));
-  let sideRank = 0;
-  let prevEndBand = -1;
-  arms.forEach((arm, i) => {
-    if (prevEndBand !== -1 && armBands[i] !== prevEndBand) y += LANE_HEADER_H;
-    const dx = i === primary ? 0 : ++sideRank * ARM_DX;
-    const placed = placeTranslated(ctx, dx, () =>
-      arm.steps.length > 0 ? (placeChain(arm.steps, ctx, y) as Placed) : placeChainStub(ctx, y, band),
-    );
-    connect(ctx, decision.id, placed.entry, "seq", arm.outcome);
-    exits.push(...placed.exits);
+  // The diamond's own lane is where the first arm crosses from.
+  let prevEndBand = band;
+  const placedArms: PlacedArm[] = arms.map((arm, i) => {
+    if (armBands[i] !== prevEndBand) y += LANE_HEADER_H;
+    const from = marks(ctx);
+    const placed = arm.steps.length > 0 ? (placeChain(arm.steps, ctx, y) as Placed) : placeChainStub(ctx, y, band);
     y = placed.bottom + INNER_GAP;
     prevEndBand = placed.maxBand;
-    minBand = Math.min(minBand, placed.minBand);
-    maxBand = Math.max(maxBand, placed.maxBand);
+    return { placed, from, to: marks(ctx) };
   });
+  // Every other arm moves into its own column right of everything drawn so far,
+  // so its connector — down past the primary arm — never crosses a card.
+  let rightEdge = contentBox(ctx, placedArms[primary].from, placedArms[primary].to).maxX;
+  placedArms.forEach((a, i) => {
+    if (i === primary) return;
+    const box = contentBox(ctx, a.from, a.to);
+    const dx = Math.max(ARM_DX, Math.round(rightEdge + ROW_GAP - box.minX));
+    shiftRange(ctx, a.from, a.to, dx);
+    rightEdge = box.maxX + dx;
+  });
+  placedArms.forEach((a, i) => {
+    const target = byId(ctx, a.placed.entry);
+    if (i === primary) {
+      connect(ctx, decision.id, target.id, "seq", arms[i].outcome);
+      return;
+    }
+    pushEdge(
+      ctx,
+      decision.id,
+      target.id,
+      [
+        { x: decision.x + DIAMOND_HALF, y: decision.y },
+        { x: target.x, y: decision.y },
+        { x: target.x, y: target.y - halfHeight(target) },
+      ],
+      "seq",
+      arms[i].outcome,
+    );
+  });
+  const breaks = placedArms.flatMap((a) => a.placed.pendingBreaks ?? []);
   return {
     entry: decision.id,
-    exits,
+    exits: placedArms.flatMap((a) => a.placed.exits),
     top: decision.y - DIAMOND_HALF,
-    bottom: y - INNER_GAP,
-    minBand,
-    maxBand,
+    bottom: Math.max(decision.y + DIAMOND_HALF, ...placedArms.map((a) => a.placed.bottom)),
+    minBand: Math.min(band, ...placedArms.map((a) => a.placed.minBand)),
+    maxBand: Math.max(band, ...placedArms.map((a) => a.placed.maxBand)),
+    ...(breaks.length > 0 ? { pendingBreaks: breaks } : {}),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Loop — the body placed once, the looping noted as a local badge (no edge).
+// Loop — the body placed once, inside a frame that names the condition.
 // ---------------------------------------------------------------------------
 
 /**
- * Any orchestrating loop: place the body once, then pin a local "↻ repeat …"
- * badge to the body's head — NEVER a routed back-edge. Nested same-lane loops
- * stack their badges on the same node (inner-first). A loop body that spans
- * phases is kept local with the badge on its first lane and logged (no
- * cross-lane back-route) — the multi-phase-loop residual.
+ * Any orchestrating loop: place the body once and draw a FRAME around it — the
+ * enclosure says "this repeats", its header gives the verbatim condition, and
+ * its scope is exactly the nodes inside. NEVER a routed back-edge for the loop
+ * itself. Nested loops nest frames; a body that spans phases simply spans rows.
+ *
+ * The loop's own `continue` guards become arcs back to the top of the body (a
+ * row opens below the header for them to re-enter through); its `break` guards
+ * ride out in `pendingBreaks` for the enclosing chain to wire to the successor.
+ * Either kind runs in an extra lane on the frame's left. A `break` that escapes
+ * a nested loop ending this body has nothing left to run in it, so it returns
+ * to the top of THIS body (the next iteration) — never past this loop too.
  */
 function placeLoop(step: LoopStep, ctx: Ctx, topY: number): Placed {
-  const n0 = ctx.nodes.length;
-  const e0 = ctx.edges.length;
-  const body = placeChain(step.body, ctx, topY);
-  if (body === null) {
-    const stub = placeTask("(empty loop body)", ctx, topY, ctx.laneOf(step.phase));
-    ctx.loops.push({ onNode: stub.entry, label: loopLabel(step), tooltip: loopTooltip(step) });
-    return stub;
-  }
-  if (body.minBand !== body.maxBand) {
-    note(ctx, `loop body spans phases; kept local with a repeat badge (no cross-lane back-edge)`);
-  }
+  const from = marks(ctx);
+  const bodyTop = topY + FRAME_HEAD;
+  const body = placeChain(step.body, ctx, bodyTop) ?? placeTask("(empty loop body)", ctx, bodyTop, ctx.laneOf(step.phase), "opaque");
+
   // Claim this loop's own control guards (skipping any an inner loop already took).
-  // `continue` resolves now — a back-arc to the body entry: a self-loop when the
-  // guard IS the entry (choose-approach), a short arc up to the head agent when it
-  // sits mid-body (hunt-bugs). `break` can't resolve here (its target, the loop's
-  // successor, isn't placed yet), so it rides out in `pendingBreaks` for the
-  // enclosing chain to wire when it connects this loop onward.
+  const backArcs: ControlArc[] = [];
   const pendingBreaks: string[] = [];
-  for (const n of ctx.nodes.slice(n0)) {
+  for (const n of ctx.nodes.slice(from.n)) {
     if (n.kind !== "decision" || n.guardFlow === undefined || ctx.claimedGuards.has(n.id)) continue;
     ctx.claimedGuards.add(n.id);
     if (n.guardFlow === "continue") {
-      ctx.controlArcs.push({ fromId: n.id, toId: body.entry, flow: "continue", outcome: n.guardOutcome ?? "yes" });
+      backArcs.push({ fromId: n.id, toId: body.entry, flow: "continue", outcome: n.guardOutcome ?? "yes" });
     } else {
       pendingBreaks.push(n.id);
     }
   }
-  const breaks = [...pendingBreaks, ...(body.pendingBreaks ?? [])];
-  const withBreaks = (p: Placed): Placed => (breaks.length > 0 ? { ...p, pendingBreaks: breaks } : p);
-  // Pick the node the badge pins to. Normally the body's head — but when that
-  // head is a loop-control guard (`if (!opponent) continue;`), the diamond is
-  // plumbing, not the loop's work, and its sides are spoken for by the condition
-  // and yes/no arms. So re-anchor to the body's first real WORK node (the first
-  // agent placed), where the badge reads as an annotation on the work — the same
-  // shape an agent-headed loop gets (compile-api-reference). Nested loops over
-  // the same guard resolve to the same work node, so their badges stack together
-  // there. A guard-only body (no work node) keeps the diamond as a last resort.
-  const head = byId(ctx, body.entry);
-  const anchor =
-    head.kind === "decision" && head.isGuard === true
-      ? (ctx.nodes.slice(n0).find((n) => n.kind === "agent") ?? head)
-      : head;
-  ctx.loops.push({ onNode: anchor.id, label: loopLabel(step), tooltip: loopTooltip(step) });
-  // Reserve a row for the badge so it never paints over neighbouring content,
-  // sliding the loop's own nodes one row to clear it. Nested loops share the
-  // anchor and reserve cumulatively — two stacked badges get two rows.
-  //
-  // A bare decision anchor (a substantive branch as the loop head) spends its
-  // lower-right on yes/no branch labels, so a below-badge would land on top of
-  // them — those pin the badge(s) ABOVE instead. Every other anchor keeps the
-  // badge below; and when the anchor is the lowest node (nothing below to slide),
-  // the reported bottom must still grow to clear the badge rows beneath it.
-  if (anchor.kind === "decision") {
-    const newBottom = reserveBadgeRowAbove(ctx, n0, e0);
-    return withBreaks({ ...body, bottom: Math.max(body.bottom, newBottom) });
+  // It climbs in THIS loop's lane: its way back runs past this body's nodes.
+  for (const id of body.pendingBreaks ?? []) {
+    const gate = byId(ctx, id);
+    backArcs.push({ fromId: id, toId: body.entry, flow: "break", outcome: gate.guardOutcome ?? "yes" });
   }
-  const newBottom = reserveBadgeRow(ctx, anchor, n0, e0);
-  const badgeCount = ctx.loops.filter((l) => l.onNode === anchor.id).length;
-  const badgeBottom = visualBottom(anchor) + badgeCount * LOOP_BADGE_ROW;
-  return withBreaks({ ...body, bottom: Math.max(body.bottom, newBottom, badgeBottom) });
+  if (backArcs.length > 0) shiftDown(ctx, from.n, from.e, from.f, ARC_ROW);
+
+  const box = contentBox(ctx, from);
+  const keyword = step.loopKind === "while" || step.loopKind === "do-while" ? "while" : "for";
+  // An arc that leaves the frame or climbs past body nodes needs its own lane on
+  // the left; a guard that heads the body loops tightly beside its own diamond.
+  const needsLane = pendingBreaks.length > 0 || backArcs.some((a) => a.fromId !== a.toId);
+  const x0 = box.minX - FRAME_PAD - (needsLane ? ARC_LANE : 0);
+  const placedNodes = ctx.nodes.slice(from.n);
+  const own = placedNodes.some((n) => n.kind !== "hub") ? placedNodes.filter((n) => n.kind !== "hub") : placedNodes;
+  const frame: GFrame = {
+    id: `f${ctx.frames.length}`,
+    x0,
+    y0: topY,
+    x1: box.maxX + FRAME_PAD,
+    y1: box.maxY + FRAME_PAD,
+    topLane: Math.min(...own.map((n) => n.phase)),
+    botLane: Math.max(...own.map((n) => n.phase)),
+    keyword,
+    condition: step.conditionLabel,
+    ...(step.conditionTooltip !== undefined && step.conditionTooltip !== step.conditionLabel
+      ? { tooltip: step.conditionTooltip }
+      : {}),
+    ...(step.iterations !== undefined ? { iterations: step.iterations } : {}),
+    headerX: x0 + FRAME_PAD, // settled by placeFrameHeaders once every edge exists
+    entry: body.entry,
+  };
+  for (const inner of ctx.frames.slice(from.f)) if (inner.outer === undefined) inner.outer = frame.id;
+  ctx.frames.push(frame);
+  for (const arc of backArcs) ctx.controlArcs.push({ ...arc, frame: frame.id, into: frame.id });
+  for (const id of pendingBreaks) ctx.guardFrame.set(id, frame.id);
+
+  const breaks = pendingBreaks;
+  return {
+    entry: body.entry,
+    exits: body.exits,
+    top: topY,
+    bottom: frame.y1,
+    minBand: body.minBand,
+    maxBand: body.maxBand,
+    ...(breaks.length > 0 ? { pendingBreaks: breaks } : {}),
+  };
 }
 
 /**
- * Slide the loop's own nodes/edges that sit below its head down by one badge
- * row, anchoring at the head's bottom so the head→body edge just lengthens
- * (still downward — the invariant holds). Returns the new lowest extent.
+ * Settle each loop header once every edge exists: at the frame's left, unless an
+ * edge enters the body from above and the text would cross it — then just right
+ * of that edge. A frame widens to hold its header (within the graph frame), and
+ * each loop around it widens in turn, inner loops first.
  */
-function reserveBadgeRow(ctx: Ctx, head: GNode, n0: number, e0: number): number {
-  const cut = head.y + halfHeight(head);
-  let bottom = head.y + halfHeight(head);
-  for (let i = n0; i < ctx.nodes.length; i++) {
-    const n = ctx.nodes[i];
-    if (n.id !== head.id && n.y > head.y) n.y += LOOP_BADGE_ROW;
-    bottom = Math.max(bottom, n.y + halfHeight(n) + (n.labelBelow === true ? LABEL_GAP + MEMBER_LABEL_H : 0));
-  }
-  for (let i = e0; i < ctx.edges.length; i++) {
-    for (const p of ctx.edges[i].points) {
-      if (p.y > cut) (p as { y: number }).y += LOOP_BADGE_ROW;
+function placeFrameHeaders(ctx: Ctx): void {
+  const byFrame = new Map(ctx.frames.map((f) => [f.id, f]));
+  for (const f of ctx.frames) {
+    const entry = byId(ctx, f.entry);
+    // An edge that enters the loop from outside turns ABOVE the frame, never
+    // inside its header band, where the turn would run through the condition.
+    for (const e of ctx.edges) {
+      const first = e.points[0];
+      const last = e.points[e.points.length - 1];
+      if (e.to !== f.entry || first.y >= f.y0 || Math.abs(first.x - last.x) < 0.5) continue;
+      const turnY = f.y0 - ELBOW / 2;
+      if (turnY <= first.y + 4) continue;
+      e.points = [first, { x: first.x, y: turnY }, { x: last.x, y: turnY }, last];
+    }
+    const incoming = ctx.edges.some((e) => e.to === f.entry && e.points[0].y < f.y0);
+    const w = frameHeaderWidth(f.keyword, f.condition, f.iterations);
+    const left = f.x0 + FRAME_PAD;
+    f.headerX = !incoming || left + w <= entry.x - 8 ? left : entry.x + 10;
+    f.x1 = Math.max(f.x1, Math.min(f.headerX + w + FRAME_PAD, W + FRAME_PAD));
+    for (let o = f.outer; o !== undefined; ) {
+      const outer = byFrame.get(o);
+      if (!outer) break;
+      outer.x1 = Math.max(outer.x1, f.x1 + FRAME_PAD);
+      o = outer.outer;
     }
   }
-  return bottom;
+}
+
+/** Header text width: loop glyph, keyword, condition, and a literal iteration count. */
+export function frameHeaderWidth(keyword: string, condition: string, iterations?: number): number {
+  return (
+    FRAME_ICON_W +
+    textWidth(keyword, FRAME_KEYWORD_FONT) +
+    6 +
+    textWidth(condition, FRAME_COND_FONT) +
+    (iterations !== undefined ? textWidth(` · ×${iterations}`, FRAME_COND_FONT) : 0)
+  );
 }
 
 /**
- * Open a badge row ABOVE the head by sliding the loop's whole placed subtree —
- * head included — down one row. The internal geometry just translates; the
- * parent's entry edge, made later against the now-lower head, simply lengthens
- * (still downward — the invariant holds). The freed row above the head holds the
- * "↻ repeat …" badge, clear of a decision head's branch labels. Nested loops
- * reserve cumulatively. Returns the new lowest extent.
+ * The drawn extent of everything placed between two marks: cards (their stack and
+ * badge), decision diamonds with the condition beside them, boxes, final nodes
+ * with their label, nested frames, and edge points.
  */
-function reserveBadgeRowAbove(ctx: Ctx, n0: number, e0: number): number {
-  let bottom = Number.NEGATIVE_INFINITY;
-  for (let i = n0; i < ctx.nodes.length; i++) {
-    const n = ctx.nodes[i];
-    n.y += LOOP_BADGE_ROW;
-    bottom = Math.max(bottom, visualBottom(n));
+function contentBox(ctx: Ctx, from: Marks, to: Marks = marks(ctx)): { minX: number; maxX: number; maxY: number } {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const n of ctx.nodes.slice(from.n, to.n)) {
+    const [lo, hi] = nodeXExtent(n);
+    minX = Math.min(minX, lo);
+    maxX = Math.max(maxX, hi);
+    maxY = Math.max(maxY, n.y + halfHeight(n));
   }
-  for (let i = e0; i < ctx.edges.length; i++) {
-    for (const p of ctx.edges[i].points) (p as { y: number }).y += LOOP_BADGE_ROW;
+  for (const e of ctx.edges.slice(from.e, to.e)) {
+    for (const p of e.points) {
+      minX = Math.min(minX, p.x);
+      maxX = Math.max(maxX, p.x);
+    }
   }
-  return bottom;
+  for (const f of ctx.frames.slice(from.f, to.f)) {
+    minX = Math.min(minX, f.x0);
+    maxX = Math.max(maxX, f.x1);
+    maxY = Math.max(maxY, f.y1);
+  }
+  return { minX, maxX, maxY };
 }
 
-/** Verbatim loop phrasing for the repeat badge. */
-function loopLabel(step: LoopStep): string {
-  const verb = step.loopKind === "while" || step.loopKind === "do-while" ? "while" : "for";
-  return `repeat ${verb} ${step.conditionLabel}`;
+/** A node's horizontal drawn extent, including text set beside it. */
+export function nodeXExtent(n: GNode): [number, number] {
+  const half = (n.w ?? 2 * n.r) / 2;
+  switch (n.kind) {
+    case "agent": {
+      const stack = n.card?.mult !== undefined ? DECK_STEP * DECK_DEPTH + 8 : 0;
+      const caption = n.card?.caption !== undefined ? half + CARD_PAD_X : half;
+      return [n.x - Math.max(half, caption), n.x + Math.max(half + stack, caption)];
+    }
+    case "decision": {
+      const condW = textWidth(n.label, COND_FONT) + COND_GAP;
+      return n.labelSide === "left"
+        ? [n.x - DIAMOND_HALF - condW, n.x + DIAMOND_HALF]
+        : [n.x - DIAMOND_HALF, n.x + DIAMOND_HALF + condW];
+    }
+    case "control":
+      if (isFinalNode(n)) return [n.x - TERMINAL_R, n.x + TERMINAL_R + 8 + textWidth(n.label, COND_FONT)];
+      return [n.x - half, n.x + half];
+    case "task":
+      return [n.x - half, n.x + half + (n.mult !== undefined ? DECK_STEP * DECK_DEPTH + 8 : 0)];
+    case "hub":
+      return [n.x, n.x];
+    default:
+      return [n.x - half, n.x + half];
+  }
 }
 
-function loopTooltip(step: LoopStep): string {
-  const verb = step.loopKind === "while" || step.loopKind === "do-while" ? "while" : "for";
-  return `repeat ${verb} ${step.conditionTooltip ?? step.conditionLabel}`;
+/** A control node drawn as the UML final node (◉): the workflow ends here. */
+export function isFinalNode(n: GNode): boolean {
+  return n.kind === "control" && (n.flow === "terminal" || n.flow === "return" || n.flow === "throw");
 }
 
 // ---------------------------------------------------------------------------
@@ -1097,28 +1330,6 @@ function loopTooltip(step: LoopStep): string {
 function rowCenters(n: number, cellW: number, centerX: number): number[] {
   const left = centerX - (n * cellW) / 2 + cellW / 2;
   return Array.from({ length: n }, (_, i) => left + i * cellW);
-}
-
-/** Uniform member-cell width: the widest label, clamped to [MIN_CELL, MAX_CELL]. */
-function rowCellWidth(labels: string[]): number {
-  const widest = labels.reduce((m, l) => Math.max(m, estTextW(l, MEMBER_FONT)), 0);
-  return Math.min(MAX_CELL, Math.max(MIN_CELL, widest + 14));
-}
-
-/** Pipeline column width: widest stage-0 cell label (per-item expanded). */
-function pipelineCellWidth(step: PipelineStep): number {
-  const stage0 = step.stages[0] ?? [];
-  const head = stage0[0];
-  const labels =
-    head?.kind === "agent" && head.expandedLabels !== undefined
-      ? head.expandedLabels
-      : [head && "label" in head ? (head as { label: string }).label : "stage"];
-  return rowCellWidth(labels);
-}
-
-/** Conservative text-width estimate (mirrors svg-primitives' 0.58em glyph). */
-function estTextW(s: string, size: number): number {
-  return s.length * size * 0.58;
 }
 
 /**
@@ -1140,7 +1351,7 @@ function cellBand(step: Step, ctx: Ctx): number {
  * `.phase` (a parallel/pipeline keeps the lexical phase of the call site, but
  * its fork/first row belongs to the first arm/stage's phase). The flow uses
  * this, not `step.phase`, to size the gap before a shape so the new lane's
- * chrome always clears the previous content.
+ * first node always clears the previous content.
  */
 function entryBand(step: Step, ctx: Ctx): number {
   switch (step.kind) {
@@ -1167,56 +1378,68 @@ function fanBadge(m: Multiplicity): string {
 
 function placeAgent(step: AgentStep, ctx: Ctx, topY: number): Placed {
   const band = ctx.laneOf(step.phase);
-  const cy = topY + NODE_R;
   const mult = multBadge(step.multiplicity);
-  const n = addNode(ctx, {
-    kind: "agent",
-    x: SPINE_X,
-    y: cy,
-    r: NODE_R,
-    label: step.label,
-    labelExplicit: step.labelExplicit,
-    phase: band,
-    ...(step.model !== undefined ? { model: step.model } : {}),
-    ...(step.effort !== undefined ? { effort: step.effort } : {}),
-    ...(mult !== undefined ? { mult } : {}),
+  const hint = step.multiplicity.kind === "unknown" ? step.multiplicity.hint : undefined;
+  const card = agentCard(cardInput(ctx, step, { ...(mult !== undefined ? { mult } : {}), ...(hint ? { hint } : {}) }));
+  const n = addCard(ctx, SPINE_X, topY, card, step, band, {
     ...(step.promptPreview !== undefined ? { tooltip: step.promptPreview } : {}),
   });
-  return { entry: n.id, exits: [n.id], top: cy - NODE_R, bottom: cy + NODE_R, minBand: band, maxBand: band };
+  return { entry: n.id, exits: [n.id], top: topY, bottom: topY + card.h, minBand: band, maxBand: band };
 }
 
-function placeTask(label: string, ctx: Ctx, topY: number, band: number): Placed {
-  const cy = topY + TASK_H / 2;
-  const w = Math.min(W - 2 * LANE_PAD, Math.max(TASK_MIN_W, Math.round(label.length * 7) + 24));
+/** Width of a task box: its mono label, padding, and (sub-workflow) the double rule. */
+export function taskWidth(label: string, task: "workflow" | "opaque"): number {
+  const text = textWidth(label, { size: 11, mono: true });
+  const sub = task === "workflow" ? Math.max(text, textWidth("sub-workflow", { size: 10 })) + 8 : text;
+  return Math.ceil(Math.min(MAX_ROW_W, Math.max(TASK_MIN_W, sub + 2 * CARD_PAD_X)));
+}
+
+/** A task box (sub-workflow card or opaque box); one run per item of a fan-out
+ *  is a stack, like an agent card's. */
+function placeTask(
+  label: string,
+  ctx: Ctx,
+  topY: number,
+  band: number,
+  task: "workflow" | "opaque",
+  mult?: string,
+): Placed {
+  const h = (task === "workflow" ? SUBFLOW_H : TASK_H) + (mult !== undefined ? DECK_STEP * DECK_DEPTH : 0);
   const n = addNode(ctx, {
     kind: "task",
+    task,
     x: SPINE_X,
-    y: cy,
-    r: TASK_H / 2,
-    w,
-    h: TASK_H,
+    y: topY + h / 2,
+    r: h / 2,
+    w: taskWidth(label, task),
+    h,
     label,
     phase: band,
+    ...(mult !== undefined ? { mult } : {}),
   });
-  return { entry: n.id, exits: [n.id], top: cy - TASK_H / 2, bottom: cy + TASK_H / 2, minBand: band, maxBand: band };
+  return { entry: n.id, exits: [n.id], top: topY, bottom: topY + h, minBand: band, maxBand: band };
 }
 
 function controlExits(flow: ControlStep["flow"], id: string): string[] {
   return flow === undefined ? [id] : [];
 }
 
+/** A control step: a final node (◉) for return/throw — the workflow ends — or a
+ *  small pill naming the jump (`continue`, `break`) where no arc can carry it. */
 function placeControl(step: ControlStep, ctx: Ctx, topY: number): Placed {
   const band = ctx.laneOf(step.phase);
-  const cy = topY + TASK_H / 2;
-  const w = Math.min(W - 2 * LANE_PAD, Math.max(TASK_MIN_W, Math.round(step.label.length * 7) + 30));
+  const final = step.flow === "return" || step.flow === "throw";
+  const label = step.flow === "continue" ? "continue" : step.flow === "break" ? "break" : step.label;
+  const h = final ? 2 * TERMINAL_R : 24;
+  const w = final ? 2 * TERMINAL_R : Math.ceil(textWidth(label, { size: 11, mono: true }) + 2 * CARD_PAD_X + 4);
   const n = addNode(ctx, {
     kind: "control",
     x: SPINE_X,
-    y: cy,
-    r: TASK_H / 2,
+    y: topY + h / 2,
+    r: h / 2,
     w,
-    h: TASK_H,
-    label: step.label,
+    h,
+    label,
     phase: band,
     ...(step.flow !== undefined ? { flow: step.flow } : {}),
     ...(step.tooltip !== undefined ? { tooltip: step.tooltip } : {}),
@@ -1224,32 +1447,36 @@ function placeControl(step: ControlStep, ctx: Ctx, topY: number): Placed {
   return {
     entry: n.id,
     exits: controlExits(step.flow, n.id),
-    top: cy - TASK_H / 2,
-    bottom: cy + TASK_H / 2,
+    top: topY,
+    bottom: topY + h,
     minBand: band,
     maxBand: band,
   };
 }
 
-function placeTerminal(ctx: Ctx, topY: number, band: number): Placed {
-  const cy = topY + TASK_H / 2;
+function placeTerminal(
+  ctx: Ctx,
+  topY: number,
+  band: number,
+  tooltip = "No agent/workflow calls were recovered in this phase.",
+): Placed {
   const n = addNode(ctx, {
     kind: "control",
     x: SPINE_X,
-    y: cy,
-    r: TASK_H / 2,
-    w: TASK_MIN_W,
-    h: TASK_H,
+    y: topY + TERMINAL_R,
+    r: TERMINAL_R,
+    w: 2 * TERMINAL_R,
+    h: 2 * TERMINAL_R,
     label: "end",
     phase: band,
     flow: "terminal",
-    tooltip: "No agent/workflow calls were recovered in this phase.",
+    tooltip,
   });
   return {
     entry: n.id,
     exits: [],
-    top: cy - TASK_H / 2,
-    bottom: cy + TASK_H / 2,
+    top: topY,
+    bottom: topY + 2 * TERMINAL_R,
     minBand: band,
     maxBand: band,
   };
@@ -1276,9 +1503,9 @@ function multBadge(m: Multiplicity): string | undefined {
 
 /**
  * Lanes in band order — meta phases first, then body-only phases by first
- * appearance — which is exactly `topology.bands`. Model (for tint + chip) comes
- * from the matching meta phase; body-only bands carry none. A body with no
- * bands at all still gets one untitled lane so placement has somewhere to land.
+ * appearance — which is exactly `topology.bands`. The declared model comes from
+ * the matching meta phase; body-only bands carry none. A body with no bands at
+ * all still gets one untitled lane so placement has somewhere to land.
  *
  * Concurrent phases collapse: when a `parallel([…])` runs each arm in a distinct
  * (but consecutive) phase, those phases would otherwise stack as separate rows
@@ -1360,7 +1587,9 @@ function collapseRanges(topology: Topology, bandOf: Map<string, number>): Array<
                 .filter((b): b is number => b !== undefined),
             ),
           ].sort((a, b) => a - b);
-          if (idx.length >= 2 && idx[idx.length - 1] - idx[0] === idx.length - 1) {
+          // Two or three phases side by side still leave each sub-cell a readable
+          // measure; more stay separate rows (placed stacked, which never overlaps).
+          if (idx.length >= 2 && idx.length <= 3 && idx[idx.length - 1] - idx[0] === idx.length - 1) {
             ranges.push([idx[0], idx[idx.length - 1]]);
           }
         }
@@ -1386,21 +1615,25 @@ function stripLane(lane: GLane, y: number): number {
   return y + STRIP_H;
 }
 
-/** Visual bottom of a node — its drawn extent, including a below-set label so a
- *  lane's stripe encloses the text under its circles. */
-function visualBottom(n: GNode): number {
-  return n.y + halfHeight(n) + (n.labelBelow === true ? LABEL_GAP + MEMBER_LABEL_H : 0);
-}
-
-/** Content lanes (those a node landed in) get a stripe = node bbox + padding,
- *  with header room reserved above for the chrome row. Strip lanes keep the
- *  range `stripLane` already gave them. */
-function deriveLaneRanges(lanes: GLane[], nodes: GNode[]): void {
+/** Content lanes (those a node landed in) span their nodes — and the frame edges
+ *  that sit in them — plus padding. Strip lanes keep the range `stripLane` gave. */
+function deriveLaneRanges(lanes: GLane[], nodes: GNode[], frames: GFrame[]): void {
   for (const lane of lanes) {
-    const own = nodes.filter((n) => n.phase === lane.phaseIndex);
+    // A stub (an empty arm or stage) is a routing point that sits wherever its
+    // siblings put it — it never stretches a row; it only marks a row that has
+    // nothing else.
+    const all = nodes.filter((n) => n.phase === lane.phaseIndex);
+    const solid = all.filter((n) => !(n.kind === "hub" && n.fork !== true));
+    const own = solid.length > 0 ? solid : all;
     if (own.length === 0) continue;
-    const top = Math.min(...own.map((n) => n.y - halfHeight(n)));
-    const bot = Math.max(...own.map(visualBottom));
+    const top = Math.min(
+      ...own.map((n) => n.y - halfHeight(n)),
+      ...frames.filter((f) => f.topLane === lane.phaseIndex).map((f) => f.y0),
+    );
+    const bot = Math.max(
+      ...own.map((n) => n.y + halfHeight(n)),
+      ...frames.filter((f) => f.botLane === lane.phaseIndex).map((f) => f.y1),
+    );
     lane.yTop = Math.max(0, top - LANE_HEADER_H);
     lane.yBot = bot + LANE_PAD;
     lane.empty = false;
@@ -1410,8 +1643,8 @@ function deriveLaneRanges(lanes: GLane[], nodes: GNode[]): void {
 /**
  * Safety net for the rare orphan lane — one with no nodes that the flow never
  * struck a strip for (a phase index a structured shape skipped over). Wedge it
- * in as a slim strip between its band-order neighbors so stripes stay ordered
- * and the lane is never left with a degenerate zero range.
+ * in as a slim strip between its band-order neighbors so rows stay ordered and
+ * the lane is never left with a degenerate zero range.
  */
 function fixupUnsetLanes(lanes: GLane[]): void {
   let runningBottom = 0;
@@ -1429,32 +1662,31 @@ function fixupUnsetLanes(lanes: GLane[]): void {
 
 /**
  * The placed graph's total height — i.e. its true content bottom. Content lanes
- * already carry a LANE_PAD below their last node (stripe sizing), so the page ends
- * exactly at `laneBot`; adding another trailing LANE_PAD here would land *outside*
- * the table card and stack with the renderer's page MARGIN, making the bottom frame
- * thicker than the other three sides. So the pad applies only to the `nodeBot`
- * term, for the rare node that dangles below every lane.
+ * already carry a LANE_PAD below their last node, so the page ends exactly at
+ * `laneBot`; the pad applies only to the rare node or frame that dangles below
+ * every lane.
  */
-function pageHeight(lanes: GLane[], nodes: GNode[]): number {
+function pageHeight(lanes: GLane[], nodes: GNode[], frames: GFrame[]): number {
   const laneBot = lanes.reduce((m, l) => Math.max(m, l.yBot), 0);
   const nodeBot = nodes.reduce((m, n) => Math.max(m, n.y + halfHeight(n)), 0);
-  return Math.max(laneBot, nodeBot + LANE_PAD);
+  const frameBot = frames.reduce((m, f) => Math.max(m, f.y1), 0);
+  return Math.max(laneBot, Math.max(nodeBot, frameBot) + LANE_PAD);
 }
 
 /**
- * Co-registration for the swimlane-table render: make each lane's painted band
- * at least as tall as its left label cell, so the label and its graph slice
- * share one row. `minHeights[i]` is the required height for lane `i` (the label
- * cell's measured height); a lane shorter than its label is inflated and
- * everything strictly below it slides down by the same delta — the rigid
- * downward shift keeps every edge flowing down (the layout invariant) and
- * leaves the graph's internal placement otherwise untouched.
+ * Co-registration for the swimlane-table render: make each lane's row at least
+ * as tall as its left label cell, so the label and its graph slice share one
+ * row. `minHeights[i]` is the required height for lane `i` (the label cell's
+ * measured height); a lane shorter than its label is inflated and everything
+ * strictly below it slides down by the same delta — the rigid downward shift
+ * keeps every edge flowing down (the layout invariant) and leaves the graph's
+ * internal placement otherwise untouched. A frame's top and bottom edges move
+ * with the lanes they sit in, so a frame spanning rows stretches with them.
  *
- * The extra space is added at the band's BOTTOM: graph nodes already sit at the
- * top of their band and the label cell is top-aligned, so the surplus becomes
- * trailing whitespace in whichever cell is shorter. Mirrors `reserveBadgeRow`'s
- * shift (nodes by lane index, edge points by a y-cut). Lanes are processed in
- * band order; each shift moves later lanes rigidly, so heights stay stable.
+ * The extra space is added at the row's BOTTOM: graph nodes already sit at the
+ * top of their row and the label cell is top-aligned, so the surplus becomes
+ * trailing whitespace in whichever cell is shorter. Lanes are processed in band
+ * order; each shift moves later lanes rigidly, so heights stay stable.
  */
 export function reserveLaneHeights(layout: Layout, minHeights: number[]): void {
   let total = 0;
@@ -1476,22 +1708,26 @@ export function reserveLaneHeights(layout: Layout, minHeights: number[]): void {
         if (p.y > cut) (p as { y: number }).y += delta;
       }
     }
+    for (const f of layout.frames) {
+      if (f.topLane > i) f.y0 += delta;
+      if (f.botLane > i) f.y1 += delta;
+    }
     total += delta;
   }
   layout.height += total;
 }
 
 /**
- * Snap adjacent lane bands together so the swimlane table reads as one
+ * Snap adjacent lane rows together so the swimlane table reads as one
  * continuous table with NO gaps between rows. The graph flow leaves a small,
  * uneven gap between consecutive phases (some of `LANE_GAP_CROSS`/`STACK_GAP`
- * that neither band's stripe covers); this moves every interior boundary to the
- * midpoint of that gap, so row `i`'s bottom meets row `i+1`'s top exactly.
+ * that neither row covers); this moves every interior boundary to the midpoint
+ * of that gap, so row `i`'s bottom meets row `i+1`'s top exactly.
  *
- * Purely cosmetic and safe: only the painted band bounds move, and only OUTWARD
- * into the gaps — a band can grow but never shrinks below its label cell — while
- * nodes, edges, and the table's outer top/bottom are untouched, so
- * `layout.height` is unchanged.
+ * Purely cosmetic and safe: only the row bounds move, and only OUTWARD into the
+ * gaps — a row can grow but never shrinks below its label cell — while nodes,
+ * edges, and the table's outer top/bottom are untouched, so `layout.height` is
+ * unchanged.
  */
 export function closeLaneGaps(layout: Layout): void {
   for (let i = 0; i < layout.lanes.length - 1; i++) {

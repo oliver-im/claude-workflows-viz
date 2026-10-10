@@ -49,8 +49,10 @@ table in §C maps one to the other.
 - **`phases`** *(optional, defaults to `[]`)* — ordered array of phase objects.
 - **`phases[].title`** *(required)* — the phase/lane label.
 - **`phases[].detail`** *(optional)* — phase blurb (drawn in the `phases` view).
-- **`phases[].model`** *(optional)* — model name driving the phase's color
-  swatch; omit it for a pure-control phase (renders with no badge).
+- **`phases[].model`** *(optional)* — the model the phase declares, shown on its
+  row as a swatch dot and the id. Marked **declared only** when no `agent()` call in
+  the phase sets it (and none names a custom `agentType`). Omit it for a phase with
+  no agent of its own (its row then shows no model line).
 
 ### Body orchestration (the four calls we recognize)
 - **`agent(prompt, opts?)`** — spawn one subagent. The atom of the graph.
@@ -71,10 +73,15 @@ table in §C maps one to the other.
 ### `agent()` options we read
 - **`label`** — the node's caption (string or template literal). Wins over the
   prompt for the label.
-- **`model`** — colors the agent circle (string literal only).
-- **`effort`** — draws the effort badge left of the circle (string literal only).
-  Grammar level 2; taken verbatim, not checked against the documented tiers.
-- **`agentType`** — recorded (string literal only).
+- **`model`** — fills the agent card with the model's color and names it on the
+  card (string literal only). Omitted ⇒ the card says *session model*: the agent
+  inherits the main loop's model. Set in a way the analyzer can't read (a
+  variable, a spread) ⇒ the card says *model unread* and claims nothing.
+- **`effort`** — named on the card's model line, with a five-step meter for the
+  documented tiers (string literal only). Grammar level 2; taken verbatim, so an
+  undocumented tier still shows, just without a meter.
+- **`agentType`** — named on the card (`codex agent`) when no `model` is set, since
+  a custom agent type may pin its own model (string literal only).
 - **`phase`** — overrides the ambient phase for this one agent (string literal
   only); also registers a new lane if unseen.
 - **`schema`, etc.** — read but carry no visual meaning.
@@ -136,42 +143,68 @@ table in §C maps one to the other.
   a caniuse-style pair carried for the JSON emit and the CLI grammar warning.
 
 ### Geometry IR — `topo-geometry.ts` (where it goes)
-- **`Layout`** — `{ width, height, lanes, nodes, edges, loops, notes }`. One flat
-  coordinate space; `render-topology`'s sole input.
-- **`GNode`** — a placed node. `kind` ∈ **agent** (circle) · **barrier** (coral
-  bar) · **decision** (coral diamond) · **task** (box) · **hub** (small
-  connector dot). Carries `x, y, r, label, model?, mult?, phase, labelBelow?`.
-- **`GEdge`** — a placed connector. `kind` ∈ **seq** (ordinary flow, incl.
-  cross-phase) · **fan** (hub↔member, member→barrier) · **stage** (pipeline
-  stage→stage) · **merge** (arm rejoining a barrier/sink).
-- **`GLoop`** — a `{ onNode, label }` "↻ repeat …" badge. A loop *summarized in
-  place*, **never** a back-edge.
-- **`GLane`** — a phase as a painted stripe: `{ phaseIndex, title, model?, yTop,
+- **`Layout`** — `{ width, height, lanes, nodes, edges, frames, controlArcs, notes }`.
+  One flat coordinate space; `render-topology`'s sole input.
+- **`GNode`** — a placed node. `kind` ∈ **agent** (card) · **barrier** (join bar)
+  · **decision** (diamond) · **task** (sub-workflow card or opaque box) ·
+  **control** (final node ◉, or a pill naming a jump) · **hub** (a bare junction —
+  a **fork** a rail leaves from, or a stub for an empty arm; not drawn, except a
+  fork that starts the workflow). Carries `x, y, r, w, h, label, model?, effort?,
+  agentType?, unread?, mult?, card?, phase`.
+- **`CardSpec`** (`node-card.ts`) — an agent card laid out once and shared by
+  placement and rendering: width, height, label lines, model line, meter, stack,
+  caption.
+- **`GEdge`** — a placed connector, always **orthogonal** (each segment vertical
+  or horizontal). `kind` ∈ **seq** (ordinary flow, incl. cross-phase) · **fan**
+  (fork → member) · **stage** (pipeline stage→stage) · **merge** (member or arm
+  dropping onto its join).
+- **`GFrame`** — a loop, drawn as a frame around its body with the verbatim
+  condition on its header. Nested loops nest frames. **Never** a back-edge.
+- **`ControlArc`** — a `continue` (back to the top of the loop body) or `break`
+  (out to the loop's successor), drawn as an accent arc from a guard diamond. A
+  `break` that escapes a nested loop ending its enclosing body returns to the top
+  of THAT body (`into`) — the next outer iteration — never past both loops; one
+  with nowhere left to go exits to a final node.
+- **`GLane`** — a phase as a row of the table: `{ phaseIndex, title, model?, yTop,
   yBot, empty }`.
-- **`labelBelow`** — placement-authoritative flag: render this node's label
-  centered below it (row/grid member) instead of to its right (spine node).
 
 ### Render & layout vocabulary
 - **shape (sub-shape)** — the general form an orchestration construct takes on the
-  graph: **fan-out**, **branches**, **barrier**, **pipeline stages**, **decision
-  diamond**, **loop**. `place-topology` owns a per-shape template vocabulary; an
+  graph: **fan-out**, **branches**, **join**, **pipeline stages**, **decision
+  diamond**, **loop frame**. `place-topology` owns a per-shape template vocabulary; an
   unrecognized construct degrades to a **task** blob. The umbrella above shapes is
   **orchestration**; a **node** is the atom *inside* a shape.
 - **spine** — the vertical centerline (`SPINE_X`) the main flow runs down.
-- **swimlane / stripe** — the faint rectangle painted behind a phase's nodes.
-- **chip** — the numbered circle (`1`, `2`, …) at a lane's top-left.
-- **model badge / tint** — the colored pill (and faint lane wash) keyed off a
-  model name; opus/sonnet/haiku/fable are matched even inside a full id like
-  `claude-opus-5`; anything else is neutral.
-- **effort badge** — the muted word (`low`, `max`, …) set to the LEFT of an agent
-  node, from `agent()`'s `opts.effort`. Deliberately the mirror of the ×N badge on
-  the right, so the two never collide and both stay clear of the node label.
-- **control-only strip** — a slim empty lane (a phase with no orchestration),
-  labeled *control only*, with no model badge.
-- **loop badge** — the rendered `GLoop` (`↻ repeat while …`). Nested loops stack.
-- **phase-as-overlay** — the core stance: a phase is *paint behind* the graph,
-  not a *container* around it. With no walls, a cross-phase edge is just a short
-  ordinary edge.
+- **swimlane / row** — one row of the table: a phase's label cell beside its slice
+  of the graph.
+- **chip** — the numbered circle (`1`, `2`, …) at a row's top-left.
+- **agent card** — the node for one `agent()` call: the authored label in mono
+  (verbatim source), then the **model line** (`sonnet · medium`). The workflow view
+  leaves prompt-sliced labels off; the topology view shows them, muted.
+- **model color** — the card fill keyed off a model name; opus/sonnet/haiku/fable
+  are matched even inside a full id like `claude-opus-5`. Another explicit model,
+  a custom agent type, or a model the analyzer couldn't read (*model unread*) is
+  neutral slate; no model at all is the white **session model** card. The phase row repeats the declared model as a swatch dot.
+- **effort meter** — five steps (`low` … `max`) beside the effort word on a card.
+- **stack** — the `×N` card: cards behind a card, a count badge on the corner, and
+  a caption `N from <expr>` naming the source of the count.
+- **join** — the neutral bar a `parallel()` or `await pipeline()` waits at; the
+  flow leaves from it. A pipeline has no join *between* its stages.
+- **loop frame** — the rendered `GFrame`.
+- **control-only strip** — a slim empty row (a phase with no orchestration),
+  labeled *control only*, with no model line.
+- **declared only** — the note on a phase row whose declared model no `agent()`
+  call in the phase sets.
+- **legend** — the strip under the table naming exactly the glyphs the diagram uses.
+- **counts strip** — the header chips (`4 phases`, `4 agent() calls`, `fan-out ×N`),
+  counted from literals: call sites, not spawned agents.
+- **two voices** — sans for prose the author wrote in `meta`, mono for anything
+  quoted from the code (labels, conditions, count sources).
+- **theme** — the token set every color comes from (`theme.ts`): `light`
+  (default) or `dark`, via `--theme`. The phases view keeps its fixed palette.
+- **phase-as-row** (once *phase-as-overlay*) — the core stance: a phase is a row
+  the graph runs through, not a *container* around it. With no walls, a
+  cross-phase edge is just a short ordinary edge.
 - **cross-card edge** — an edge routed out of one phase box and into another. The
   retired v2 banded engine had these (4 of 8 examples); the swimlane view has
   **0 by construction**, and the corpus test enforces it.
@@ -192,17 +225,18 @@ table in §C maps one to the other.
 
 | You write (A) | Tree IR `Step` | Placed as (B) |
 | --- | --- | --- |
-| `agent(p, opts)` | `AgentStep` | **agent circle** (+ model swatch, + `×N` badge if fanned, + **effort badge** if `opts.effort`) |
-| `workflow(name)` | `WorkflowStep` | **task box** |
-| *(unreadable orchestration)* | `OpaqueStep` | **task box**, label = source slice |
-| `parallel([f, g, …])` | `ParallelStep` `branches` | **hub → arms → barrier bar** |
-| `parallel(XS.map(…))` | `ParallelStep` `fanout` | **hub → agent members ×\|XS\| → barrier bar** |
-| `pipeline(items, …stages)` | `PipelineStep` | **hub → stage-cell grid** (stage→stage edges) |
-| `if (…) {…} else {…}` / ternary | `BranchStep` | **decision diamond → arms** |
-| `while`/`for`/`for-of`/… | `LoopStep` | body placed **once** + **↻ loop badge** |
-| `phase("Title")` | *(sets band)* | **swimlane stripe** + numbered chip + title |
-| `meta.name/description/whenToUse` | *(not a step)* | the **header card** |
-| `meta.phases[].title/model` | *(not a step)* | a lane's **title** + **model tint/badge** |
+| `agent(p, opts)` | `AgentStep` | **agent card** (model color + model line, **effort meter** if `opts.effort`, a **stack** if fanned) |
+| `workflow(name)` | `WorkflowStep` | **sub-workflow card** (doubled left rule) |
+| *(unreadable orchestration)* | `OpaqueStep` | **dashed box**, label = source slice |
+| `parallel([f, g, …])` | `ParallelStep` `branches` | **fork rail → arms → join** |
+| `parallel(XS.map(…))` | `ParallelStep` `fanout` | **fork rail → member cards ×\|XS\| → join** (or one stack + join) |
+| `pipeline(items, …stages)` | `PipelineStep` | **fork rail → stage-cell grid → join** (no join between stages) |
+| `if (…) {…} else {…}` / ternary | `BranchStep` | **decision diamond → arms** (`continue`/`break` guards → arcs) |
+| `while`/`for`/`for-of`/… | `LoopStep` | body placed **once**, inside a **loop frame** |
+| `return` / end of body | `ControlStep` / *(trailing phase)* | **final node** ◉ |
+| `phase("Title")` | *(sets band)* | a **row**: numbered chip + title |
+| `meta.name/description/whenToUse` | *(not a step)* | the **header card** (+ counts strip) |
+| `meta.phases[].title/model` | *(not a step)* | a row's **title** + declared **model line** |
 
 ---
 
@@ -230,21 +264,20 @@ families (mirroring §A vs the graph it produces), listed separately here:
 
 | Pin | Term | Points at | Defined in |
 | --- | --- | --- | --- |
-| H | node | one `agent()` circle | §A `agent`, §B `GNode` |
-| I | shape | the fork hub — here a **fan-out** | §A "two shapes", §B **shape** |
-| J | label | the node's caption — here `review:correctness` | §A `agent()` options → `label` |
-| K | multiplicity | the `×N` badge — count unknown until runtime | §B `Multiplicity` `unknown` |
-| L | effort | the muted tier badge left of a node — here `low` | §A `agent()` options → `effort` |
+| H | node | one `agent()` card — here the mapping agent's | §A `agent`, §B **agent card** |
+| I | shape | the fork rail and its lanes — here a **fan-out** | §A "two shapes", §B **shape** |
+| J | label | a card's label line — here `verify:${f.title}`, verbatim | §A `agent()` options → `label` |
+| K | multiplicity | a stack's `×N` badge — count unknown until runtime | §B `Multiplicity` `unknown` |
+| L | effort | the effort word and meter on a card — here `low` | §A `agent()` options → `effort` |
 
 The five pins are the graph's whole vocabulary at one altitude: **node** (the
-atom), **shape** (how nodes compose — fan-out here, else branches / barrier /
-loop / …), **label** (the node's caption), **multiplicity** (the `×N` badge here
-— count unknown until runtime), **effort** (the reasoning tier, mirrored opposite
-the `×N`). L points at the *last* node, not the first: every node's badge sits in
-its top-left corner, so a box drawn around the first node would clip it, and only
-the bottom of the graph leaves a left-side pin clear canvas. The **mapping agent
-sets no effort at all** — omitted means "inherit the session tier", and the hero
-deliberately shows that absence drawing nothing rather than a placeholder.
+atom), **shape** (how nodes compose — fan-out here, else branches / join / loop /
+…), **label** (the card's verbatim caption), **multiplicity** (the `×N` badge here
+— count unknown until runtime), **effort** (the reasoning tier). The **mapping
+agent sets neither `model` nor `effort`** — omitted means "inherit the session's",
+so its card reads *session model* with no meter, and its row declares no model;
+that is why F sits on phase 2. The diagram's own legend explains the remaining
+glyphs (the join, the stack), so they carry no pin.
 **stage** (§A) is
 deliberately *not* pinned — in `review-pr` each pipeline stage lines up 1:1 with a
 **phase**, so the phase bands already name it; a stage pin earns its place only
@@ -252,6 +285,6 @@ where stages and phases diverge.
 
 Deliberately *absent* here — `review-pr` has none, and pointing a pin at empty
 canvas would break the degrade-honestly contract: **decision diamond**
-(`BranchStep`), **↻ loop badge** (`GLoop`), **barrier bar** (a `parallel`
-thunk-array join), **task box** (`workflow`/`OpaqueStep`). Annotate those on an
-example that actually exercises them.
+(`BranchStep`), **loop frame** (`GFrame`), **control arcs**, **sub-workflow card**
+and **opaque box** (`workflow`/`OpaqueStep`). Annotate those on an example that
+actually exercises them.

@@ -9,10 +9,10 @@
  *
  * (This is the README's annotated hero, so it deliberately sits at the NEWEST
  * grammar level — the front page should advertise the current vocabulary, not a
- * subset of it. Hence the `opts.effort` tiers, drawn as a muted badge left of
- * each node, and `claude-fable-5` on the drafting phase. The first agent sets no
- * effort on purpose: omitted means "inherit the session tier", and the hero
- * should show that absence draws nothing rather than a placeholder.)
+ * subset of it. Hence the `opts.effort` tiers, named on each card with a meter,
+ * and `claude-fable-5` on the drafting phase. The first agent sets neither
+ * `model` nor `effort` on purpose: an omitted option inherits the session's, and
+ * the hero should show that — its card reads "session model", with no meter.)
  *
  * Grammar level: 2 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -27,7 +27,6 @@ export const meta = {
       title: "Map the diff",
       detail:
         "List changed files against the base branch and group them by subsystem so each reviewer gets a focused slice.",
-      model: "haiku",
     },
     {
       title: "Review by dimension",
@@ -61,8 +60,8 @@ const VERDICT = { type: "object", properties: { real: { type: "boolean" } } };
 
 // Effort is tiered the way the grammar advises: `low` for the mechanical passes,
 // the higher tier reserved for the one genuinely adversarial step. The mapping
-// agent sets none at all — `effort` is optional, and an omitted one inherits the
-// session's tier and draws no badge.
+// agent sets neither `model` nor `effort` — both are optional, and an omitted one
+// inherits the session's model or tier.
 phase("Map the diff");
 const slices = await agent("List changed files vs main, grouped by subsystem.");
 
@@ -72,6 +71,7 @@ const reviewed = await pipeline(
     agent(`Review these slices for ${dim} issues: ${JSON.stringify(slices)}`, {
       label: `review:${dim}`,
       phase: "Review by dimension",
+      model: "sonnet",
       effort: "medium",
       schema: FINDINGS,
     }),
@@ -81,6 +81,7 @@ const reviewed = await pipeline(
         agent(`Adversarially verify (default to refuted): ${f.title}`, {
           label: `verify:${f.title}`,
           phase: "Adversarially verify",
+          model: "claude-opus-5",
           effort: "high",
           schema: VERDICT,
         }).then((verdict) => ({ ...f, verdict })),
@@ -94,6 +95,7 @@ phase("Synthesize the report");
 const confirmed = reviewed.flat().filter((f) => f?.verdict?.real);
 log(`${confirmed.length} findings survived verification`);
 const report = await agent(`Write a ranked review of: ${JSON.stringify(confirmed)}`, {
+  model: "claude-fable-5",
   effort: "low",
 });
 log(report);

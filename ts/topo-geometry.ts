@@ -1,15 +1,23 @@
+import type { CardSpec } from "./node-card.js";
+
 /**
  * Positioned geometry — the output of `place-topology` and the sole input of
  * `render-topology`. ONE global vertical graph in a flat coordinate space:
- * x ∈ [0, width], y growing downward from 0 at the top of the first lane (the
- * renderer offsets the whole graph below the header card it draws separately).
+ * x ∈ [0, width] (rows may overhang it; the renderer packs to real content),
+ * y growing downward from 0 at the top of the first lane (the renderer offsets
+ * the whole graph below the header card it draws separately).
  *
  * Phases are an OVERLAY here, not a container. Every node carries the index of
  * the lane it landed in; each `GLane` is just a painted y-range derived from
  * where its nodes fell. So a cross-phase edge is an ordinary short edge in this
  * one coordinate space — never a routed crossing of a card wall, because there
- * are no walls. Loops are local `GLoop` badges, never back-edges; the layout
- * invariant is that every `GEdge` flows downward (`from.y ≤ to.y`).
+ * are no walls. A loop is a `GFrame` drawn around its body, never a back-edge;
+ * the layout invariant is that every `GEdge` flows downward (`from.y ≤ to.y`).
+ *
+ * Every edge is ORTHOGONAL: its polyline alternates vertical and horizontal
+ * segments, and the renderer rounds the corners. A fan-out is a rail with drops,
+ * a join is a bar every lane drops onto, and a skip around a branch arm turns at
+ * right angles — so no edge ever cuts diagonally through a card or its text.
  *
  * All strings are RAW source text (truncated, never paraphrased) — escaping
  * happens at render time. Determinism: every array is in emission order.
@@ -25,28 +33,41 @@ export interface GNode {
   x: number;
   /** Center y. */
   y: number;
-  /** Circle radius (agent, hub) — also the half-extent edges clip to. */
+  /** Half the node's layout height — the distance from center to the top/bottom
+   *  anchor an edge attaches to (0 for a hub, which is a bare junction point). */
   r: number;
-  /** Box/bar width where it differs from 2·r (task box, barrier bar). */
+  /** Width / layout height where it differs from 2·r (cards, boxes, the join bar). */
   w?: number;
-  /** Box/bar height where it differs from 2·r (task box, barrier bar). */
   h?: number;
   /** RAW label (escaped at render). */
   label: string;
   /** Agent nodes only: did the author write the label? When `false`, the label
    *  was sliced from the prompt and is redundant with the phase row, so the
-   *  renderer paints a bare node. Absent (hubs/barriers/etc., or unset) ⇒ shown. */
+   *  workflow view's card leaves it off. Absent (hubs/barriers/etc.) ⇒ n/a. */
   labelExplicit?: boolean;
-  /** Agent model key for the color swatch (RAW); absent ⇒ neutral. */
+  /** Agent model (RAW), from an explicit `opts.model`; absent ⇒ the agent
+   *  inherits the session model — unless `unread` says it may be set in a way
+   *  the analyzer couldn't read. */
   model?: string;
-  /** Agent reasoning-effort badge (RAW, e.g. "low" / "max"); absent ⇒ inherits
-   *  the session effort, and nothing is drawn. */
+  /** Agent reasoning effort (RAW, e.g. "low" / "max"); absent ⇒ inherited. */
   effort?: string;
+  /** Agent `opts.agentType` (RAW) — a custom agent type may pin its own model. */
+  agentType?: string;
+  /** Agent options that may be set but could not be read statically. */
+  unread?: Array<"model" | "effort" | "agentType">;
   /** Pre-rendered multiplicity badge, e.g. "×4" / "×N" (RAW); absent ⇒ one. */
   mult?: string;
-  /** Row/grid member: render the label centered BELOW (a spine node defaults to
-   *  a right-side label, where the vertical flow leaves room). */
-  labelBelow?: boolean;
+  /** Agent nodes: the laid-out card (label lines, model line, meter, stack). */
+  card?: CardSpec;
+  /** Task nodes: a `workflow()` sub-workflow call, or orchestration the analyzer
+   *  could not read structurally (an honest opaque box). */
+  task?: "workflow" | "opaque";
+  /** Hub nodes: a FORK (the junction a fan-out rail leaves from) rather than a
+   *  pass-through stub standing in for an empty branch arm. */
+  fork?: boolean;
+  /** Decision nodes: which side of the diamond its condition is set on — the
+   *  side a branch arm's edge does not leave from. */
+  labelSide?: "left" | "right";
   /** Index into `Layout.lanes` — the lane this node landed in. */
   phase: number;
   /** Full text behind a truncation, surfaced as a `<title>` (RAW). */
@@ -55,23 +76,20 @@ export interface GNode {
   flow?: "continue" | "break" | "return" | "throw" | "terminal";
   /** Decision nodes only: this branch is a loop-control GUARD (`if (…) continue;`
    *  / `break;` with no real work in the taken arm) — plumbing, not the loop's
-   *  purpose. A loop headed by such a guard pins its repeat badge to the body's
-   *  first work node instead of this diamond, so the badge reads as an
-   *  annotation on the work (like an agent-headed loop), not a floating label. */
+   *  purpose. */
   isGuard?: boolean;
   /** Decision/guard nodes only (placement-internal): this guard's taken arm is an
-   *  abrupt `continue` (later `break`) — drawn as a loop-back ARC on the diamond
-   *  instead of a separate control box. `placeLoop` reads this to wire the arc to
-   *  the loop's body entry (see `ControlArc`); `guardOutcome` is the condition
-   *  outcome ("yes"/"no") that triggers it, drawn beside the arc. */
+   *  abrupt `continue` / `break` — drawn as a control ARC from the diamond instead
+   *  of a separate box (see `ControlArc`); `guardOutcome` is the condition outcome
+   *  ("yes"/"no") that triggers it. */
   guardFlow?: "continue" | "break";
   guardOutcome?: string;
 }
 
 /**
- * Edge roles: `seq` ordinary sequential flow (incl. cross-phase); `fan`
- * hub↔member / member→barrier inside a parallel; `stage` pipeline stage→stage;
- * `merge` a branch/parallel arm rejoining a barrier or sink.
+ * Edge roles: `seq` ordinary sequential flow (incl. cross-phase); `fan` fork →
+ * member inside a parallel or pipeline; `stage` pipeline stage→stage; `merge` a
+ * member or arm dropping onto the join bar it waits at.
  */
 export type GEdgeKind = "seq" | "fan" | "stage" | "merge";
 
@@ -80,7 +98,8 @@ export interface GEdge {
   from: string;
   /** Target node id. */
   to: string;
-  /** Polyline from the source's exit anchor to the target's entry anchor (≥ 2 points). */
+  /** Orthogonal polyline from the source's exit anchor to the target's entry
+   *  anchor (≥ 2 points; consecutive points share an x or a y). */
   points: ReadonlyArray<{ x: number; y: number }>;
   /** RAW edge label (e.g. a branch arm's condition outcome). */
   label?: string;
@@ -88,39 +107,62 @@ export interface GEdge {
 }
 
 /**
- * A local "↻ repeat …" badge pinned to a node — the faithful summary of a loop
- * (body placed once, looping noted in place). NEVER a back-edge.
+ * A loop, drawn as a frame around the body it repeats: the faithful summary of a
+ * loop (body placed once, the repetition shown as the enclosure itself, with the
+ * verbatim condition on its header) — NEVER a back-edge. Nested loops nest frames.
  */
-export interface GLoop {
-  /** Node id the badge attaches to. */
-  onNode: string;
-  /** RAW phrasing, e.g. "repeat while bracket.length > 1". */
-  label: string;
-  /** Full RAW phrasing for browser tooltips when the label is truncated. */
+export interface GFrame {
+  id: string;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** Lanes holding the frame's top and bottom — so lane co-registration moves
+   *  each edge of the frame with the lane it sits in. */
+  topLane: number;
+  botLane: number;
+  /** The loop keyword drawn before the condition. */
+  keyword: "while" | "for";
+  /** RAW verbatim condition (or loop header) slice. */
+  condition: string;
+  /** Full condition when `condition` was truncated (RAW). */
   tooltip?: string;
+  /** Literal iteration count, when the loop walks a literal collection. */
+  iterations?: number;
+  /** Where the header text starts: at the frame's left, unless an edge enters
+   *  the body from above and the text would cross it — then just right of it. */
+  headerX: number;
+  /** The loop body's entry node. */
+  entry: string;
+  /** The frame of the loop directly around this one, if nested. */
+  outer?: string;
 }
 
 /**
  * A control-flow ARC drawn between two placed nodes — the faithful picture of an
- * abrupt jump the downward flow can't carry: `continue` loops BACK from a guard
- * diamond to the loop's body entry (a self-loop when the guard IS the entry).
+ * abrupt jump the downward flow can't carry: `continue` returns from a guard
+ * diamond to the top of its loop's body (the guard itself, when it heads the
+ * body); `break` leaves the loop for its successor.
  *
  * NOT a `GEdge`: it is exempt from the downward invariant by design, and routed
- * as a curved decoration computed from LIVE node positions at render time — so
- * every placement shift (badge rows, lane co-registration) carries it along for
- * free, the same way a `GLoop` badge rides its node. The standard control-flow-
- * graph back-edge, the compact form of the rejected "continue loop" box.
+ * at render time from LIVE node positions — so every placement shift (lane
+ * co-registration) carries it along for free. It runs in the lane `ARC_LANE`
+ * reserves inside its loop's frame, left of the body.
  */
 export interface ControlArc {
   /** Source node id — the guard diamond the jump leaves from. */
   fromId: string;
-  /** Target node id — the loop body entry it returns to (== `fromId` when the
-   *  guard is itself the loop head). */
+  /** Target node id — the loop body entry (continue) or successor (break). */
   toId: string;
   /** The abrupt flow this arc pictures. */
   flow: "continue" | "break";
   /** Condition outcome that triggers it ("yes"/"no"), drawn beside the source. */
   outcome: string;
+  /** The frame whose left lane the arc runs in (the guard's own loop). */
+  frame?: string;
+  /** For an arc back to the top of a loop body: that loop's frame — the arc
+   *  re-enters from above any loop nested at the top of the body. */
+  into?: string;
 }
 
 /**
@@ -133,11 +175,11 @@ export interface LaneMember {
   ordinal: number;
   /** RAW band title. */
   title: string;
-  /** Phase model for the swatch dot (RAW); absent for control-only arms. */
+  /** Phase model declared in `meta` (RAW); absent for control-only arms. */
   model?: string;
 }
 
-/** A phase as a painted swimlane stripe behind wherever its nodes landed. */
+/** A phase as a row of the swimlane table, spanning wherever its nodes landed. */
 export interface GLane {
   /** Position in `Layout.lanes` — the index every node's `phase` points at. */
   phaseIndex: number;
@@ -147,36 +189,38 @@ export interface GLane {
   ordinal: number;
   /** RAW band title. */
   title: string;
-  /** Phase model for the tint + chip (RAW); absent for control-only bands. */
+  /** Phase model declared in `meta` (RAW); absent for control-only bands. */
   model?: string;
   /** When ≥2 concurrent phases collapsed into THIS one row, their per-arm
    *  sub-cells to draw side by side (each its own chip/title/model). Absent for
    *  an ordinary single-phase lane. */
   members?: LaneMember[];
-  /** Top of the painted stripe. */
+  /** Top of the row. */
   yTop: number;
-  /** Bottom of the painted stripe. */
+  /** Bottom of the row. */
   yBot: number;
   /** No agent/task node landed here → render a slim control strip. */
   empty: boolean;
 }
 
 export interface Layout {
-  /** Fixed content width (== `svg-primitives` W). */
+  /** The graph's coordinate frame width (== `svg-primitives` W). */
   width: number;
   /** Graph content height; the renderer adds the header card and margins. */
   height: number;
   lanes: GLane[];
   nodes: GNode[];
   edges: GEdge[];
-  loops: GLoop[];
-  /** Control-flow arcs (continue/break) drawn as curved decorations, NOT edges —
+  /** Loop frames, in placement order: a nested loop's frame comes before the
+   *  frame of the loop around it (the renderer paints larger frames first). */
+  frames: GFrame[];
+  /** Control-flow arcs (continue/break) drawn as decorations, NOT edges —
    *  so they never appear in `edges` and never violate the downward invariant. */
   controlArcs: ControlArc[];
   /**
    * Honest placement-time degradations the renderer needn't draw but the CLI
-   * surfaces (e.g. a wide fan-out collapsed to ×N, a multi-phase loop body
-   * kept local). Nothing is ever silently dropped.
+   * surfaces (e.g. a wide fan-out collapsed to ×N). Nothing is ever silently
+   * dropped.
    */
   notes: string[];
 }

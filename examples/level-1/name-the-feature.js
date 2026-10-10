@@ -50,6 +50,7 @@ const batches = (
     FRAMINGS.map((framing) => () =>
       agent(`Pitch 8 ${framing} names for: ${args.brief}`, {
         label: `gen:${framing}`,
+        model: "sonnet",
         schema: { type: "object", properties: { names: { type: "array" } } },
       }),
     ),
@@ -62,9 +63,11 @@ log(`${candidates.length} candidates before filtering`);
 phase("Filter by rubric and dedupe");
 const kept = await agent(
   `Score, dedupe, and filter these names by clarity & memorability:\n${JSON.stringify(candidates)}`,
-  { schema: { type: "object", properties: { kept: { type: "array" } } } },
+  { model: "claude-opus-5", schema: { type: "object", properties: { kept: { type: "array" } } } },
 );
 
 phase("Shortlist the best");
-const shortlist = await agent(`Pick the top 5 with a rationale from:\n${JSON.stringify(kept.kept)}`);
+const shortlist = await agent(`Pick the top 5 with a rationale from:\n${JSON.stringify(kept.kept)}`, {
+  model: "haiku",
+});
 log(shortlist);
