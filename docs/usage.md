@@ -119,7 +119,7 @@ The workflow runs only when dispatched, from the Actions tab (*release* → *Run
 workflow*) or with:
 
 ```sh
-gh workflow run release.yml -f version=patch   # or minor / major / an explicit 0.2.2
+gh workflow run release.yml -f version=patch   # or minor / major / an explicit X.Y.Z
 ```
 
 The runner does the whole release from the head of `main`: it bumps `package.json`
@@ -128,7 +128,7 @@ and `package-lock.json`, runs `npm test` on that exact tree (which rebuilds
 annotated tag, pushes both to `main`, publishes, and opens a GitHub Release with
 generated notes. So merge everything the release should carry first, and don't
 bump or tag locally. If a run fails after its push (at the publish, say), dispatch
-it again with the exact version it was cutting (`-f version=0.2.2`; `patch` would
+it again with the exact version it was cutting (`-f version=X.Y.Z`; `patch` would
 count past it) before anything else lands on `main`: the runner finds the tag and
 finishes that release instead of cutting a new one.
 
