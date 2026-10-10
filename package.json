@@ -48,12 +48,12 @@
   "dependencies": {
     "@napi-rs/image": "^1.15.0",
     "@resvg/resvg-js": "^2.6.2",
-    "acorn": "^8.18.0",
+    "acorn": "^8.19.0",
     "commander": "^14.0.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^25.9.8",
+    "@types/node": "^25.9.9",
     "esbuild": "^0.28.2",
     "marked": "^18.0.14",
     "typescript": "^7.0.2",

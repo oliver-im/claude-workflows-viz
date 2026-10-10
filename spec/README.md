@@ -8,7 +8,7 @@ text by topic, and for each rule it quotes rather than paraphrases. `npm test`
 checks every passage in curly quotes below against the newest capture, so a rule
 that changes upstream fails the suite instead of going stale here.
 
-The quotes come from **cc-2.1.280**, captured on 2026-09-22, at grammar
+The quotes come from **cc-2.1.296**, captured on 2026-10-10, at grammar
 **level 2** (this repo's own version number for the language; see
 [the ledger](../docs/GRAMMAR-CHANGELOG.md)). Every hook, option, and `meta` field
 below was already in the first capture, cc-2.1.173, except `opts.effort`, which
@@ -241,7 +241,7 @@ JSON-encoded string”
 ## Running a workflow
 
 The Workflow tool's input, from the shipped
-[`workflow-input-schema.d.ts`](upstream/2026-09-22-cc-2.1.280/workflow-input-schema.d.ts):
+[`workflow-input-schema.d.ts`](upstream/2026-10-10-cc-2.1.296/workflow-input-schema.d.ts):
 
 | Input | What the schema says |
 | --- | --- |
@@ -297,6 +297,7 @@ a change page that sets the minifier's runtime-value renames aside. Newest first
 <!-- captures:start -->
 | Capture | Captured | Level | Change from the capture before |
 | --- | --- | --- | --- |
+| [cc-2.1.296](upstream/2026-10-10-cc-2.1.296/workflow-tool-description.md) | 2026-10-10 | 2 | [Runtime-value renames only](upstream/2026-10-10-cc-2.1.296/CHANGES.md) |
 | [cc-2.1.280](upstream/2026-09-22-cc-2.1.280/workflow-tool-description.md) | 2026-09-22 | 2 | [Runtime-value renames only](upstream/2026-09-22-cc-2.1.280/CHANGES.md) |
 | [cc-2.1.267](upstream/2026-09-10-cc-2.1.267/workflow-tool-description.md) | 2026-09-10 | 2 | [12 passages, +336 / −173 words](upstream/2026-09-10-cc-2.1.267/CHANGES.md) |
 | [cc-2.1.245](upstream/2026-08-25-cc-2.1.245/workflow-tool-description.md) | 2026-08-25 | 2 | [2 passages, +3 / −3 words](upstream/2026-08-25-cc-2.1.245/CHANGES.md) |
