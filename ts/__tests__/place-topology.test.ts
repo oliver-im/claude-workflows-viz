@@ -573,6 +573,19 @@ describe("placeTopology — review regressions", () => {
     expect(lanesDisjoint(layout)).toBe(true);
   });
 
+  it("an empty pipeline stage's stub stays on its edges when an earlier lane grows", () => {
+    const p = pipeline({ kind: "named", names: ["a", "b"] }, [[agent("review:${x}", "Review")], []], "Review");
+    const layout = placeTopology(topo([agent("first", "Intro"), p], [band("Intro"), band("Review")]), meta(["Intro", "Review"]));
+    reserveLaneHeights(layout, [layout.lanes[0].yBot - layout.lanes[0].yTop + 100, 0]);
+    const stubs = layout.nodes.filter((n) => n.kind === "hub" && n.fork !== true);
+    expect(stubs.length).toBe(2);
+    for (const stub of stubs) {
+      expect(stub.phase).toBe(1);
+      const into = layout.edges.find((e) => e.to === stub.id)!;
+      expect(into.points.at(-1)!.y).toBeCloseTo(stub.y);
+    }
+  });
+
   it("stacked parallel arms that end in a later phase put their join in that phase", () => {
     const layout = placeTopology(
       topo(

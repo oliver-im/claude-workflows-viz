@@ -796,7 +796,7 @@ function placePipeline(step: PipelineStep, ctx: Ctx, topY: number): Placed {
   const headBand = stageBands.length > 0 ? stageBands[0] : ctx.laneOf(step.phase);
   const cols = pipelineColumns(step, ctx);
   const specs = step.stages.map((stage, s) =>
-    equalizeCells(Array.from({ length: cols.count }, (_, c) => stageCellSpec(stage, ctx, c, s, cols))),
+    equalizeCells(Array.from({ length: cols.count }, (_, c) => stageCellSpec(stage, ctx, c, s, cols, stageBands[s]))),
   );
 
   const fork = addHub(ctx, SPINE_X, topY, headBand, true);
@@ -933,11 +933,12 @@ function equalizeCells(cells: StageCell[]): StageCell[] {
   return cells.map((c) => (c.card === undefined ? c : { ...c, card: even[k], h: even[k++].h }));
 }
 
-/** Lay out one pipeline cell at the columns' shared width. */
-function stageCellSpec(stage: Step[], ctx: Ctx, c: number, s: number, cols: PipelineCols): StageCell {
+/** Lay out one pipeline cell at the columns' shared width. An empty stage's stub
+ *  hub takes the stage's lane, so it moves with its edges when a lane grows. */
+function stageCellSpec(stage: Step[], ctx: Ctx, c: number, s: number, cols: PipelineCols, stageBand: number): StageCell {
   if (stage.length > 1) note(ctx, "pipeline stage with multiple steps drawn as its head");
   const head = stage[0];
-  if (head === undefined) return { kind: "hub", h: 0, band: 0, label: "" };
+  if (head === undefined) return { kind: "hub", h: 0, band: stageBand, label: "" };
   const band = cellBand(head, ctx);
   const input = stageCellInput(stage, ctx, c, s, cols);
   if (input !== null) {
@@ -955,7 +956,7 @@ function stageCellSpec(stage: Step[], ctx: Ctx, c: number, s: number, cols: Pipe
  *  stages are single steps; a multi-step stage is summarized to its head + a
  *  note, and a nested fan-out collapses to a ×N stack in the cell. */
 function placeStageCell(ctx: Ctx, x: number, top: number, cell: StageCell): GNode {
-  if (cell.kind === "hub") return addHub(ctx, x, top, 0, false);
+  if (cell.kind === "hub") return addHub(ctx, x, top, cell.band, false);
   if (cell.kind === "agent" && cell.card && cell.agent) {
     // A cell's label is the per-column expansion, not the template.
     return addCard(ctx, x, top, cell.card, cell.agent, cell.band, { label: cell.label });
