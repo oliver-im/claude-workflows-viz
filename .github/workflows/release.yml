@@ -103,6 +103,7 @@ jobs:
       - run: npm test # pretest rebuilds dist/cli.js with the new version baked in
 
       - name: Commit, tag, and push
+        if: steps.ver.outputs.resume != 'true'
         env:
           TAG: ${{ steps.ver.outputs.tag }}
           DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
