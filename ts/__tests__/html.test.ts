@@ -11,6 +11,11 @@ describe("wrapSvgHtml", () => {
     expect(html.trimEnd().endsWith("</html>")).toBe(true);
   });
 
+  it("surrounds the diagram with the theme's page color, light by default", () => {
+    expect(wrapSvgHtml("<svg></svg>", "t")).toContain("background:#f8fafc");
+    expect(wrapSvgHtml("<svg></svg>", "t", "#0d1117")).toContain("background:#0d1117");
+  });
+
   it("HTML-escapes the title so a hostile name can't break out", () => {
     const html = wrapSvgHtml("<svg></svg>", 'A <b> & "c"');
     expect(html).toContain("<title>A &lt;b&gt; &amp; &quot;c&quot;</title>");

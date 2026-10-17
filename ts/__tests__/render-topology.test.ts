@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { placeTopology } from "../place-topology.js";
 import { renderTopology, renderTopologyGraph } from "../render-topology.js";
+import { summarizeTopology } from "../stats.js";
+import { DARK, LIGHT } from "../theme.js";
 import type { Meta } from "../model.js";
 import type {
   AgentStep,
@@ -73,11 +75,11 @@ const topo = (steps: Step[], bands: BandRef[]): Topology => ({
 const meta = (phases: Meta["phases"]): Meta => ({ name: "wf", description: "d", phases });
 
 const render = (t: Topology, m: Meta) => renderTopology(placeTopology(t, m), m);
-const renderGraph = (t: Topology, m: Meta) => renderTopologyGraph(placeTopology(t, m));
+const renderGraph = (t: Topology, m: Meta) => renderTopologyGraph(placeTopology(t, m, { derivedLabels: true }));
 
 // A tournament-shaped page: named fan-out → a same-lane loop → an empty
-// control strip → a final agent. Exercises stripes, members, barrier, the loop
-// badge, the empty strip, model tints, and cross-phase connectors.
+// control strip → a final agent. Exercises rows, member cards, the join, the
+// loop frame, the empty strip, model colors, and cross-phase connectors.
 const tournament = () => {
   const draftBody = agent("draft:${p}", "Draft", {
     multiplicity: { kind: "named", names: ["a", "b", "c"] },
@@ -104,14 +106,17 @@ const tournament = () => {
 };
 
 describe("renderTopology", () => {
-  it("draws phase label cells, swimlane rows, agent circles, a coral barrier, and a loop badge", () => {
+  it("draws label cells, rows, agent cards, a join bar, and a loop frame with its condition", () => {
     const svg = tournament();
     expect(svg).toContain('class="lane-label"');
     expect(svg).toContain('class="swimlane"');
     expect(svg).toContain('class="agent-node"');
     expect(svg).toContain('class="barrier"');
-    expect(svg).toContain('class="loop-badge"');
-    expect(svg).toContain("↻ repeat while bracket.length &gt; 1"); // escaped at render
+    expect(svg).toContain('class="loop-frame"');
+    expect(svg).toContain(">while<");
+    expect(svg).toContain(">bracket.length &gt; 1<"); // verbatim, escaped at render
+    // The loop glyph is a drawn path, never a font-dependent ↻ character.
+    expect(svg).not.toContain("↻");
     // The card-as-container engine is gone: none of its classes survive.
     expect(svg).not.toContain("xband");
     expect(svg).not.toContain("gutter");
@@ -142,7 +147,7 @@ describe("renderTopology", () => {
     expect(svg).toContain("#dbeafe"); // haiku swatch
   });
 
-  it("renders control nodes and loop tooltips", () => {
+  it("names a jump no arc can carry in a pill, and gives the loop frame a tooltip", () => {
     const svg = render(
       topo([loop("again", [agent("find", "Find"), control("continue loop", "Find", "continue")], "Find")], [
         band("Find"),
@@ -150,15 +155,14 @@ describe("renderTopology", () => {
       meta([{ title: "Find", model: "sonnet" }]),
     );
     expect(svg).toContain('class="control-node"');
-    expect(svg).toContain("continue loop");
-    expect(svg).toContain("<title>repeat while again</title>");
+    expect(svg).toContain(">continue<"); // the JS keyword, verbatim
+    expect(svg).toContain("<title>while again</title>");
   });
 
-  it("attaches a guard-headed loop's badge to the work node, below it (like an agent loop)", () => {
+  it("frames a guard-headed loop around the guard and the work node; continue loops back to the gate", () => {
     // `for (…) { if (!opponent) continue; match(…) }` — the body head is a
-    // control guard, so the badge re-anchors to the match agent and renders below
-    // it, exactly like compile-api-reference's agent-headed loop — NOT floating by
-    // the bare diamond (the choose-approach complaint).
+    // control guard, so its continue returns to the guard itself: a self-loop arc
+    // on the gate, inside the frame that encloses both the gate and the work.
     const t = topo(
       [
         loop(
@@ -173,21 +177,21 @@ describe("renderTopology", () => {
     const layout = placeTopology(t, m);
     const decision = layout.nodes.find((n) => n.kind === "decision");
     const match = layout.nodes.find((n) => n.label === "match");
-    expect(layout.loops[0]?.onNode).toBe(match?.id); // re-anchored to the work node
-    expect(layout.loops[0]?.onNode).not.toBe(decision?.id);
+    const [frame] = layout.frames;
+    for (const n of [decision!, match!]) {
+      expect(n.y).toBeGreaterThan(frame.y0);
+      expect(n.y).toBeLessThan(frame.y1);
+    }
+    expect(layout.controlArcs[0]).toMatchObject({ flow: "continue", fromId: decision?.id, toId: decision?.id });
     const svg = renderTopology(layout, m);
-    const badgeY = Number(/<g class="loop-badge">.*?<text [^>]*\by="([\d.]+)"/.exec(svg)?.[1]);
-    expect(Number.isFinite(badgeY)).toBe(true);
-    expect(badgeY).toBeGreaterThan(match!.y); // below the work node's center
-    // The continue is a loop-back arc on the gate now — not a "continue loop" box.
+    // The continue is a loop-back arc on the gate — not a "continue loop" box.
     expect(svg).toContain('class="control-arc"');
     expect(svg).not.toContain('class="control-node"');
   });
 
-  it("pins a substantive decision-headed loop's badge ABOVE the diamond, clear of yes/no", () => {
+  it("sets a decision-headed loop's header above the diamond, clear of its yes/no arms", () => {
     // `while (…) { if (cond) A else B }` — a real two-armed branch is the whole
-    // body, so there's no work node to annotate; the badge stays on the diamond,
-    // pinned above its yes/no labels rather than overlapping them.
+    // body; the frame's header band sits above the diamond, and both arms inside.
     const t = topo(
       [loop("n > 0", [branch("cond", [agent("A", "Judge")], [agent("B", "Judge")], "Judge")], "Judge")],
       [band("Judge")],
@@ -196,11 +200,16 @@ describe("renderTopology", () => {
     const layout = placeTopology(t, m);
     const decision = layout.nodes.find((n) => n.kind === "decision");
     expect(decision).toBeDefined();
-    expect(layout.loops[0]?.onNode).toBe(decision?.id); // badge sits on the head
+    const [frame] = layout.frames;
+    expect(frame.entry).toBe(decision?.id);
+    expect(frame.y0 + 19).toBeLessThan(decision!.y - 10); // header baseline above the diamond
+    for (const label of ["A", "B"]) {
+      const arm = layout.nodes.find((n) => n.label === label);
+      expect(arm!.y).toBeLessThan(frame.y1);
+      expect(arm!.x).toBeLessThan(frame.x1);
+    }
     const svg = renderTopology(layout, m);
-    const badgeY = Number(/<g class="loop-badge">.*?<text [^>]*\by="([\d.]+)"/.exec(svg)?.[1]);
-    expect(Number.isFinite(badgeY)).toBe(true);
-    expect(badgeY).toBeLessThan(decision!.y); // above the diamond's center, not below
+    expect(svg).toContain('class="loop-frame"');
   });
 
   it("drops a derived node label but keeps authored ones (phase row names the node)", () => {
@@ -250,5 +259,91 @@ describe("renderTopology", () => {
     expect((svg.match(/>a{40,}</g) ?? []).length).toBeGreaterThanOrEqual(2);
     // Safety net: the full, untruncated explanation rides along as the cell's <title>.
     expect(svg).toContain(`<title>${detail}</title>`);
+  });
+});
+
+describe("renderTopology — the redesign's guarantees", () => {
+  const twoPhase = (over: Partial<AgentStep> = {}) =>
+    topo([agent("review:x", "Review", over)], [band("Review")]);
+  const declared = meta([{ title: "Review", model: "sonnet" }]);
+
+  it("marks a phase model that no agent() call sets as declared only", () => {
+    expect(render(twoPhase(), declared)).toContain("· declared only");
+    // An agent that sets the declared model (by family) backs the declaration.
+    expect(render(twoPhase({ model: "claude-sonnet-5" }), declared)).not.toContain("declared only");
+    // A custom agentType may pin its own model, so it isn't accused.
+    expect(render(twoPhase({ agentType: "codex" }), declared)).not.toContain("declared only");
+  });
+
+  it("puts the model on the card: the family name, a custom agent type, or the inherited session model", () => {
+    expect(render(twoPhase({ model: "claude-opus-5", effort: "high" }), declared)).toContain(">opus · high<");
+    expect(render(twoPhase({ agentType: "codex" }), declared)).toContain(">codex agent<");
+    expect(render(topo([agent("x", "Review", { labelExplicit: false })], [band("Review")]), declared)).toContain(
+      ">session model<",
+    );
+  });
+
+  it("claims no model it couldn't read: 'model unread' on the card, and no 'declared only' accusation", () => {
+    const svg = render(twoPhase({ unread: ["model"] }), declared);
+    expect(svg).toContain(">model unread<");
+    expect(svg).not.toContain(">session model<");
+    expect(svg).not.toContain("declared only");
+    // An unread effort says so too, beside a model that was read.
+    expect(render(twoPhase({ model: "sonnet", unread: ["effort"] }), declared)).toContain(">sonnet · effort unread<");
+  });
+
+  it("legend lists exactly the glyphs the diagram uses", () => {
+    const plain = render(twoPhase({ model: "sonnet" }), declared);
+    expect(plain).toContain('class="legend"');
+    expect(plain).toContain(">sonnet<");
+    expect(plain).not.toContain(">join<");
+    expect(plain).not.toContain(">loop<");
+    const svg = tournament();
+    expect(svg).toContain(">join<");
+    expect(svg).toContain(">loop<");
+    expect(svg).toContain(">workflow starts<"); // the tournament opens with a fan-out
+  });
+
+  it("starts a workflow that opens with a fan-out at a visible start node", () => {
+    expect(tournament()).toContain('class="start"');
+    expect(render(twoPhase(), declared)).not.toContain('class="start"');
+  });
+
+  it("header carries the counts strip read off the body, call sites not spawned agents", () => {
+    const t = topo(
+      [
+        fanout({ kind: "unknown", hint: "items" }, [agent("x:${i}", "Review")], "Review"),
+        agent("sum", "Review"),
+      ],
+      [band("Review")],
+    );
+    const m = meta([{ title: "Review" }]);
+    const svg = renderTopology(placeTopology(t, m), m, { stats: summarizeTopology(t, m) });
+    expect(svg).toContain(">1 phase<");
+    expect(svg).toContain(">2 agent() calls<");
+    expect(svg).toContain(">fan-out ×N<");
+  });
+
+  it("is accessible: role=img with the workflow's name and description", () => {
+    const svg = tournament();
+    expect(svg).toContain('role="img"');
+    expect(svg).toContain("<title>wf</title>");
+    expect(svg).toContain("<desc>d</desc>");
+  });
+
+  it("themes every surface: the dark palette replaces the light one", () => {
+    const t = twoPhase({ model: "sonnet" });
+    const light = renderTopology(placeTopology(t, declared), declared, { theme: LIGHT });
+    const dark = renderTopology(placeTopology(t, declared), declared, { theme: DARK });
+    expect(light).toContain(`fill="${LIGHT.page}"`);
+    expect(dark).toContain(`fill="${DARK.page}"`);
+    expect(dark).not.toContain(`fill="${LIGHT.page}"`);
+    expect(dark).not.toContain(`fill="${LIGHT.card}"`);
+  });
+
+  it("sets verbatim source in mono and prose in sans", () => {
+    const svg = render(twoPhase({ model: "sonnet" }), declared);
+    expect(svg).toMatch(/<text [^>]*font-family="Menlo[^"]*"[^>]*>review:x</);
+    expect(svg).toMatch(/<svg [^>]*font-family="Helvetica, Arial/);
   });
 });

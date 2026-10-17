@@ -1,10 +1,10 @@
 /**
- * Shared SVG building blocks: text/shape emitters, text fitting, the model
- * color swatches, and the page geometry constants — extracted verbatim from
- * `render-svg.ts` so the phase-card renderer (v1) and the topology renderer
- * (v2) draw from one toolbox. Also home to the generic path helpers
- * (stroked paths, arrowheads) the topology renderer routes edges and loop
- * arcs with.
+ * Shared SVG building blocks: text/shape emitters, the 0.58 em text fitting, the
+ * model color swatches, and the page geometry constants — the phase-card
+ * renderer's (v1) toolbox, kept byte-stable because `--view phases` is the
+ * permanent regression gate. The workflow and topology views share only the page
+ * geometry and escaping from here; their palette lives in `theme.ts`, and their
+ * text is measured by `text-metrics.ts`.
  *
  * Styling note: ALL paint and geometry constants live here or in the
  * renderer-specific constant blocks — never inlined at point of use — so a
@@ -33,11 +33,12 @@ export const GAP = 12;
 // phases snapshot gate is untouched.
 // ---------------------------------------------------------------------------
 
-/** Left label-cell column width (chip + title + model badge + wrapped detail).
+/** Left label-cell column width (chip + title + wrapped detail + model line).
  *  Wide enough that a collapsed parallel row's two side-by-side sub-cells each
  *  still get a readable measure — the explanation is never trimmed, so a too-narrow
- *  column would only grow the row taller with more wrapped lines. */
-export const LEFT_COL_W = 420;
+ *  column would only grow the row taller with more wrapped lines. Text is
+ *  measured (`text-metrics.ts`), so every line fills this measure. */
+export const LEFT_COL_W = 380;
 /** Gap between the label column and the graph's leftmost drawn element. The
  *  renderer fits the graph's x-translate and the page width to the graph's
  *  actual content extent (`graphContentBounds`), so there is no fixed page width
@@ -209,47 +210,4 @@ export function wrapToWidth(
   }
   if (cur) lines.push(cur);
   return lines;
-}
-
-// ---------------------------------------------------------------------------
-// Path helpers (topology edges, loop arcs, arrowheads). Everything emits the
-// resvg-safe SVG 1.1 subset: plain paths/polygons, arrowheads as explicit
-// filled triangles — no <marker>.
-// ---------------------------------------------------------------------------
-
-export interface StrokeOpts {
-  width?: number;
-  fill?: string;
-  linecap?: string;
-}
-
-export function strokePath(d: string, stroke: string, o: StrokeOpts = {}): string {
-  const attrs = [
-    `d="${d}"`,
-    `fill="${o.fill ?? "none"}"`,
-    `stroke="${stroke}"`,
-    `stroke-width="${o.width ?? 1}"`,
-  ];
-  if (o.linecap) attrs.push(`stroke-linecap="${o.linecap}"`);
-  return `<path ${attrs.join(" ")}/>`;
-}
-
-const ARROW_LEN = 7;
-const ARROW_HALF_W = 3.5;
-
-/**
- * A filled triangular arrowhead with its tip at (tipX, tipY), pointing in the
- * direction of `angle` (radians, screen coords — 0 points right, π/2 down).
- */
-export function arrowHead(tipX: number, tipY: number, angle: number, fill: string): string {
-  const bx = tipX - ARROW_LEN * Math.cos(angle);
-  const by = tipY - ARROW_LEN * Math.sin(angle);
-  const px = -Math.sin(angle) * ARROW_HALF_W;
-  const py = Math.cos(angle) * ARROW_HALF_W;
-  const points = [
-    `${round(tipX)},${round(tipY)}`,
-    `${round(bx + px)},${round(by + py)}`,
-    `${round(bx - px)},${round(by - py)}`,
-  ].join(" ");
-  return `<polygon points="${points}" fill="${fill}"/>`;
 }

@@ -18,12 +18,12 @@ import { Resvg } from "@resvg/resvg-js";
  * card with a thin divider between them:
  *   - META (A–G): the declarative header + phase table — what the `meta` block says.
  *   - BODY (H–L): the graph analyze-body read out of the imperative half —
- *     node / shape / label / multiplicity / effort.
+ *     node (an agent card) / shape / label / multiplicity / effort.
  *
  * Coordinates are LITERAL (tuned by eye against the base SVG), not computed: keep
  * it dumb, re-tune when the base render moves. The topology boxes live in the
- * PAGE frame; the base currently draws its graph in a `translate(344 0)` group
- * nested in a `translate(0 192)` group, so graph-local coordinates carry both
+ * PAGE frame; the base currently draws its graph in a `translate(352 0)` group
+ * nested in a `translate(0 180)` group, so graph-local coordinates carry both
  * offsets. Re-tune these literals whenever the base render moves.
  * This is a docs-asset generator, not part of the renderer — it reads the
  * committed base SVG and writes a *separate* annotated SVG + PNG, leaving the
@@ -53,7 +53,7 @@ const outPng = join(root, "examples/level-2/review-pr.annotated.png");
  * --retune` (which skips this check and prints the new hash), look at the PNG,
  * adjust the literals until the pins land, then paste the printed hash here.
  */
-const TUNED_AGAINST_BASE_SHA256 = "865a7abc061efca652825e00009e7a8efef25371e64c610a9d4c6b13d15a0b69";
+const TUNED_AGAINST_BASE_SHA256 = "a9707030a573fe45083b82128446cfbe6c2b98b1be34ebe9c2db9f21efaef74f";
 
 const ACCENT = "#c94f32";
 const INK = "#0f172a";
@@ -77,36 +77,32 @@ const GROUP_HEADER = {
  */
 const annotations = [
   // Meta anatomy (A–G) — the header card + phase table (page frame). Boxes hug the
-  // measured text bbox + ~7px pad (rendered-pixel extents, not eyeballed): so B/C stop
-  // at the real line end (~600), E clears G's right edge, phases (G) is wide enough that
-  // the E marker sits inside it.
-  { group: "meta", x: 32, y: 41, w: 238, h: 30, label: "name", pinAt: "l" },
-  { group: "meta", x: 32, y: 77, w: 567, h: 40, label: "description", pinAt: "l" },
-  { group: "meta", x: 32, y: 125, w: 573, h: 38, label: "whenToUse", pinAt: "l" },
-  { group: "meta", x: 66, y: 212, w: 98, h: 18, label: "title", pinAt: "r" },
-  { group: "meta", x: 65, y: 233, w: 293, h: 51, label: "detail", pinAt: "r" },
-  { group: "meta", x: 68, y: 288, w: 88, h: 14, label: "model", pinAt: "r" },
-  { group: "meta", x: 30, y: 204, w: 394, h: 500, label: "phases", pinAt: "l" },
+  // measured text extents (the renderer's own Helvetica advance table) + ~7px pad.
+  // The model pin sits on phase 2: phase 1's agent deliberately inherits the
+  // session model, so its row declares none.
+  { group: "meta", x: 33, y: 39, w: 239, h: 30, label: "name", pinAt: "l" },
+  { group: "meta", x: 33, y: 74, w: 735, h: 20, label: "description", pinAt: "l" },
+  { group: "meta", x: 33, y: 99, w: 855, h: 19, label: "whenToUse", pinAt: "l" },
+  { group: "meta", x: 66, y: 199, w: 96, h: 21, label: "title", pinAt: "r" },
+  { group: "meta", x: 66, y: 221, w: 305, h: 52, label: "detail", pinAt: "r" },
+  { group: "meta", x: 67, y: 382, w: 98, h: 18, label: "model", pinAt: "r" },
+  { group: "meta", x: 26, y: 190, w: 372, h: 458, label: "phases", pinAt: "l" },
 
-  // Body anatomy (H–K) — the graph (page frame = graph-local + (344,192)). In reading
-  // order down the graph: node / shape / label / multiplicity — its whole vocabulary at
-  // one altitude. Each label names the general concept; the gray sub is the instance
-  // shown here (shape→fan-out, multiplicity→the ×N/unknown case). `stage` is NOT pinned:
-  // in review-pr each pipeline stage lines up 1:1 with a phase (glossary §D).
-  { group: "topo", x: 630, y: 225, w: 36, h: 36, label: "node", pinAt: "t", sub: "one agent() call" },
-  // Pinned on the RIGHT: the left gutter of the fan is where the outer member's
-  // effort badge sits, and a left pin lands on top of it.
-  { group: "topo", x: 504, y: 350, w: 288, h: 58, label: "shape", pinAt: "r", sub: "orchestration strategies such as fan-out, branches, loop" },
-  { group: "topo", x: 464, y: 408, w: 110, h: 17, label: "label", pinAt: "l" },
-  { group: "topo", x: 655, y: 485, w: 28, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
-  // The badge left of the LAST node, not the first: the first node's badge sits
-  // inside H's box, and the bottom of the graph is the only place a left-side pin
-  // has clear canvas. The box hugs the glyphs (618.3–633.5 × 621.5–628, measured
-  // off the render) with ~3.5px on every side. It can overhang the badge's own
-  // right edge because the circle beside it is ROUND: at the box's bottom (y=632)
-  // the node has only reached x=637.75, so a right edge at 637 still clears it —
-  // which a box sized against the circle's bounding square could not.
-  { group: "topo", x: 615, y: 618, w: 22, h: 14, label: "effort", pinAt: "l", sub: "reasoning tier for this agent() call" },
+  // Body anatomy (H–L) — the graph (page frame = graph-local + (352,180)), in
+  // reading order down the graph: node / shape / label / multiplicity / effort.
+  // Each label names the general concept; the gray sub is the instance shown here
+  // (shape → the pipeline fan-out, multiplicity → the ×N/unknown case). `stage` is
+  // NOT pinned: in review-pr each pipeline stage lines up 1:1 with a phase.
+  { group: "topo", x: 608, y: 194, w: 96, h: 38, label: "node", pinAt: "t", sub: "one agent() call, drawn as a card" },
+  // Pinned on the RIGHT, past the last lane, where the canvas is clear.
+  { group: "topo", x: 424, y: 302, w: 466, h: 76, label: "shape", pinAt: "r", sub: "orchestration strategies such as fan-out, branches, loop" },
+  // The left stack's label, verbatim from the source template; its pin sits in the
+  // clear gutter between the phase column and the graph.
+  { group: "topo", x: 435, y: 452, w: 123, h: 16, label: "label", pinAt: "l" },
+  // The right stack's badge: the only one with clear canvas beside it.
+  { group: "topo", x: 859, y: 436, w: 32, h: 22, label: "multiplicity", pinAt: "r", sub: "count unknown until runtime" },
+  // The fable card's effort word + meter; the pin sits just past the card's edge.
+  { group: "topo", x: 642, y: 573, w: 57, h: 16, label: "effort", pinAt: "r", sub: "reasoning tier for this agent() call" },
 ];
 
 const PIN_NUDGE = 12; // clears the box without pushing left-side pins outside the canvas

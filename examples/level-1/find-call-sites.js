@@ -51,6 +51,7 @@ const sweeps = (
     MODES.map((mode) => () =>
       agent(`Find call sites of ${args.api} ${mode}.`, {
         label: `sweep:${mode}`,
+        model: "sonnet",
         schema: SITES,
       }),
     ),
@@ -61,10 +62,12 @@ phase("Merge and dedupe the hits");
 const union = sweeps.flatMap((s) => s.sites);
 const distinct = await agent(
   `Merge these hits and drop the same call site found two ways:\n${JSON.stringify(union)}`,
-  { schema: SITES },
+  { model: "haiku", schema: SITES },
 );
 log(`${distinct.sites.length} distinct call sites across ${MODES.length} searches`);
 
 phase("Write the migration checklist");
-const checklist = await agent(`Write an ordered migration checklist for:\n${JSON.stringify(distinct.sites)}`);
+const checklist = await agent(`Write an ordered migration checklist for:\n${JSON.stringify(distinct.sites)}`, {
+  model: "sonnet",
+});
 log(checklist);

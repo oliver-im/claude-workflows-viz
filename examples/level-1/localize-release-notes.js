@@ -8,7 +8,8 @@
  * beneath it — which is recovered by static analysis and never executed.
  *
  * (The only bundled sample to exercise `isolation: "worktree"` — each locale
- * writes its own file in parallel — and `workflow()`, here as the reduce step.)
+ * writes its own file in parallel — and `workflow()`, here as the reduce step,
+ * whose phase names no `model`: the sub-workflow picks its own.)
  *
  * Grammar level: 1 — the grammar generation this is written against (see docs/GRAMMAR-CHANGELOG.md).
  */
@@ -35,7 +36,6 @@ export const meta = {
       title: "Reduce into one PR",
       detail:
         "Once every locale's file lands, a shared open-a-PR sub-workflow collates them into a single pull request with a per-locale summary of what changed.",
-      model: "haiku",
     },
   ],
 };
@@ -55,12 +55,14 @@ const localized = await pipeline(
     agent(`Translate the release notes into ${locale}.`, {
       label: `translate:${locale}`,
       phase: "Translate each locale",
+      model: "sonnet",
       isolation: "worktree",
     }),
   (draft) =>
     agent(`Back-translate to catch drift, then lint:\n${draft}`, {
       label: "proofread",
       phase: "Proofread each translation",
+      model: "sonnet",
     }),
 );
 

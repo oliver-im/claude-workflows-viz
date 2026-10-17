@@ -945,6 +945,20 @@ function pipelineStep(ctx: Ctx, call: any): PipelineStep {
   return { kind: "pipeline", items, stages, phase, span: spanOf(call) };
 }
 
+/** The `unread` field for an agent: each option that may be set but could not be
+ *  read statically — every option not literally set, when the options as a whole
+ *  were hidden (a spread, a computed key, or a non-literal options argument). */
+function unreadOptions(
+  hiddenAll: boolean,
+  keys: Set<"model" | "effort" | "agentType">,
+  read: { model?: string; effort?: string; agentType?: string },
+): { unread: Array<"model" | "effort" | "agentType"> } | undefined {
+  const unread = (["model", "effort", "agentType"] as const).filter(
+    (k) => keys.has(k) || (hiddenAll && read[k] === undefined),
+  );
+  return unread.length > 0 ? { unread } : undefined;
+}
+
 function agentStep(ctx: Ctx, call: any): AgentStep {
   const promptArg = call.arguments?.[0];
   const optsArg = call.arguments?.[1];
@@ -964,9 +978,15 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
   let effort: string | undefined;
   let agentType: string | undefined;
   let optPhase: string | undefined;
+  // Options that may be set but could not be read statically. A spread or a
+  // non-literal options argument hides every option; a non-literal value hides
+  // just its own. The renderer must not claim an inherited model for these.
+  let hiddenAll = false;
+  const unreadKeys = new Set<"model" | "effort" | "agentType">();
 
   if (optsArg) {
     if (optsArg.type !== "ObjectExpression") {
+      hiddenAll = true;
       note(
         ctx,
         "agent() options are not an inline object literal; label/model/effort/agentType/phase unread",
@@ -975,6 +995,12 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
     } else {
       for (const prop of optsArg.properties) {
         if (prop.type !== "Property" || prop.computed) {
+          hiddenAll = true;
+          // It may set any option written before it, so those are no longer
+          // proven; one written after it still wins.
+          model = undefined;
+          effort = undefined;
+          agentType = undefined;
           note(ctx, "agent() options contain a spread or computed key; those options are unread", prop);
           continue;
         }
@@ -1006,10 +1032,18 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             }
             break;
           }
+          // A repeated key replaces the earlier one, so each read overwrites
+          // both the value and its unread mark.
           case "model": {
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) model = lit;
-            else note(ctx, "agent model is not a string literal; model unread", prop.value);
+            if (lit !== undefined) {
+              model = lit;
+              unreadKeys.delete("model");
+            } else {
+              model = undefined;
+              unreadKeys.add("model");
+              note(ctx, "agent model is not a string literal; model unread", prop.value);
+            }
             break;
           }
           case "effort": {
@@ -1018,14 +1052,26 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             // policing the set — an unknown tier is the author's statement, not
             // ours to correct.
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) effort = lit;
-            else note(ctx, "agent effort is not a string literal; effort unread", prop.value);
+            if (lit !== undefined) {
+              effort = lit;
+              unreadKeys.delete("effort");
+            } else {
+              effort = undefined;
+              unreadKeys.add("effort");
+              note(ctx, "agent effort is not a string literal; effort unread", prop.value);
+            }
             break;
           }
           case "agentType": {
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) agentType = lit;
-            else note(ctx, "agent agentType is not a string literal; unread", prop.value);
+            if (lit !== undefined) {
+              agentType = lit;
+              unreadKeys.delete("agentType");
+            } else {
+              agentType = undefined;
+              unreadKeys.add("agentType");
+              note(ctx, "agent agentType is not a string literal; unread", prop.value);
+            }
             break;
           }
           case "phase": {
@@ -1123,6 +1169,7 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
     ...(expandedLabels !== undefined ? { expandedLabels } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort } : {}),
+    ...(unreadOptions(hiddenAll, unreadKeys, { model, effort, agentType }) ?? {}),
     ...(agentType !== undefined ? { agentType } : {}),
     ...(promptPreview !== undefined ? { promptPreview } : {}),
   };

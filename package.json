@@ -18,6 +18,7 @@
     "regen-examples": "node scripts/build.mjs && node scripts/regen-examples.mjs",
     "capture-grammar": "node scripts/capture-grammar.mjs",
     "check-grammar": "node scripts/capture-grammar.mjs --check",
+    "gen-text-metrics": "node scripts/gen-text-metrics.mjs",
     "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

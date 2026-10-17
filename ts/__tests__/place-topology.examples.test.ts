@@ -9,9 +9,10 @@ import type { Layout } from "../topo-geometry.js";
 
 /**
  * Composition acceptance against the real corpus: every example analyzed then
- * placed must satisfy the headline invariant — NO edge points up (loops are
- * badges, not back-edges) — which is exactly the "0 cross-card edges" property,
- * true here by construction because there are no card walls to cross. Plus the
+ * placed must satisfy the headline invariants — NO edge points up (loops are
+ * frames, not back-edges), which is exactly the "0 cross-card edges" property,
+ * true here by construction because there are no card walls to cross; and every
+ * edge is orthogonal, so none cuts diagonally through a card. Plus the
  * per-shape facts the swimlane composition has to get right.
  */
 
@@ -62,6 +63,32 @@ describe("placeTopology — corpus composition", () => {
     }
   });
 
+  it("every example: every edge is orthogonal (consecutive points share an x or a y)", () => {
+    for (const f of files) {
+      const layout = placeRel(f);
+      for (const e of layout.edges) {
+        const diagonal = e.points.some(
+          (p, i) => i > 0 && Math.abs(p.x - e.points[i - 1].x) > 0.01 && Math.abs(p.y - e.points[i - 1].y) > 0.01,
+        );
+        expect(diagonal, `${f}: ${e.from} → ${e.to}`).toBe(false);
+      }
+    }
+  });
+
+  it("every example: each loop frame encloses every node of its body", () => {
+    for (const f of files) {
+      const layout = placeRel(f);
+      for (const frame of layout.frames) {
+        const entry = nodeById(layout, frame.entry);
+        expect(entry, `${f}: ${frame.id} entry`).toBeDefined();
+        expect(entry!.x, `${f}: ${frame.id}`).toBeGreaterThan(frame.x0);
+        expect(entry!.x, `${f}: ${frame.id}`).toBeLessThan(frame.x1);
+        expect(entry!.y, `${f}: ${frame.id}`).toBeGreaterThan(frame.y0);
+        expect(entry!.y, `${f}: ${frame.id}`).toBeLessThan(frame.y1);
+      }
+    }
+  });
+
   it("every example: every fan member / pipeline cell connects onward (no dangling fan)", () => {
     for (const f of files) {
       const layout = placeRel(f);
@@ -84,18 +111,20 @@ describe("placeTopology — corpus composition", () => {
     }
   });
 
-  it("tournament (choose-approach): 4 lanes, 'Advance the bracket' is an empty strip, loop badge on the Judge node", () => {
+  it("tournament (choose-approach): 4 lanes, 'Advance the bracket' is an empty strip, nested loop frames in the Judge lane", () => {
     const layout = place("choose-approach.js");
     expect(layout.lanes).toHaveLength(4);
     const advance = layout.lanes.find((l) => l.title === "Advance the bracket");
     expect(advance?.empty).toBe(true); // control-only → strip, not a card
 
-    // The while + for nest → two stacked repeat badges, both on the match node.
-    expect(layout.loops.length).toBeGreaterThanOrEqual(1);
-    expect(layout.loops.some((l) => l.label.includes("while bracket.length > 1"))).toBe(true);
+    // The while + for nest → two nested frames, both in the Judge lane.
+    expect(layout.frames).toHaveLength(2);
+    expect(layout.frames.map((f) => `${f.keyword} ${f.condition}`)).toEqual([
+      "for i < bracket.length",
+      "while bracket.length > 1",
+    ]);
     const judgeLane = layout.lanes.findIndex((l) => l.title === "Judge pairwise");
-    const badged = nodeById(layout, layout.loops[0].onNode);
-    expect(badged?.phase).toBe(judgeLane);
+    expect(layout.frames.every((f) => f.topLane === judgeLane && f.botLane === judgeLane)).toBe(true);
     expect(backRoutes(layout)).toEqual([]); // no band-crossing back-route
 
     // `if (!opponent) continue` IS the loop body's head, so its continue draws as
@@ -106,19 +135,23 @@ describe("placeTopology — corpus composition", () => {
     expect(layout.nodes.some((n) => n.kind === "control")).toBe(false);
   });
 
-  it("hunt-bugs: loop badge, dry-path control, readable verify fan-out, and visible end phase", () => {
+  it("hunt-bugs: a loop frame across two phases, dry-path continue arc, ×N verify stack, and visible end phase", () => {
     const layout = place("hunt-bugs.js");
-    expect(layout.loops).toHaveLength(1);
+    expect(layout.frames).toHaveLength(1);
+    // The body spans the find and verify phases: the frame spans both rows.
+    expect(layout.frames[0].topLane).toBeLessThan(layout.frames[0].botLane);
     // The dry-path `continue` draws as a loop-back arc on its guard diamond — the
     // standard back-edge — not a "continue loop" box.
     expect(layout.controlArcs.some((a) => a.flow === "continue")).toBe(true);
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "continue loop")).toBe(false);
-    expect(layout.nodes.some((n) => n.kind === "agent" && n.label === "verify each fresh")).toBe(true);
+    // The verify fan-out keeps its label verbatim; the count's source is the caption.
+    const verify = layout.nodes.find((n) => n.kind === "agent" && n.label === "verify:${b.id}");
+    expect(verify?.mult).toBe("×N");
+    expect(verify?.card?.caption).toBe("fresh");
     const stop = layout.lanes.find((l) => l.title === "Stop when the well runs dry");
     expect(stop?.empty).toBe(false);
     const stopLane = layout.lanes.findIndex((l) => l.title === "Stop when the well runs dry");
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "end" && n.phase === stopLane)).toBe(true);
-    expect(layout.notes.some((n) => n.includes("spans phases"))).toBe(true);
     expect(backRoutes(layout)).toEqual([]);
   });
 
@@ -132,6 +165,14 @@ describe("placeTopology — corpus composition", () => {
     expect(to!.y).toBeGreaterThan(from!.y); // and exits forward/down, out of the loop
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
     expect(backRoutes(layout)).toEqual([]); // the arc is a decoration, never an up-edge
+  });
+
+  it("review-pr (the hero): the mapping agent inherits the session model; every other agent sets one", () => {
+    const layout = placeRel("level-2/review-pr.js");
+    const agents = layout.nodes.filter((n) => n.kind === "agent");
+    expect(agents[0].model).toBeUndefined();
+    expect(agents[0].card?.meta).toBe("session model");
+    expect(agents.slice(1).every((n) => n.model !== undefined)).toBe(true);
   });
 
   it("is deterministic across runs for every example", () => {

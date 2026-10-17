@@ -24,7 +24,7 @@ Runtime: Node ≥ 20.
 ## CLI
 
 ```sh
-claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--scale <n>] [--open] [--share] [--include-source]
+claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--view workflow|topology|phases] [--theme light|dark] [--scale <n>] [--open] [--share] [--include-source]
 ```
 
 | Option | Description |
@@ -32,6 +32,7 @@ claude-workflows-viz <workflow.js> [-o <out>] [--format svg|png|html|json] [--vi
 | `-o, --out <file>` | Write the diagram to this path. Omit it and SVG/HTML/JSON stream to **stdout**. |
 | `--format <fmt>` | `svg` (default), `png`, `html`, or `json`. Inferred from `--out`'s extension when omitted. `json` dumps the static analysis (meta + body topology) for tooling/skills. |
 | `--view <view>` | `workflow` (default) draws phase context beside the agent graph; `topology` renders the inferred graph only; `phases` renders the meta-only cards. |
+| `--theme <theme>` | `light` (default) or `dark` — the palette for the `workflow` and `topology` views (the dark one matches GitHub's dark mode). The `phases` view keeps its fixed palette. |
 | `--scale <n>` | PNG rasterization scale, `0 < n ≤ 10` (default `2`). Higher is sharper and larger; lower is smaller. PNG only — SVG/HTML are vector. |
 | `--open` | Open the rendered output in your default app after writing. |
 | `--share` | Upload the rendered SVG (or PNG when `--format png` is selected) as a secret GitHub gist; requires the GitHub CLI and `gh auth login`. Use with `--view`; omit `--out` and `--open`. |
@@ -63,6 +64,9 @@ claude-workflows-viz your-workflow.js -o diagram.png
 
 # Render a PNG and open it immediately
 claude-workflows-viz your-workflow.js --format png --open
+
+# Dark palette, for a page with a dark background
+claude-workflows-viz your-workflow.js --theme dark -o diagram-dark.svg
 
 # Dump the static analysis for tooling / the readable-diagrams authoring pass
 claude-workflows-viz your-workflow.js --format json | jq .topology.steps
@@ -108,8 +112,11 @@ npm run spec:site  # ... and also writes them as one HTML page, site/index.html
 `dist/` is gitignored and built on demand (also rebuilt on `pretest`, and on
 `prepack` so the npm tarball always carries a fresh bundle). Other scripts:
 `npm run typecheck` (`tsc --noEmit`), `npm run regen-examples` (rebuild the
-committed corpus renders), and `npm run check-grammar` (the upstream-drift check
-— needs a local Claude Code install, so it is *not* run in CI).
+committed corpus renders), `npm run check-grammar` (the upstream-drift check
+— needs a local Claude Code install, so it is *not* run in CI), and
+`npm run gen-text-metrics` (regenerate the measured advance-width table in
+`ts/text-metrics-data.ts` — macOS only, since it measures the system Helvetica
+and Menlo; the committed table is what renders use).
 
 ## Releasing
 

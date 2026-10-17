@@ -91,7 +91,7 @@ const control = (
   flow: ControlStep["flow"],
 ): ControlStep => ({ kind: "control", label, flow, phase, span });
 
-/** The downward invariant: no edge ever points up (loops are badges, not edges). */
+/** The downward invariant: no edge ever points up (loops are frames, not edges). */
 const everyEdgeFlowsDown = (layout: ReturnType<typeof placeTopology>): boolean =>
   layout.edges.every((e) => {
     const from = layout.nodes.find((n) => n.id === e.from);
@@ -103,6 +103,11 @@ const ofKind = (layout: ReturnType<typeof placeTopology>, kind: string) =>
   layout.nodes.filter((n) => n.kind === kind);
 const edgesOfKind = (layout: ReturnType<typeof placeTopology>, kind: string) =>
   layout.edges.filter((e) => e.kind === kind);
+/** Every edge is orthogonal: consecutive points share an x or a y. */
+const everyEdgeIsOrthogonal = (layout: ReturnType<typeof placeTopology>): boolean =>
+  layout.edges.every((e) =>
+    e.points.every((p, i) => i === 0 || Math.abs(p.x - e.points[i - 1].x) < 0.01 || Math.abs(p.y - e.points[i - 1].y) < 0.01),
+  );
 /** Every node of `kind` is the source of at least one edge — no dangling. */
 const allHaveOnward = (layout: ReturnType<typeof placeTopology>, ids: string[]) =>
   ids.every((id) => layout.edges.some((e) => e.from === id));
@@ -176,32 +181,41 @@ describe("placeTopology — skeleton", () => {
 });
 
 describe("placeTopology — sub-shapes", () => {
-  it("named fan-out → fork · row of N members · barrier · sink; every member connects onward", () => {
+  it("named fan-out → fork · row of N member cards · join; every member drops onto the join", () => {
     const body = agent("draft:${p}", "P1", {
       multiplicity: { kind: "named", names: ["a", "b", "c"] },
       expandedLabels: ["draft:a", "draft:b", "draft:c"],
+      labelExplicit: true,
       model: "sonnet",
     });
     const layout = placeTopology(
       topo([fanout({ kind: "named", names: ["a", "b", "c"] }, [body], "P1")], [band("P1")]),
       meta(["P1"]),
     );
-    expect(ofKind(layout, "hub")).toHaveLength(2); // source + sink
+    // The fork is a bare junction the rail leaves from; the join bar is the exit —
+    // no sink dot under it.
+    const hubs = ofKind(layout, "hub");
+    expect(hubs).toHaveLength(1);
+    expect(hubs[0].fork).toBe(true);
     expect(ofKind(layout, "barrier")).toHaveLength(1);
     const members = ofKind(layout, "agent");
     expect(members).toHaveLength(3);
     expect(members.map((m) => m.label)).toEqual(["draft:a", "draft:b", "draft:c"]);
     expect(members.every((m) => m.model === "sonnet")).toBe(true);
+    // One row: the members share a top edge and a width.
+    expect(new Set(members.map((m) => m.y - (m.h ?? 0) / 2)).size).toBe(1);
+    expect(new Set(members.map((m) => m.w)).size).toBe(1);
 
-    // No dangling fan: every member drops onto the barrier.
+    // No dangling fan: every member drops onto the join.
     expect(allHaveOnward(layout, members.map((m) => m.id))).toBe(true);
-    expect(edgesOfKind(layout, "fan")).toHaveLength(3); // source → each member
-    expect(edgesOfKind(layout, "merge")).toHaveLength(3); // each member → barrier
+    expect(edgesOfKind(layout, "fan")).toHaveLength(3); // fork → each member
+    expect(edgesOfKind(layout, "merge")).toHaveLength(3); // each member → join
     expect(everyEdgeFlowsDown(layout)).toBe(true);
+    expect(everyEdgeIsOrthogonal(layout)).toBe(true);
   });
 
-  it("unknown-width fan-out → a single ×N representative circle (no scaffolding)", () => {
-    const body = agent("read:${m}", "P1", { multiplicity: { kind: "unknown", hint: "modules" } });
+  it("unknown-width fan-out → one ×N stack, captioned with its source, that still waits at a join", () => {
+    const body = agent("read:${m}", "P1", { multiplicity: { kind: "unknown", hint: "modules" }, labelExplicit: true });
     const layout = placeTopology(
       topo([fanout({ kind: "unknown", hint: "modules" }, [body], "P1")], [band("P1")]),
       meta(["P1"]),
@@ -209,7 +223,13 @@ describe("placeTopology — sub-shapes", () => {
     const agents = ofKind(layout, "agent");
     expect(agents).toHaveLength(1);
     expect(agents[0].mult).toBe("×N");
-    expect(ofKind(layout, "barrier")).toHaveLength(0);
+    // The label stays verbatim; the count's source rides as the caption.
+    expect(agents[0].card?.lines).toEqual(["read:${m}"]);
+    expect(agents[0].card?.caption).toBe("modules");
+    // parallel() is a barrier even for one drawn stack: no fork, one join.
+    expect(ofKind(layout, "hub")).toHaveLength(0);
+    expect(ofKind(layout, "barrier")).toHaveLength(1);
+    expect(allHaveOnward(layout, [agents[0].id])).toBe(true);
   });
 
   it("a fan-out too wide for the row collapses to ×N and logs it", () => {
@@ -270,7 +290,7 @@ describe("placeTopology — sub-shapes", () => {
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
-  it("pipeline → item columns × stage rows; every last-stage cell rejoins the sink (no dangling fan)", () => {
+  it("pipeline → item columns × stage rows; every last-stage cell drops onto the join (no dangling fan)", () => {
     const review = agent("review:${dim}", "Review", {
       expandedLabels: ["review:correctness", "review:security", "review:performance"],
     });
@@ -282,11 +302,14 @@ describe("placeTopology — sub-shapes", () => {
       ),
       meta(["Review", "Verify"]),
     );
-    // 3 columns × 2 rows = 6 cells, + source + sink hubs.
-    expect(ofKind(layout, "hub")).toHaveLength(2);
+    // 3 columns × 2 rows = 6 cells, a fork, and the join `await pipeline` waits at.
+    expect(ofKind(layout, "hub")).toHaveLength(1);
+    expect(ofKind(layout, "barrier")).toHaveLength(1);
     expect(ofKind(layout, "agent")).toHaveLength(6);
     expect(edgesOfKind(layout, "stage")).toHaveLength(3); // one stage hop per column
-    expect(edgesOfKind(layout, "merge")).toHaveLength(3); // every column → sink
+    expect(edgesOfKind(layout, "merge")).toHaveLength(3); // every column → join
+    // No barrier BETWEEN stages: each stage hop is a straight drop in its column.
+    expect(edgesOfKind(layout, "stage").every((e) => e.points.length === 2)).toBe(true);
 
     // The dangling-fan bug fixed: each verify cell (row 2) has an onward edge.
     const verifyCells = layout.nodes.filter((n) => n.kind === "agent" && n.phase === 1);
@@ -317,34 +340,55 @@ describe("placeTopology — sub-shapes", () => {
     // Checking just the set of labels lets a yes/no swap reverse the meaning.
     expect(targetFor("yes")).toMatchObject({ kind: "hub", label: "" });
     expect(targetFor("no")).toMatchObject({ kind: "agent", label: "fix:${area}" });
+    // The side arm leaves the diamond's right vertex, so the condition sits left.
+    const yes = outgoing.find((e) => e.label === "yes");
+    expect(yes?.points[0]).toEqual({ x: decision.x + 10, y: decision.y });
+    expect(decision.labelSide).toBe("left");
     expect(everyEdgeFlowsDown(layout)).toBe(true);
+    expect(everyEdgeIsOrthogonal(layout)).toBe(true);
   });
 
-  it("nested same-phase loops → stacked badges on the same node", () => {
+  it("nested same-phase loops → nested frames around the same node, each with its condition", () => {
     const inner = loop("for", "i < bracket.length", [agent("match", "Judge")], "Judge");
     const outer = loop("while", "bracket.length > 1", [inner], "Judge");
     const layout = placeTopology(topo([outer], [band("Judge")]), meta(["Judge"]));
-    expect(layout.loops).toHaveLength(2);
+    expect(layout.frames).toHaveLength(2);
+    const [innerFrame, outerFrame] = layout.frames; // a nested loop's frame comes first
+    expect(innerFrame.keyword).toBe("for");
+    expect(innerFrame.condition).toBe("i < bracket.length");
+    expect(outerFrame.keyword).toBe("while");
+    expect(outerFrame.condition).toBe("bracket.length > 1");
+    expect(innerFrame.outer).toBe(outerFrame.id);
+    // Strict nesting, and both frames enclose the one work node.
+    expect(innerFrame.x0).toBeGreaterThan(outerFrame.x0);
+    expect(innerFrame.x1).toBeLessThan(outerFrame.x1);
+    expect(innerFrame.y0).toBeGreaterThan(outerFrame.y0);
+    expect(innerFrame.y1).toBeLessThan(outerFrame.y1);
     const match = layout.nodes.find((n) => n.label === "match");
-    expect(layout.loops.every((l) => l.onNode === match?.id)).toBe(true);
-    expect(layout.loops.map((l) => l.label)).toEqual([
-      "repeat for i < bracket.length",
-      "repeat while bracket.length > 1",
-    ]);
+    for (const f of layout.frames) {
+      expect(match!.x).toBeGreaterThan(f.x0);
+      expect(match!.x).toBeLessThan(f.x1);
+      expect(match!.y).toBeGreaterThan(f.y0);
+      expect(match!.y).toBeLessThan(f.y1);
+    }
   });
 
-  it("nested guard-headed loops stack BOTH badges on the same work node", () => {
-    // while > for sharing one `if (!opponent) continue;` guard — both repeat
-    // badges resolve to the single match agent, stacked there.
+  it("nested guard-headed loops: the innermost loop owns the guard's continue, a self-loop", () => {
+    // while > for sharing one `if (!opponent) continue;` guard — the guard heads
+    // the inner body, so its continue loops straight back to itself, and the arc
+    // belongs to the inner frame.
     const guard = branch("!opponent", [control("continue loop", "Judge", "continue")], [], "Judge");
     const inner = loop("for", "i < bracket.length", [guard, agent("match", "Judge")], "Judge");
     const layout = placeTopology(
       topo([loop("while", "bracket.length > 1", [inner], "Judge")], [band("Judge")]),
       meta(["Judge"]),
     );
-    const match = layout.nodes.find((n) => n.label === "match");
-    expect(layout.loops).toHaveLength(2);
-    expect(layout.loops.every((l) => l.onNode === match?.id)).toBe(true);
+    const gate = layout.nodes.find((n) => n.kind === "decision");
+    expect(layout.frames).toHaveLength(2);
+    expect(layout.controlArcs).toHaveLength(1);
+    const [arc] = layout.controlArcs;
+    expect(arc).toMatchObject({ flow: "continue", fromId: gate?.id, toId: gate?.id });
+    expect(arc.frame).toBe(layout.frames[0].id);
     expect(everyEdgeFlowsDown(layout)).toBe(true);
   });
 
@@ -371,6 +415,8 @@ describe("placeTopology — sub-shapes", () => {
     expect(brk?.fromId).toBe(gate?.id);
     expect(brk?.toId).toBe(assemble?.id); // forward to the successor, skipping the rest
     expect(assemble!.y).toBeGreaterThan(gate!.y); // and it points DOWN, out of the loop
+    expect(brk?.frame).toBe(layout.frames[0].id); // it leaves its own loop's frame
+    expect(assemble!.y).toBeGreaterThan(layout.frames[0].y1); // to a node below it
     expect(layout.nodes.some((n) => n.kind === "control" && n.label === "break loop")).toBe(false);
     expect(everyEdgeFlowsDown(layout)).toBe(true); // the arc is a decoration, not an edge
   });
@@ -461,5 +507,144 @@ describe("closeLaneGaps — seamless swimlane table", () => {
     expect(layout.lanes[0].yTop).toBe(firstTop);
     expect(layout.lanes[layout.lanes.length - 1].yBot).toBe(lastBot);
     expect(layout.height).toBe(height);
+  });
+});
+
+describe("placeTopology — review regressions", () => {
+  const lanesDisjoint = (layout: ReturnType<typeof placeTopology>): boolean =>
+    layout.lanes.every((l, i) => i === 0 || l.yTop >= layout.lanes[i - 1].yBot - 0.5);
+  const breakGuards = (layout: ReturnType<typeof placeTopology>) =>
+    layout.nodes.filter((n) => n.kind === "decision" && n.guardFlow === "break");
+  const everyBreakDrawn = (layout: ReturnType<typeof placeTopology>): boolean =>
+    breakGuards(layout).every((g) => layout.controlArcs.some((a) => a.flow === "break" && a.fromId === g.id));
+  const guard = (cond: string, flow: "break" | "continue", phase: string) =>
+    branch(cond, [control(`${flow} loop`, phase, flow)], [], phase);
+
+  it("a break in a loop that ends the workflow still exits to a final node", () => {
+    const layout = placeTopology(
+      topo(
+        [loop("while", "round < 3", [agent("review", "Refine"), guard("r.ok", "break", "Refine"), agent("revise", "Refine")], "Refine")],
+        [band("Refine")],
+      ),
+      meta(["Refine"]),
+    );
+    expect(everyBreakDrawn(layout)).toBe(true);
+    const arc = layout.controlArcs.find((a) => a.flow === "break");
+    expect(layout.nodes.find((n) => n.id === arc?.toId)?.flow).toBe("terminal");
+  });
+
+  it("a break in a loop inside an if-arm exits to the step after the branch", () => {
+    const inner = loop("while", "c", [agent("x", "P"), guard("done", "break", "P")], "P");
+    const layout = placeTopology(
+      topo([branch("deep", [inner], [], "P"), agent("final", "P")], [band("P")]),
+      meta(["P"]),
+    );
+    const arc = layout.controlArcs.find((a) => a.flow === "break");
+    expect(layout.nodes.find((n) => n.id === arc?.toId)?.label).toBe("final");
+  });
+
+  it("a break from an inner loop that ends the outer body returns to the outer body's top, not past both loops", () => {
+    const inner = loop("for", "const f of items", [agent("check", "P"), guard("fatal", "break", "P")], "P");
+    const outer = loop("while", "round < 5", [agent("find", "P"), inner], "P");
+    const layout = placeTopology(topo([outer, agent("digest", "P")], [band("P")]), meta(["P"]));
+    const arc = layout.controlArcs.find((a) => a.flow === "break");
+    expect(layout.nodes.find((n) => n.id === arc?.toId)?.label).toBe("find");
+  });
+
+  it("an empty arm placed below its sibling doesn't drag its lane over the sibling's row", () => {
+    // triage-issue with the arms swapped: the work is the then-arm, the stub the else.
+    const layout = placeTopology(
+      topo(
+        [agent("classify", "Classify"), branch("ok", [agent("fix", "Fix")], [], "Route"), agent("reply", "Reply")],
+        [band("Classify"), band("Route"), band("Fix"), band("Reply")],
+      ),
+      meta(["Classify", "Route", "Fix", "Reply"]),
+    );
+    expect(lanesDisjoint(layout)).toBe(true);
+    const fix = layout.nodes.find((n) => n.label === "fix")!;
+    const fixLane = layout.lanes[fix.phase];
+    expect(fix.y).toBeGreaterThan(fixLane.yTop);
+    expect(fix.y).toBeLessThan(fixLane.yBot);
+  });
+
+  it("an empty pipeline stage doesn't pull a lane back to the first row", () => {
+    const p = pipeline({ kind: "named", names: ["a", "b"] }, [[agent("review:${x}", "Review")], []], "Review");
+    const layout = placeTopology(topo([agent("first", "Intro"), p], [band("Intro"), band("Review")]), meta(["Intro", "Review"]));
+    expect(lanesDisjoint(layout)).toBe(true);
+  });
+
+  it("an empty pipeline stage's stub stays on its edges when an earlier lane grows", () => {
+    const p = pipeline({ kind: "named", names: ["a", "b"] }, [[agent("review:${x}", "Review")], []], "Review");
+    const layout = placeTopology(topo([agent("first", "Intro"), p], [band("Intro"), band("Review")]), meta(["Intro", "Review"]));
+    reserveLaneHeights(layout, [layout.lanes[0].yBot - layout.lanes[0].yTop + 100, 0]);
+    const stubs = layout.nodes.filter((n) => n.kind === "hub" && n.fork !== true);
+    expect(stubs.length).toBe(2);
+    for (const stub of stubs) {
+      expect(stub.phase).toBe(1);
+      const into = layout.edges.find((e) => e.to === stub.id)!;
+      expect(into.points.at(-1)!.y).toBeCloseTo(stub.y);
+    }
+  });
+
+  it("stacked parallel arms that end in a later phase put their join in that phase", () => {
+    const layout = placeTopology(
+      topo(
+        [branches([[agent("l1", "One"), agent("l2", "Two")], [agent("r1", "One"), agent("r2", "Two")]], "One")],
+        [band("One"), band("Two")],
+      ),
+      meta(["One", "Two"]),
+    );
+    const join = layout.nodes.find((n) => n.kind === "barrier");
+    expect(join?.phase).toBe(1);
+  });
+
+  it("an edge rerouted above a loop frame stays orthogonal when it enters a fork", () => {
+    const fan = fanout({ kind: "named", names: ["a", "b"] }, [agent("t:${i}", "P", { labelExplicit: true })], "P");
+    const layout = placeTopology(
+      topo([branch("flag", [agent("a", "P")], [], "P"), loop("while", "more", [fan], "P")], [band("P")]),
+      meta(["P"]),
+    );
+    const orthogonal = layout.edges.every((e) =>
+      e.points.every((p, i) => i === 0 || Math.abs(p.x - e.points[i - 1].x) < 0.01 || Math.abs(p.y - e.points[i - 1].y) < 0.01),
+    );
+    expect(orthogonal).toBe(true);
+  });
+
+  it("side-by-side arms are sized by what they actually contain, so a branch arm never overlaps its neighbour", () => {
+    const layout = placeTopology(
+      topo([branches([[branch("flag", [agent("A", "P")], [], "P")], [agent("B", "P")]], "P")], [band("P")]),
+      meta(["P"]),
+    );
+    const b = layout.nodes.find((n) => n.label === "B")!;
+    const stubs = layout.nodes.filter((n) => n.kind === "hub" && n.fork !== true);
+    for (const s of stubs) expect(Math.abs(s.x - b.x)).toBeGreaterThan((b.w ?? 0) / 2);
+    // Every arm exit drops onto the join, inside its span.
+    const join = layout.nodes.find((n) => n.kind === "barrier")!;
+    for (const e of layout.edges.filter((x) => x.to === join.id)) {
+      expect(e.points[0].x).toBeGreaterThanOrEqual(join.x - (join.w ?? 0) / 2);
+      expect(e.points[0].x).toBeLessThanOrEqual(join.x + (join.w ?? 0) / 2);
+    }
+  });
+
+  it("a fan-out whose body has several steps draws the body once, each card a stack — never a fake 'task' agent", () => {
+    const m: Multiplicity = { kind: "unknown", hint: "files" };
+    const body = [
+      agent("read:${f}", "P", { multiplicity: m, labelExplicit: true }),
+      agent("fix:${f}", "P", { multiplicity: m, labelExplicit: true }),
+    ];
+    const layout = placeTopology(topo([fanout(m, body, "P")], [band("P")]), meta(["P"]));
+    const agents = ofKind(layout, "agent");
+    expect(agents.map((a) => a.label)).toEqual(["read:${f}", "fix:${f}"]);
+    expect(agents.every((a) => a.mult === "×N")).toBe(true);
+    expect(layout.nodes.some((n) => n.label === "task")).toBe(false);
+    expect(ofKind(layout, "barrier")).toHaveLength(1);
+  });
+
+  it("degenerate shapes never throw or emit NaN: a stage-less pipeline, an empty parallel", () => {
+    const empty: ParallelStep = { kind: "parallel", form: "branches", branches: [], phase: "P", span };
+    for (const step of [pipeline({ kind: "named", names: ["a"] }, [], "P"), empty]) {
+      const layout = placeTopology(topo([step], [band("P")]), meta(["P"]));
+      expect(layout.nodes.every((n) => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+    }
   });
 });

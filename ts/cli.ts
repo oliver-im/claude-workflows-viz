@@ -19,6 +19,7 @@ import { renderSvg } from "./render-svg.js";
 import { renderAnalyzedView } from "./render-view.js";
 import { ShareError, createShareGist } from "./share.js";
 import { buildShareArtifacts } from "./share-artifacts.js";
+import { THEME_NAMES, type ThemeName, themeByName } from "./theme.js";
 
 // The build-time tool version, surfaced only via `--version` (below) — never
 // drawn onto a diagram, so renders stay a pure function of their input.
@@ -38,6 +39,7 @@ interface CliOpts {
   share?: boolean;
   view?: string;
   scale?: string;
+  theme?: string;
 }
 
 /** Print a one-line error to stderr and exit non-zero. */
@@ -71,6 +73,21 @@ function resolveView(explicit: string | undefined): View {
     fail(`unknown --view '${explicit}' (expected: ${VIEWS.join(", ")})`);
   }
   return explicit as View;
+}
+
+/** The page color an SVG paints first — the HTML page around it matches, even
+ *  when an analyzed view fell back to the light phases page. */
+function pageColor(svg: string): string | undefined {
+  return /<rect width="[\d.]+" height="[\d.]+" fill="(#[0-9a-fA-F]{6})"\/>/.exec(svg)?.[1];
+}
+
+/** Resolve `--theme`: the palette for the workflow and topology views. */
+function resolveTheme(explicit: string | undefined): ThemeName {
+  if (explicit === undefined) return "light";
+  if (!(THEME_NAMES as readonly string[]).includes(explicit)) {
+    fail(`unknown --theme '${explicit}' (expected: ${THEME_NAMES.join(", ")})`);
+  }
+  return explicit as ThemeName;
 }
 
 /**
@@ -119,6 +136,7 @@ function warnGrammar(program: acorn.Node): void {
 async function run(workflow: string, opts: CliOpts): Promise<void> {
   const format = resolveFormat(opts.format, opts.out);
   const view = resolveView(opts.view);
+  const theme = themeByName(resolveTheme(opts.theme));
 
   if (opts.share && opts.out) {
     fail("--share cannot be combined with --out");
@@ -157,6 +175,7 @@ async function run(workflow: string, opts: CliOpts): Promise<void> {
           scale: resolveScale(opts.scale),
           includeSource: !!opts.includeSource,
           view,
+          theme,
         }),
       );
       process.stderr.write(`Shared workflow: ${gistUrl}\n`);
@@ -176,13 +195,13 @@ async function run(workflow: string, opts: CliOpts): Promise<void> {
         // Warn BEFORE renderAnalyzedView so a file whose newer construct recovers
         // no orchestration (hitting its hasOrchestration early return) still surfaces it.
         warnGrammar(program);
-        svg = renderAnalyzedView(meta, program, src, view);
+        svg = renderAnalyzedView(meta, program, src, view, theme);
       }
       data =
         format === "png"
           ? svgToPng(svg, resolveScale(opts.scale))
           : format === "html"
-            ? wrapSvgHtml(svg, meta.name)
+            ? wrapSvgHtml(svg, meta.name, pageColor(svg))
             : svg;
     }
   } catch (e) {
@@ -231,6 +250,10 @@ program
   .option(
     "--view <view>",
     "View: workflow (default; phases plus topology) | topology (graph only) | phases (meta phase cards)",
+  )
+  .option(
+    "--theme <theme>",
+    "Palette for the workflow and topology views: light (default) | dark. The phases view keeps its fixed palette.",
   )
   .option(
     "--scale <n>",
