@@ -14,11 +14,12 @@ authority for it: `ts/extract-meta.ts` (the `meta` block) and
 > security spine of the whole tool.
 
 > **Grammar provenance.** The recognizer supports grammar level **≤ 2**, reconciled
-> against `cc-2.1.280` on 2026-09-22. Upstream snapshots live in
-> [`spec/upstream/`](../spec/upstream/); the level ledger — what each level pins and
-> how a bump is minted — is [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md). When the
-> grammar drifts, [§5 Maintenance](#5-maintenance-what-a-grammar-change-touches) is
-> the edit-site map.
+> against `cc-2.1.296` on 2026-10-10. Upstream snapshots live in
+> [`spec/upstream/`](../spec/upstream/); the language they define — beyond the
+> subset this doc covers — is quoted in [`spec/README.md`](../spec/README.md). The
+> level ledger — what each level pins and how a bump is minted — is
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md). When the grammar drifts,
+> [§5 Maintenance](#5-maintenance-what-a-grammar-change-touches) is the edit-site map.
 
 ---
 

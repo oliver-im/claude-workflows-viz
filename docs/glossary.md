@@ -16,7 +16,7 @@ table in §C maps one to the other.
 > grammar, which Claude Code owns and does not formally version. What that subset
 > is reconciled *against* — the pinned upstream baseline — lives in
 > [`spec/upstream/`](../spec/upstream/), named with a grammar level in
-> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.280`).
+> [`GRAMMAR-CHANGELOG.md`](./GRAMMAR-CHANGELOG.md) (currently **level 2**, `cc-2.1.296`).
 > The internals (B) are defined by `ts/topology.ts` (the tree IR) and
 > `ts/topo-geometry.ts` (the geometry IR). When those files change, update this
 > one. For the *shape* of a workflow file rather than per-term definitions, see
@@ -25,6 +25,10 @@ table in §C maps one to the other.
 ---
 
 ## A. The workflow JS grammar (input)
+
+The terms below are the ones this tool reads. The whole language — `log()`,
+`args`, `budget`, limits, resume — is quoted from the upstream capture in
+[`spec/README.md`](../spec/README.md).
 
 ### The file
 - **dynamic workflow** — a `.js` file that begins with `export const meta = {…}`

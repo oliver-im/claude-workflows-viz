@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadSpec } from "./spec.mjs";
 
 /**
  * Capture — and check — the upstream Claude Code workflow grammar: the language
@@ -33,13 +34,20 @@ import { fileURLToPath } from "node:url";
  *
  * Two modes:
  *   - default — write the capture to `spec/upstream/<YYYY-MM-DD>-cc-<version>/`
- *     with a `manifest.json` of per-artifact sha256s (the grammar-level baseline).
+ *     with a `manifest.json` of per-artifact sha256s (the grammar-level baseline),
+ *     then regenerate the readable `spec/` pages (`npm run spec`) so the new
+ *     capture arrives with its readable text and change page.
  *   - `--check` — re-capture in memory and compare against the latest snapshot
  *     in `spec/upstream/` (the checked-in baseline as it sits on disk), exiting
- *     non-zero on any drift. Reading the working-tree files — not a git blob — is
- *     deliberate: it lets the reconcile loop re-capture and re-check before
- *     committing, and means a hand-edited snapshot byte is caught directly. This
- *     is the reconciliation gate (`npm run check-grammar`); see
+ *     non-zero on drift. Two prose differences are not drift and pass with a
+ *     note: a consistent one-to-one renaming of the minifier's runtime values
+ *     (`${PP}` → `${tN}`), and a change in how the source spells identical text
+ *     (an escape written out, a quote style). Reading the working-tree files — not
+ *     a git blob — is deliberate: it lets the reconcile loop re-capture and
+ *     re-check before committing. (A hand edit to a committed snapshot is caught
+ *     by `ts/__tests__/spec.test.ts`, which holds every snapshot to its own
+ *     manifest hashes in ordinary CI.) This is the reconciliation gate
+ *     (`npm run check-grammar`); see
  *     `docs/GRAMMAR-CHANGELOG.md` "How to reconcile". It needs the installed
  *     `claude` binary, so it runs where Claude Code lives — a dev machine or a
  *     scheduled local agent — not a generic CI runner.
@@ -315,7 +323,7 @@ function latestBaselineName(upstreamDir) {
 }
 
 /** Default mode: write the capture as a new dated baseline. */
-function runCapture() {
+async function runCapture() {
   const { version, artifacts } = captureArtifacts();
 
   const day = new Date().toISOString().slice(0, 10);
@@ -333,15 +341,22 @@ function runCapture() {
   for (const [name, { bytes, sha256: hash }] of Object.entries(manifest.artifacts)) {
     console.log(`  ${name}: ${bytes}B  sha256 ${hash.slice(0, 16)}…`);
   }
+
+  const spec = await loadSpec();
+  for (const path of spec.writeSpec(root)) console.log(`  wrote ${path}`);
+  console.log(`Read ${relative(root, join(outDir, "CHANGES.md"))} to decide whether it earns a level.`);
 }
 
 /**
  * `--check` mode: re-capture and compare against the latest snapshot in
- * `spec/upstream/`, exiting non-zero on drift. "Drift" is *any* per-artifact byte
- * difference — whether the upstream grammar moved or the checked-in snapshot was
- * edited; both mean the recognizer can no longer be trusted to match what ships.
+ * `spec/upstream/`, exiting non-zero on drift. "Drift" is any byte difference in
+ * the input schema, and any prose difference that changes the decoded text,
+ * spacing included, or moves a runtime value in a way no renaming explains — the
+ * cases where the recognizer can no longer be trusted to match what ships. A
+ * prose difference that is only a consistent renaming, or only the source's
+ * spelling of identical text, passes with a note.
  */
-function runCheck() {
+async function runCheck() {
   const upstreamDir = join(root, "spec", "upstream");
   const baselineName = latestBaselineName(upstreamDir);
   if (!baselineName) {
@@ -352,9 +367,9 @@ function runCheck() {
   const baselineDir = join(upstreamDir, baselineName);
 
   // Provenance only — the gate compares against the snapshot artifact *files* on
-  // disk, not this manifest, so a hand-edited snapshot byte is caught even if the
-  // manifest was left untouched. A missing or unreadable manifest must not abort
-  // the check; the file-vs-file comparison below still runs.
+  // disk, not this manifest. (The spec test holds each file to its manifest.) A
+  // missing or unreadable manifest must not abort the check; the file-vs-file
+  // comparison below still runs.
   let baselineVersion = "?";
   try {
     baselineVersion = JSON.parse(readFileSync(join(baselineDir, "manifest.json"), "utf8")).ccVersion ?? "?";
@@ -368,6 +383,7 @@ function runCheck() {
   );
 
   let drift = false;
+  let passNote = null;
   for (const [name, content] of Object.entries(artifacts)) {
     const current = { bytes: Buffer.byteLength(content), sha: sha256(content) };
     const committedPath = join(baselineDir, name);
@@ -381,12 +397,41 @@ function runCheck() {
     const baseline = { bytes: committed.length, sha: sha256(committed) };
     if (baseline.sha === current.sha) {
       console.log(`  ${name}: in sync (${current.bytes}B, sha ${current.sha.slice(0, 16)}…)`);
-    } else {
-      drift = true;
-      console.log(`  ${name}: DRIFT`);
-      console.log(`      baseline ${baseline.bytes}B sha ${baseline.sha.slice(0, 16)}…`);
-      console.log(`      current  ${current.bytes}B sha ${current.sha.slice(0, 16)}…`);
+      continue;
     }
+    // A prose hash drift is classified before it counts: the minifier renames the
+    // runtime values on most releases, which moves the hash and nothing else.
+    if (name === ARTIFACT_PROSE) {
+      const spec = await loadSpec();
+      const verdict = spec.classifyProseDrift(committed.toString("utf8"), content);
+      if (verdict.kind === "renames") {
+        const renames = verdict.renames.map(([from, to]) => `\${${from}} → \${${to}}`).join(", ");
+        console.log(`  ${name}: in sync apart from runtime-value names (${renames})`);
+        passNote = "renames runtime values in the prose but changes no wording";
+        continue;
+      }
+      if (verdict.kind === "encoding") {
+        console.log(`  ${name}: in sync apart from how the source spells it (escapes, quotes, or line endings)`);
+        passNote = "spells the prose differently in source, but its decoded text is identical";
+        continue;
+      }
+      drift = true;
+      if (verdict.kind === "values") {
+        console.log(`  ${name}: DRIFT — runtime values moved in a way no renaming explains`);
+        for (const problem of verdict.nameProblems) console.log(`      ${problem.replace(/`/g, "")}`);
+        continue;
+      }
+      console.log(`  ${name}: DRIFT — ${verdict.excerpts.length} changed passage(s), ` +
+        `+${verdict.wordsAdded} / -${verdict.wordsRemoved} words`);
+      for (const excerpt of verdict.excerpts.slice(0, 20)) console.log(`      ${spec.plainExcerpt(excerpt)}`);
+      if (verdict.excerpts.length > 20) console.log(`      … and ${verdict.excerpts.length - 20} more`);
+      for (const line of verdict.spacingOnly) console.log(`      line ${line}: spacing only`);
+      continue;
+    }
+    drift = true;
+    console.log(`  ${name}: DRIFT`);
+    console.log(`      baseline ${baseline.bytes}B sha ${baseline.sha.slice(0, 16)}…`);
+    console.log(`      current  ${current.bytes}B sha ${current.sha.slice(0, 16)}…`);
   }
 
   if (drift) {
@@ -399,9 +444,12 @@ function runCheck() {
     process.exit(1);
   }
 
-  // In sync. A version bump that ships a byte-identical grammar is provenance
-  // drift, not grammar drift — the same level still holds, so note it and pass.
-  if (version !== baselineVersion) {
+  // In sync. A version bump that ships a byte-identical grammar — or one whose
+  // prose differs only in names or source spelling — is provenance drift, not
+  // grammar drift: the same level still holds, so note it and pass.
+  if (passNote) {
+    console.log(`\nNote: installed cc-${version} ${passNote} — same grammar level, nothing to re-capture.`);
+  } else if (version !== baselineVersion) {
     console.log(
       `\nNote: installed cc-${version} differs from the baseline's cc-${baselineVersion}, ` +
         "but the grammar is byte-identical — same grammar level.",
@@ -411,7 +459,7 @@ function runCheck() {
 }
 
 if (process.argv.includes("--check")) {
-  runCheck();
+  await runCheck();
 } else {
-  runCapture();
+  await runCapture();
 }
