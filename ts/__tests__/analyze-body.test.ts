@@ -586,4 +586,21 @@ describe("analyzeBody — options it cannot read", () => {
       undefined,
     ]);
   });
+
+  it("does not claim an option that a later spread or repeated key may replace", () => {
+    const src = [
+      'export const meta = { name: "n", description: "d" };',
+      'await agent("a", { model: "sonnet", ...COMMON });',
+      'await agent("b", { ...COMMON, model: "sonnet" });',
+      'await agent("c", { model: "sonnet", model: MODEL });',
+      'await agent("d", { model: MODEL, model: "sonnet" });',
+    ].join("\n");
+    const steps = analyzeBody(parseWorkflowSource(src), src, []).steps as Array<{ model?: string; unread?: string[] }>;
+    expect(steps.map((s) => ({ model: s.model, unread: s.unread }))).toEqual([
+      { model: undefined, unread: ["model", "effort", "agentType"] },
+      { model: "sonnet", unread: ["effort", "agentType"] },
+      { model: undefined, unread: ["model"] },
+      { model: "sonnet", unread: undefined },
+    ]);
+  });
 });

@@ -996,6 +996,11 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
       for (const prop of optsArg.properties) {
         if (prop.type !== "Property" || prop.computed) {
           hiddenAll = true;
+          // It may set any option written before it, so those are no longer
+          // proven; one written after it still wins.
+          model = undefined;
+          effort = undefined;
+          agentType = undefined;
           note(ctx, "agent() options contain a spread or computed key; those options are unread", prop);
           continue;
         }
@@ -1027,10 +1032,15 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             }
             break;
           }
+          // A repeated key replaces the earlier one, so each read overwrites
+          // both the value and its unread mark.
           case "model": {
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) model = lit;
-            else {
+            if (lit !== undefined) {
+              model = lit;
+              unreadKeys.delete("model");
+            } else {
+              model = undefined;
               unreadKeys.add("model");
               note(ctx, "agent model is not a string literal; model unread", prop.value);
             }
@@ -1042,8 +1052,11 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
             // policing the set — an unknown tier is the author's statement, not
             // ours to correct.
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) effort = lit;
-            else {
+            if (lit !== undefined) {
+              effort = lit;
+              unreadKeys.delete("effort");
+            } else {
+              effort = undefined;
               unreadKeys.add("effort");
               note(ctx, "agent effort is not a string literal; effort unread", prop.value);
             }
@@ -1051,8 +1064,11 @@ function agentStep(ctx: Ctx, call: any): AgentStep {
           }
           case "agentType": {
             const lit = stringLiteralValue(prop.value);
-            if (lit !== undefined) agentType = lit;
-            else {
+            if (lit !== undefined) {
+              agentType = lit;
+              unreadKeys.delete("agentType");
+            } else {
+              agentType = undefined;
               unreadKeys.add("agentType");
               note(ctx, "agent agentType is not a string literal; unread", prop.value);
             }
