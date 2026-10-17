@@ -101,6 +101,8 @@ npm install
 npm run build      # bundles ts/cli.ts -> dist/cli.js
 npm test
 node dist/cli.js examples/level-2/review-pr.js -o review.svg
+npm run spec       # rebuilds the readable spec/ pages from the grammar captures
+npm run spec:site  # ... and also writes them as one HTML page, site/index.html
 ```
 
 `dist/` is gitignored and built on demand (also rebuilt on `pretest`, and on

@@ -6,8 +6,11 @@ import { analyzeBody } from "../analyze-body.js";
 import {
   AGENT_OPTION_KEYS,
   type LexiconEntry,
+  LEVEL_HISTORY,
   LEXICON,
+  levelAt,
   ORCHESTRATION_CALLEES,
+  RECOGNIZER_LEVEL,
   RECOGNIZER_LEVEL_CC,
 } from "../grammar.js";
 import { parseWorkflowSource } from "../extract-meta.js";
@@ -60,6 +63,25 @@ describe("RECOGNIZER_LEVEL_CC is pinned to the latest baseline", () => {
     const latest = baselines[baselines.length - 1];
     const manifest = JSON.parse(readFileSync(join(upstreamDir, latest, "manifest.json"), "utf8"));
     expect(RECOGNIZER_LEVEL_CC).toBe(manifest.ccVersion);
+  });
+});
+
+describe("LEVEL_HISTORY is the ledger's level list", () => {
+  // The readable spec pages label every capture with its level from this list,
+  // so it must end at the recognizer's level and mint each level once, in order.
+  it("mints levels 1…RECOGNIZER_LEVEL in order, at ascending releases", () => {
+    expect(LEVEL_HISTORY.map((e) => e.level)).toEqual(
+      Array.from({ length: RECOGNIZER_LEVEL }, (_, i) => i + 1),
+    );
+    const releases = LEVEL_HISTORY.map((e) => e.mintedAt);
+    expect([...releases].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))).toEqual(releases);
+  });
+
+  it("places a release at the last level minted at or before it", () => {
+    expect(levelAt("2.1.173")).toBe(1);
+    expect(levelAt("2.1.218")).toBe(1);
+    expect(levelAt("2.1.219")).toBe(2);
+    expect(levelAt("2.1.1000")).toBe(2);
   });
 });
 
