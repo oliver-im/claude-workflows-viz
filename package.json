@@ -1,6 +1,6 @@
 {
   "name": "claude-workflows-viz",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Render a Claude Code dynamic-workflow file as an SVG/PNG diagram — agent topology statically inferred from the body, never executed",
   "license": "MIT",
   "author": "Oliver Im",
